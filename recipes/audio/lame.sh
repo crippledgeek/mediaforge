@@ -1,0 +1,5 @@
+PKG_NAME="lame"
+PKG_VERSION="3.100"
+PKG_URL="https://sourceforge.net/projects/lame/files/lame/${PKG_VERSION}/lame-${PKG_VERSION}.tar.gz/download?use_mirror=gigenet"
+PKG_FILENAME="lame-${PKG_VERSION}.tar.gz"
+PKG_FFMPEG_OPT="--enable-libmp3lame"
