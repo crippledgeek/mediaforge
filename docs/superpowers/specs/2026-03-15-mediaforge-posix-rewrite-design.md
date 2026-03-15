@@ -365,7 +365,7 @@ setup_traps() {
 }
 ```
 
-No `.git` move/restore — the ffmpeg build uses `GIT_DIR=/dev/null/nonexistent` instead.
+No `.git` move/restore — the ffmpeg build uses `GIT_DIR=/nonexistent` instead.
 
 ---
 
@@ -392,8 +392,6 @@ Proper `case`/`esac` with `while [ $# -gt 0 ]; do` loop. Each flag is a separate
 | `-b`, `--build` | Start build |
 | `--gpl` | Enable GPL codecs (x264, x265, xvidcore, vid.stab) |
 | `--nonfree` | Enable GPL + non-free codecs (implies --gpl; adds fdk-aac, openssl, srt, zvbi) |
-
-Note: `opencore-amr` is built unconditionally (same as original). While it enables `--enable-libopencore_amrnb` and `--enable-libopencore_amrwb` in FFmpeg, these are Apache-2.0 licensed and do not require the GPL or nonfree FFmpeg flags.
 | `--disable-lv2` | Skip LV2 libraries |
 | `-c`, `--cleanup` | Remove working dirs |
 | `--latest` | Rebuild outdated packages |
@@ -401,6 +399,8 @@ Note: `opencore-amr` is built unconditionally (same as original). While it enabl
 | `--full-static` | Full static binary (Linux only) |
 | `--skip-install` | Don't install to system |
 | `--auto-install` | Install without prompting |
+
+Note: `opencore-amr` is built unconditionally (same as original). While it enables `--enable-libopencore_amrnb` and `--enable-libopencore_amrwb` in FFmpeg, these are Apache-2.0 licensed and do not require the GPL or nonfree FFmpeg flags.
 
 ### Environment Variable Overrides
 
