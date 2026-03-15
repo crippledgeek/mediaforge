@@ -32,10 +32,10 @@ mediaforge/
 │   ├── platform.sh            # OS/arch detection, exported variables
 │   ├── framework.sh           # build engine: run_recipe(), phase runner
 │   ├── download.sh            # download(), extract helpers
-│   ├── utils.sh               # execute(), command_exists(), make_dir(), remove_dir()
+│   ├── utils.sh               # execute(), execute_stdin(), command_exists(), make_dir(), remove_dir()
 │   ├── cleanup.sh             # trap handlers, error reporting
 │   └── install.sh             # binary install logic with sudo detection
-├── packages/
+├── recipes/
 │   ├── _order.conf            # build order: one recipe path per line
 │   ├── tools/                 # build toolchain (giflib, pkg-config, yasm, nasm, zlib, m4, autoconf, automake, libtool, cmake)
 │   ├── crypto/                # crypto libs (openssl, gmp, nettle, gnutls)
@@ -44,23 +44,44 @@ mediaforge/
 │   ├── image/                 # image libs (libtiff, libpng, libjxl, libwebp)
 │   ├── hwaccel/               # hw acceleration (vulkan-headers, glslang, nv-codec, amf, opencl)
 │   └── other/                 # other libs (gettext, libsdl, freetype2, vapoursynth, srt, zvbi, libzmq)
-└── packages/ffmpeg.sh         # final FFmpeg build (special, not a regular recipe)
+└── recipes/ffmpeg.sh          # final FFmpeg build (special, not a regular recipe)
 ```
+
+### Working Directories
+
+To avoid naming collision with the `recipes/` source directory, build artifacts use separate paths:
+
+| Variable | Path | Contents |
+|---|---|---|
+| `$PACKAGES` | `$CWD/packages` | Downloaded tarballs and extracted source trees |
+| `$WORKSPACE` | `$CWD/workspace` | Installed headers, libraries, binaries, pkg-config files |
+
+The `--cleanup` flag removes `$PACKAGES` and `$WORKSPACE` only — never the `recipes/` directory.
 
 ### Build Order
 
-`packages/_order.conf` is a plain text file listing recipe paths relative to the script directory, one per line. Blank lines and `#` comments are skipped. Example:
+`recipes/_order.conf` is a plain text file listing recipe paths relative to the script directory, one per line. Blank lines and `#` comments are skipped. Example:
 
 ```
-packages/tools/giflib.sh
-packages/tools/pkg-config.sh
+recipes/tools/giflib.sh
+recipes/tools/pkg-config.sh
 # ... etc
-packages/video/x264.sh
-packages/audio/opus.sh
-packages/ffmpeg.sh
+recipes/video/x264.sh
+recipes/audio/opus.sh
 ```
 
-The driver reads this file sequentially with `while read`.
+The driver reads this file with a POSIX-safe read loop:
+
+```sh
+while IFS= read -r _recipe || [ -n "$_recipe" ]; do
+  case "$_recipe" in
+    ""|\#*) continue ;;
+  esac
+  run_recipe "$SCRIPT_DIR/$_recipe"
+done < "$SCRIPT_DIR/recipes/_order.conf"
+```
+
+Note: `ffmpeg.sh` is not listed in `_order.conf` — it is sourced separately after all recipes complete, since it consumes the accumulated `$CONFIGURE_OPTIONS`.
 
 ---
 
@@ -81,7 +102,7 @@ Single source of truth for all OS/arch information. Sourced once at startup.
 | `MULTIARCH` | `dpkg-architecture` or `gcc -dumpmachine` | `x86_64-linux-gnu`, empty |
 | `MJOBS` | `$NUMJOBS` > `/proc/cpuinfo` > `sysctl` > `nproc` > `4` | integer |
 
-Boolean variables are shell strings `true`/`false`, used as `if $IS_DARWIN; then`.
+Boolean variables are shell strings compared with `[ "$IS_DARWIN" = true ]`. This is safer than the `if $IS_DARWIN; then` pattern (which executes the value as a command) because it won't execute arbitrary commands if a variable is accidentally unset or corrupted.
 
 ### pkg-config Path
 
@@ -137,6 +158,44 @@ Recipes can override any phase. Defaults:
 | `pkg_install()` | `make install` |
 | `pkg_post_install()` | no-op |
 
+### Working Directory Contract
+
+- After download/extract, the working directory is set to the extracted source directory.
+- The working directory persists across phases within a single recipe. If `pkg_prepare()` does `cd build/`, subsequent phases run from `build/`.
+- After a recipe completes (or is skipped), `run_recipe()` restores the working directory to `$CWD`.
+
+### Compiler Flags Save/Restore
+
+`run_recipe()` saves `CFLAGS`, `CXXFLAGS`, `LDFLAGS`, and `CPPFLAGS` before sourcing a recipe and restores them in a cleanup block after the recipe completes (or fails). This prevents recipes that modify flags (e.g., pkg-config adds `-Wno-int-conversion`, dav1d overrides `CFLAGS` on Apple Silicon) from leaking state into subsequent recipes.
+
+```sh
+# Inside run_recipe():
+_saved_cflags="$CFLAGS"
+_saved_cxxflags="$CXXFLAGS"
+_saved_ldflags="$LDFLAGS"
+_saved_cppflags="$CPPFLAGS"
+
+# ... source recipe, run phases ...
+
+CFLAGS="$_saved_cflags"
+CXXFLAGS="$_saved_cxxflags"
+LDFLAGS="$_saved_ldflags"
+CPPFLAGS="$_saved_cppflags"
+```
+
+Recipes that need to permanently modify flags (e.g., LV2 adding `-I$WORKSPACE/include/lilv-0` to CFLAGS) should do so via `pkg_post_install()` by writing to a flags accumulator file instead:
+
+```sh
+# In pkg_post_install():
+printf '%s\n' "-I$WORKSPACE/include/lilv-0" >> "$WORKSPACE/.extra_cflags"
+```
+
+The driver reads these accumulator files before the final ffmpeg build.
+
+### Space-Free Constraint on String Options
+
+`$CONFIGURE_OPTIONS`, `$PKG_CONFIGURE_FLAGS`, and `$PKG_CMAKE_FLAGS` are space-delimited strings that rely on word-splitting for expansion. **All values appended to these strings must not contain spaces.** Options with space-containing values (like NVCC flags) must be handled separately as dedicated quoted variables.
+
 ### `run_recipe()` Flow
 
 1. Reset all `PKG_*` variables and phase functions to defaults (`reset_recipe()`)
@@ -161,7 +220,7 @@ POSIX `sh` has no `local`. All internal variables use `_` prefix convention (`_u
 
 ### Recipe Examples
 
-**Simple recipe** — `packages/audio/opus.sh`:
+**Simple recipe** — `recipes/audio/opus.sh`:
 ```sh
 PKG_NAME="opus"
 PKG_VERSION="1.6"
@@ -169,7 +228,7 @@ PKG_URL="https://downloads.xiph.org/releases/opus/opus-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libopus"
 ```
 
-**Complex recipe** — `packages/video/x265.sh`:
+**Complex recipe** — `recipes/video/x265.sh`:
 ```sh
 PKG_NAME="x265"
 PKG_VERSION="4.1"
@@ -184,10 +243,12 @@ pkg_build() {
   rm -rf 8bit 10bit 12bit 2>/dev/null
   mkdir -p 8bit 10bit 12bit
   # ... multi-bitdepth build with platform-specific ar/libtool
-  if $IS_DARWIN; then
+  if [ "$IS_DARWIN" = true ]; then
     execute "$MACOS_LIBTOOL" -static -o libx265.a ...
   else
-    execute ar -M <<EOF
+    # Here-documents cannot be passed through execute() since it uses "$@".
+    # Use execute_stdin() which reads stdin and pipes it to the command.
+    execute_stdin ar -M <<EOF
 CREATE libx265.a
 ...
 EOF
@@ -223,6 +284,22 @@ execute() {
 }
 ```
 
+For commands that need stdin (e.g., here-documents with `ar -M`):
+
+```sh
+execute_stdin() {
+  log "$ $* < (stdin)"
+  _output=$("$@" 2>&1)
+  _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    printf '%s\n' "$_output"
+    die "Command failed (exit $_rc): $*"
+  fi
+}
+```
+
+`execute_stdin()` is identical to `execute()` except stdin is not captured — it flows through from the caller (i.e., the here-document). The command substitution `$("$@" 2>&1)` inherits stdin from the calling context, so the here-document is consumed by the command.
+
 ### Other Helpers
 
 - `command_exists()` — uses `command -v`, not `which`
@@ -251,6 +328,19 @@ Key POSIX fixes:
 - `case` pattern matching instead of `[[ =~ ]]` for tarball type detection
 - `curl -sS` shows errors while suppressing progress
 - `die()` instead of `(exit 1)` subshell bug
+
+### Partial Download Protection
+
+If `curl` fails (including on interrupt), the partially downloaded file is deleted before `die()`:
+
+```sh
+if ! curl -L -sS -o "$PACKAGES/$_file" "$_url"; then
+  rm -f "$PACKAGES/$_file"
+  # ... retry logic, then die on second failure (also removing partial file)
+fi
+```
+
+This prevents re-runs from skipping the download due to a corrupt cached file.
 
 ---
 
@@ -285,8 +375,9 @@ No `.git` move/restore — the ffmpeg build uses `GIT_DIR=/dev/null/nonexistent`
 
 ```sh
 #!/usr/bin/env sh
-set -e
 ```
+
+**No `set -e`.** The script relies on explicit error checking via `execute()` + `die()` throughout. `set -e` has well-documented portability issues across POSIX shells (dash, ash, busybox sh handle it differently in subshells, pipelines, and negated commands). It also interacts badly with the recipe framework: `build()` returns 1 to signal "already built, skip", which `set -e` would treat as a fatal error. Explicit checks are more reliable and predictable.
 
 ### Argument Parsing
 
@@ -301,6 +392,8 @@ Proper `case`/`esac` with `while [ $# -gt 0 ]; do` loop. Each flag is a separate
 | `-b`, `--build` | Start build |
 | `--gpl` | Enable GPL codecs (x264, x265, xvidcore, vid.stab) |
 | `--nonfree` | Enable GPL + non-free codecs (implies --gpl; adds fdk-aac, openssl, srt, zvbi) |
+
+Note: `opencore-amr` is built unconditionally (same as original). While it enables `--enable-libopencore_amrnb` and `--enable-libopencore_amrwb` in FFmpeg, these are Apache-2.0 licensed and do not require the GPL or nonfree FFmpeg flags.
 | `--disable-lv2` | Skip LV2 libraries |
 | `-c`, `--cleanup` | Remove working dirs |
 | `--latest` | Rebuild outdated packages |
@@ -327,12 +420,12 @@ Proper `case`/`esac` with `while [ $# -gt 0 ]; do` loop. Each flag is a separate
 4. Platform-specific setup (Apple Silicon, macOS libtool)
 5. Create workspace directories, set PATH and PKG_CONFIG_PATH
 6. Read `_order.conf`, call `run_recipe()` for each entry
-7. Source `packages/ffmpeg.sh` (special build)
+7. Source `recipes/ffmpeg.sh` (special build)
 8. Source `lib/install.sh` (install prompt)
 
 ---
 
-## FFmpeg Build (`packages/ffmpeg.sh`)
+## FFmpeg Build (`recipes/ffmpeg.sh`)
 
 Not a regular recipe — it consumes `$CONFIGURE_OPTIONS` accumulated from all packages.
 
@@ -340,10 +433,10 @@ Not a regular recipe — it consumes `$CONFIGURE_OPTIONS` accumulated from all p
 
 Instead of physically moving `.git` directories:
 ```sh
-GIT_DIR=/dev/null/nonexistent ./configure ...
+GIT_DIR=/nonexistent ./configure ...
 ```
 
-This prevents FFmpeg's `ffbuild/version.sh` from detecting the project's git repository.
+This prevents FFmpeg's `ffbuild/version.sh` from detecting the project's git repository. `/nonexistent` is a simple path that won't exist on any system (avoids potential edge cases with paths under `/dev/null`).
 
 ### NVIDIA Flags
 
