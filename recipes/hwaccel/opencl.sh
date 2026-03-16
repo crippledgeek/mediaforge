@@ -1,5 +1,6 @@
 PKG_NAME="opencl"
-PKG_VERSION="2025.07.22"
+PKG_VERSION="${PKG_VERSION_OPENCL:-2025.07.22}"
+PKG_GITHUB_REPO="KhronosGroup/OpenCL-Headers"
 PKG_URL="https://github.com/KhronosGroup/OpenCL-Headers/archive/refs/tags/v${PKG_VERSION}.tar.gz"
 PKG_FILENAME="OpenCL-Headers-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-opencl"

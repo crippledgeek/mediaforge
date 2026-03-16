@@ -1,5 +1,5 @@
 PKG_NAME="svtav1"
-PKG_VERSION="3.1.2"
+PKG_VERSION="${PKG_VERSION_SVTAV1:-3.1.2}"
 PKG_URL="https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v${PKG_VERSION}/SVT-AV1-v${PKG_VERSION}.tar.gz"
 PKG_FILENAME="svtav1-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libsvtav1"

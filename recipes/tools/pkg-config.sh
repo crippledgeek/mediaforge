@@ -1,5 +1,5 @@
 PKG_NAME="pkg-config"
-PKG_VERSION="0.29.2"
+PKG_VERSION="${PKG_VERSION_PKG_CONFIG:-0.29.2}"
 PKG_URL="https://pkgconfig.freedesktop.org/releases/pkg-config-${PKG_VERSION}.tar.gz"
 PKG_CONFIGURE_FLAGS="--silent --with-pc-path=$WORKSPACE/lib/pkgconfig --with-internal-glib"
 

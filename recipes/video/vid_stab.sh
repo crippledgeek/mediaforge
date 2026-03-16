@@ -1,5 +1,6 @@
 PKG_NAME="vid_stab"
-PKG_VERSION="1.1.1"
+PKG_VERSION="${PKG_VERSION_VID_STAB:-1.1.1}"
+PKG_GITHUB_REPO="georgmartius/vid.stab"
 PKG_URL="https://github.com/georgmartius/vid.stab/archive/v${PKG_VERSION}.tar.gz"
 PKG_FILENAME="vid.stab-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libvidstab"

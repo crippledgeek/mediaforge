@@ -1,5 +1,6 @@
 PKG_NAME="nv-codec"
-PKG_VERSION="11.1.5.3"
+PKG_VERSION="${PKG_VERSION_NV_CODEC:-11.1.5.3}"
+PKG_GITHUB_REPO="FFmpeg/nv-codec-headers"
 PKG_URL="https://github.com/FFmpeg/nv-codec-headers/releases/download/n${PKG_VERSION}/nv-codec-headers-${PKG_VERSION}.tar.gz"
 PKG_LINUX_ONLY=true
 PKG_REQUIRES_CMD="nvcc"

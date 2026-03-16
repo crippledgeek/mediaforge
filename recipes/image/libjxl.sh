@@ -1,5 +1,6 @@
 PKG_NAME="libjxl"
-PKG_VERSION="0.11.1"
+PKG_VERSION="${PKG_VERSION_LIBJXL:-0.11.1}"
+PKG_GITHUB_REPO="libjxl/libjxl"
 PKG_URL="https://github.com/libjxl/libjxl/archive/refs/tags/v${PKG_VERSION}.tar.gz"
 PKG_FILENAME="libjxl-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libjxl"

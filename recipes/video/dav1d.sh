@@ -1,5 +1,5 @@
 PKG_NAME="dav1d"
-PKG_VERSION="1.5.3"
+PKG_VERSION="${PKG_VERSION_DAV1D:-1.5.3}"
 PKG_URL="https://code.videolan.org/videolan/dav1d/-/archive/${PKG_VERSION}/dav1d-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libdav1d"
 PKG_REQUIRES_CMD="python3"

@@ -1,5 +1,5 @@
 PKG_NAME="lv2"
-PKG_VERSION="1.18.10"
+PKG_VERSION="${PKG_VERSION_LV2:-1.18.10}"
 PKG_URL="https://lv2plug.in/spec/lv2-${PKG_VERSION}.tar.xz"
 PKG_FFMPEG_OPT="--enable-lv2"
 PKG_REQUIRES_CMD="python3"

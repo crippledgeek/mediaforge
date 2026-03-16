@@ -1,5 +1,5 @@
 PKG_NAME="libtheora"
-PKG_VERSION="1.2.0"
+PKG_VERSION="${PKG_VERSION_LIBTHEORA:-1.2.0}"
 PKG_URL="https://ftp.osuosl.org/pub/xiph/releases/theora/libtheora-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libtheora"
 

@@ -1,5 +1,5 @@
 PKG_NAME="opencore"
-PKG_VERSION="0.1.6"
+PKG_VERSION="${PKG_VERSION_OPENCORE:-0.1.6}"
 PKG_URL="https://deac-ams.dl.sourceforge.net/project/opencore-amr/opencore-amr/opencore-amr-${PKG_VERSION}.tar.gz"
 PKG_FILENAME="opencore-amr-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libopencore_amrnb --enable-libopencore_amrwb"

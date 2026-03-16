@@ -1,5 +1,6 @@
 PKG_NAME="zimg"
-PKG_VERSION="3.0.6"
+PKG_VERSION="${PKG_VERSION_ZIMG:-3.0.6}"
+PKG_GITHUB_REPO="sekrit-twc/zimg"
 PKG_URL="https://github.com/sekrit-twc/zimg/archive/refs/tags/release-${PKG_VERSION}.tar.gz"
 PKG_FILENAME="zimg-${PKG_VERSION}.tar.gz"
 PKG_DIRNAME="zimg"

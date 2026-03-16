@@ -48,6 +48,7 @@ reset_recipe() {
   PKG_CONFIGURE_FLAGS=""
   PKG_CMAKE=false
   PKG_CMAKE_FLAGS=""
+  PKG_GITHUB_REPO=""
 
   # Reset phase functions to defaults
   pkg_prepare()      { default_noop; }
