@@ -1,5 +1,6 @@
 PKG_NAME="openssl"
-PKG_VERSION="3.5.4"
+PKG_VERSION="${PKG_VERSION_OPENSSL:-3.5.4}"
+PKG_GITHUB_REPO="openssl/openssl"
 PKG_URL="https://github.com/openssl/openssl/archive/refs/tags/openssl-${PKG_VERSION}.tar.gz"
 PKG_FILENAME="openssl-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-openssl"

@@ -35,6 +35,9 @@ LATEST=false
 MANPAGES=1
 SKIPINSTALL=""
 AUTOINSTALL=""
+PROFILE_NAME=""
+CHECK_UPDATES=false
+LIST_PROFILES=false
 
 usage() {
   printf 'Usage: %s [OPTIONS]\n' "$PROGNAME"
@@ -51,6 +54,9 @@ usage() {
   printf '      --full-static              Full static binary (Linux only)\n'
   printf '      --skip-install             Do not install binaries to system\n'
   printf '      --auto-install             Install binaries without prompting\n'
+  printf '      --profile <name>           Use version profile (e.g., 7.1, 8.0.1)\n'
+  printf '      --list-profiles            List available version profiles\n'
+  printf '      --check-updates            Check for newer dependency versions on GitHub\n'
   printf '\n'
 }
 
@@ -118,6 +124,16 @@ while [ $# -gt 0 ]; do
       fi
       AUTOINSTALL=yes
       ;;
+    --profile)
+      shift
+      PROFILE_NAME="$1"
+      ;;
+    --list-profiles)
+      LIST_PROFILES=true
+      ;;
+    --check-updates)
+      CHECK_UPDATES=true
+      ;;
     *)
       warn "Unknown option: $1"
       usage
@@ -126,6 +142,33 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# Load version profile if specified
+if [ -n "$PROFILE_NAME" ]; then
+  _profile_file="$SCRIPT_DIR/profiles/ffmpeg-${PROFILE_NAME}.conf"
+  if [ ! -f "$_profile_file" ]; then
+    die "Profile not found: $_profile_file"
+  fi
+  . "$_profile_file"
+  log "Using profile: ffmpeg-${PROFILE_NAME}"
+fi
+
+# Standalone actions (no -b required)
+if [ "$LIST_PROFILES" = true ]; then
+  log "Available profiles:"
+  for _pf in "$SCRIPT_DIR"/profiles/ffmpeg-*.conf; do
+    [ -f "$_pf" ] || continue
+    _pname=$(basename "$_pf" .conf | sed 's/^ffmpeg-//')
+    log "  ffmpeg-${_pname}"
+  done
+  exit 0
+fi
+
+if [ "$CHECK_UPDATES" = true ]; then
+  . "$SCRIPT_DIR/lib/updates.sh"
+  check_updates
+  exit 0
+fi
 
 # Must specify an action
 if [ -z "$bflag" ]; then

@@ -1,5 +1,6 @@
 PKG_NAME="VapourSynth"
-PKG_VERSION="73"
+PKG_VERSION="${PKG_VERSION_VAPOURSYNTH:-73}"
+PKG_GITHUB_REPO="vapoursynth/vapoursynth"
 PKG_URL="https://github.com/vapoursynth/vapoursynth/archive/R${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-vapoursynth"
 

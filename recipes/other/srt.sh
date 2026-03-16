@@ -1,5 +1,6 @@
 PKG_NAME="srt"
-PKG_VERSION="1.5.4"
+PKG_VERSION="${PKG_VERSION_SRT:-1.5.4}"
+PKG_GITHUB_REPO="Haivision/srt"
 PKG_URL="https://github.com/Haivision/srt/archive/v${PKG_VERSION}.tar.gz"
 PKG_FILENAME="srt-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libsrt"

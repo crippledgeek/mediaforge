@@ -1,5 +1,6 @@
 PKG_NAME="libwebp"
-PKG_VERSION="1.6.0"
+PKG_VERSION="${PKG_VERSION_LIBWEBP:-1.6.0}"
+PKG_GITHUB_REPO="webmproject/libwebp"
 PKG_URL="https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-${PKG_VERSION}.tar.gz"
 PKG_FILENAME="libwebp-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libwebp"

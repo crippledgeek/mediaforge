@@ -1,5 +1,5 @@
 PKG_NAME="vaapi"
-PKG_VERSION="1"
+PKG_VERSION="${PKG_VERSION_VAAPI:-1}"
 PKG_URL=""
 PKG_FFMPEG_OPT="--enable-vaapi"
 PKG_LINUX_ONLY=true

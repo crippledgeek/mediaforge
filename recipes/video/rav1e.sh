@@ -1,5 +1,6 @@
 PKG_NAME="rav1e"
-PKG_VERSION="0.8.1"
+PKG_VERSION="${PKG_VERSION_RAV1E:-0.8.1}"
+PKG_GITHUB_REPO="xiph/rav1e"
 PKG_URL="https://github.com/xiph/rav1e/archive/refs/tags/v${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-librav1e"
 PKG_REQUIRES_CMD="cargo"

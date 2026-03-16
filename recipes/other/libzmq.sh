@@ -1,5 +1,6 @@
 PKG_NAME="libzmq"
-PKG_VERSION="4.3.5"
+PKG_VERSION="${PKG_VERSION_LIBZMQ:-4.3.5}"
+PKG_GITHUB_REPO="zeromq/libzmq"
 PKG_URL="https://github.com/zeromq/libzmq/releases/download/v${PKG_VERSION}/zeromq-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libzmq"
 

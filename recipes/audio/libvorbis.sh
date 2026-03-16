@@ -1,5 +1,5 @@
 PKG_NAME="libvorbis"
-PKG_VERSION="1.3.7"
+PKG_VERSION="${PKG_VERSION_LIBVORBIS:-1.3.7}"
 PKG_URL="https://ftp.osuosl.org/pub/xiph/releases/vorbis/libvorbis-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libvorbis"
 

@@ -1,5 +1,6 @@
 PKG_NAME="libvpx"
-PKG_VERSION="1.15.2"
+PKG_VERSION="${PKG_VERSION_LIBVPX:-1.15.2}"
+PKG_GITHUB_REPO="webmproject/libvpx"
 PKG_URL="https://github.com/webmproject/libvpx/archive/refs/tags/v${PKG_VERSION}.tar.gz"
 PKG_FILENAME="libvpx-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libvpx"
