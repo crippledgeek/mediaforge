@@ -4,6 +4,8 @@ PKG_URL="https://ftp.osuosl.org/pub/xiph/releases/vorbis/libvorbis-${PKG_VERSION
 PKG_FFMPEG_OPT="--enable-libvorbis"
 
 pkg_prepare() {
+  CFLAGS="$CFLAGS -std=gnu11"
+  export CFLAGS
   sed "s/-force_cpusubtype_ALL//g" configure.ac > configure.ac.tmp \
     && mv configure.ac.tmp configure.ac
   execute ./autogen.sh --prefix="$WORKSPACE"

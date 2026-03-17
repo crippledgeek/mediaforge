@@ -5,6 +5,16 @@ PKG_FILENAME="x265-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libx265"
 PKG_GPL=true
 
+# x265 4.1 bundles json11.cpp which uses uint8_t without #include <cstdint>
+# (GCC 15 no longer transitively includes it)
+pkg_prepare() {
+  _json11="source/dynamicHDR10/json11/json11.cpp"
+  if ! grep -q '<cstdint>' "$_json11"; then
+    sed '/#include <limits>/a #include <cstdint>' "$_json11" > "$_json11.tmp" \
+      && mv "$_json11.tmp" "$_json11"
+  fi
+}
+
 pkg_configure() {
   :
 }

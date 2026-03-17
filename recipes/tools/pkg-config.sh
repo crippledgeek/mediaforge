@@ -9,8 +9,10 @@ pkg_prepare() {
   sed 's/change->prev\.bool/change->prev.bool_val/g' glib/glib/goption.c > glib/glib/goption.c.tmp \
     && mv glib/glib/goption.c.tmp glib/glib/goption.c
 
+  # Bundled glib has C23-incompatible code (GCC 15+)
+  CFLAGS="$CFLAGS -std=gnu11"
   if [ "$IS_DARWIN" = true ]; then
     CFLAGS="$CFLAGS -Wno-int-conversion -Wno-error=int-conversion"
-    export CFLAGS
   fi
+  export CFLAGS
 }

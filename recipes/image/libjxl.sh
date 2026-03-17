@@ -6,13 +6,17 @@ PKG_FILENAME="libjxl-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libjxl"
 
 pkg_prepare() {
-  sed "s/-ljxl_threads/-ljxl_threads @JPEGXL_THREADS_PUBLIC_LIBS@/g" \
+  # Fix static linking: libjxl_threads needs -lstdc++ in its pkgconfig Libs
+  # (upstream bug — jxl.cmake does this for libjxl but jxl_threads.cmake doesn't)
+
+  # 1) Add @JPEGXL_THREADS_PUBLIC_LIBS@ placeholder to the .pc.in template
+  sed 's/-ljxl_threads/-ljxl_threads @JPEGXL_THREADS_PUBLIC_LIBS@/' \
     lib/threads/libjxl_threads.pc.in > lib/threads/libjxl_threads.pc.in.tmp \
     && mv lib/threads/libjxl_threads.pc.in.tmp lib/threads/libjxl_threads.pc.in
 
-  _nl='
-'
-  sed "s/set(JPEGXL_REQUIRES_TYPE \"Requires\")/set(JPEGXL_REQUIRES_TYPE \"Requires\")${_nl}  set(JPEGXL_THREADS_PUBLIC_LIBS \"-lm \${PKGCONFIG_CXX_LIB}\")/g" \
+  # 2) Define the variable in jxl_threads.cmake (static build branch)
+  sed '/set(JPEGXL_REQUIRES_TYPE "Requires")/a\
+  set(JPEGXL_THREADS_PUBLIC_LIBS "-lm ${PKGCONFIG_CXX_LIB}")' \
     lib/jxl_threads.cmake > lib/jxl_threads.cmake.tmp \
     && mv lib/jxl_threads.cmake.tmp lib/jxl_threads.cmake
 

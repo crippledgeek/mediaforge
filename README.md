@@ -16,9 +16,37 @@ Rewrite of [markus-perl/ffmpeg-build-script](https://github.com/markus-perl/ffmp
 
 ## Requirements
 
-- POSIX-compatible shell (`sh`, `dash`, `bash`, `zsh`)
-- `make`, `g++`, `curl`
-- Optional: `cargo` (for rav1e), `python3` + `meson` + `ninja` (for dav1d, lv2)
+### Required
+
+| Dependency | Purpose |
+|------------|---------|
+| POSIX shell | `sh`, `dash`, `bash`, or `zsh` |
+| `make` | Build system |
+| `g++` | C/C++ compiler (Linux). On macOS, `clang++` via Xcode is used instead |
+| `curl` | Downloading source tarballs |
+
+### Optional
+
+These enable additional codecs. If missing, the corresponding recipes are skipped automatically with a warning.
+
+| Dependency | Enables |
+|------------|---------|
+| `cargo` | rav1e (AV1 encoder) |
+| `python3` | dav1d, lv2, glslang |
+| `meson` + `ninja` | dav1d (AV1 decoder), lv2 (audio plugin hosting) |
+| `nvcc` (CUDA toolkit) | NVIDIA hardware acceleration (nv-codec headers) |
+
+Install optional dependencies on Arch Linux:
+
+```sh
+sudo pacman -S rust python meson ninja cuda
+```
+
+On Ubuntu/Debian:
+
+```sh
+sudo apt install cargo python3 meson ninja-build nvidia-cuda-toolkit
+```
 
 ## Quick Start
 

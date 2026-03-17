@@ -210,6 +210,13 @@ fi
 # Setup paths
 mkdir -p "$PACKAGES" || die "Failed to create $PACKAGES"
 mkdir -p "$WORKSPACE" || die "Failed to create $WORKSPACE"
+# Add CUDA to PATH if installed (common locations)
+for _cuda_dir in /opt/cuda /usr/local/cuda; do
+  if [ -d "$_cuda_dir/bin" ]; then
+    PATH="$_cuda_dir/bin:$PATH"
+    break
+  fi
+done
 export PATH="$WORKSPACE/bin:$PATH"
 
 # Build pkg-config path dynamically

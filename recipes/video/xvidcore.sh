@@ -4,6 +4,12 @@ PKG_URL="https://downloads.xvid.com/downloads/xvidcore-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libxvid"
 PKG_GPL=true
 
+# xvidcore 1.3.7 has old C code incompatible with C23
+pkg_prepare() {
+  CFLAGS="$CFLAGS -std=gnu11"
+  export CFLAGS
+}
+
 pkg_configure() {
   cd build/generic || die "Failed to cd to build/generic"
   execute ./configure --prefix="$WORKSPACE" --disable-shared --enable-static
