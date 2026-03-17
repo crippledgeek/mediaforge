@@ -1,12 +1,13 @@
 # mediaforge
 
-A POSIX shell build system that compiles FFmpeg from source with ~50 modular dependency recipes. Supports multiple FFmpeg versions via build profiles.
+A POSIX shell build system that compiles FFmpeg from source with ~80 modular dependency recipes. Supports multiple FFmpeg versions via build profiles.
 
 Rewrite of [markus-perl/ffmpeg-build-script](https://github.com/markus-perl/ffmpeg-build-script) from monolithic Bash to portable, maintainable `#!/bin/sh`.
 
 ## Features
 
-- **Modular recipes** — each dependency is a self-contained shell file
+- **~80 modular recipes** — each dependency is a self-contained shell file
+- **64 enabled FFmpeg features** — video, audio, subtitle, image, streaming, HW acceleration
 - **Version profiles** — pin all dependency versions per FFmpeg release (8.0.1, 7.1, 7.0, 6.1)
 - **License tiers** — free, GPL, and non-free codec selection
 - **Cross-platform** — Linux and macOS (including Apple Silicon)
@@ -33,8 +34,9 @@ These enable additional codecs. If missing, the corresponding recipes are skippe
 |------------|---------|
 | `cargo` | rav1e (AV1 encoder) |
 | `python3` | dav1d, lv2, glslang |
-| `meson` + `ninja` | dav1d (AV1 decoder), lv2 (audio plugin hosting) |
-| `nvcc` (CUDA toolkit) | NVIDIA hardware acceleration (nv-codec headers) |
+| `meson` + `ninja` | dav1d, lv2, fribidi, harfbuzz, fontconfig, openh264, rubberband, librist |
+| `nvcc` (CUDA toolkit) | NVIDIA CUDA filters (nvenc/nvdec work without it) |
+| `git` | librtmp (cloned from git.ffmpeg.org, no tarball available) |
 
 Install optional dependencies on Arch Linux:
 
@@ -86,7 +88,7 @@ Options:
 
 ## Version Profiles
 
-Profiles pin all ~50 dependency versions to a known-good set for a specific FFmpeg release:
+Profiles pin all ~80 dependency versions to a known-good set for a specific FFmpeg release:
 
 ```sh
 # List available profiles
@@ -178,6 +180,28 @@ pkg_configure() {
 ```
 
 Available guards: `PKG_GPL`, `PKG_NONFREE`, `PKG_LINUX_ONLY`, `PKG_SKIP_ON_ARCH`, `PKG_REQUIRES_CMD`, `PKG_REQUIRES_MESON`.
+
+## Enabled Libraries
+
+A full `--nonfree` build enables 64 features across these categories:
+
+**Video codecs:** x264, x265, libvpx (VP8/VP9), aom (AV1), dav1d (AV1 decode), svtav1 (AV1 encode), rav1e (AV1 encode), xvidcore, kvazaar (HEVC), openh264, vid.stab, zimg
+
+**Audio codecs:** opus, lame (MP3), vorbis, theora, fdk-aac, opencore-amr, soxr, speex, twolame (MP2), gsm, libilbc, vo-amrwbenc, libshine (MP3), lv2
+
+**Subtitle/text:** libass, harfbuzz, fribidi, fontconfig, freetype
+
+**Image formats:** libjxl (JPEG XL), libwebp, libpng, openjpeg (JPEG 2000)
+
+**Media formats:** libbluray, librtmp, libxml2 (DASH), libsrt, librist
+
+**Audio processing:** rubberband (time-stretch), libmysofa (HRTF), bs2b (crossfeed), chromaprint (fingerprinting)
+
+**Filter plugins:** frei0r, ladspa
+
+**HW acceleration:** vaapi, vulkan, glslang, AMF, OpenCL, NVENC/NVDEC/CUVID
+
+**Miscellaneous:** libcaca (ASCII output), codec2, flite (TTS), libgme (game music), libopenmpt (tracker music), libsnappy, libzmq, vapoursynth, libzvbi
 
 ## License
 
