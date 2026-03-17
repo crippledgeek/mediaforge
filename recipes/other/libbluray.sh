@@ -4,6 +4,13 @@ PKG_GITHUB_REPO="videolan/libbluray"
 PKG_URL="https://download.videolan.org/pub/videolan/libbluray/${PKG_VERSION}/libbluray-${PKG_VERSION}.tar.bz2"
 PKG_FFMPEG_OPT="--enable-libbluray"
 
+# Rename dec_init to avoid symbol collision with FFmpeg's ffmpeg_dec.c
+# (same fix used by media-autobuild_suite)
+pkg_prepare() {
+  CFLAGS="$CFLAGS -Ddec_init=libbluray_dec_init"
+  export CFLAGS
+}
+
 pkg_configure() {
   execute ./configure --prefix="$WORKSPACE" --disable-shared --enable-static \
     --disable-bdjava-jar --disable-doxygen-doc --disable-examples

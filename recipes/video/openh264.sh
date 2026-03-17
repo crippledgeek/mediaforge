@@ -19,3 +19,10 @@ pkg_build() {
 pkg_install() {
   execute ninja -C build install
 }
+
+# openh264 is C++ but its pkgconfig omits -lstdc++ for static linking
+pkg_post_install() {
+  sed 's/-lopenh264/-lopenh264 -lstdc++/' \
+    "$WORKSPACE/lib/pkgconfig/openh264.pc" > "$WORKSPACE/lib/pkgconfig/openh264.pc.tmp" \
+    && mv "$WORKSPACE/lib/pkgconfig/openh264.pc.tmp" "$WORKSPACE/lib/pkgconfig/openh264.pc"
+}

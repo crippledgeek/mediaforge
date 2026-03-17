@@ -5,3 +5,10 @@ PKG_URL="https://github.com/acoustid/chromaprint/releases/download/v${PKG_VERSIO
 PKG_FFMPEG_OPT="--enable-chromaprint"
 PKG_CMAKE=true
 PKG_CMAKE_FLAGS="-DCMAKE_BUILD_TYPE=Release -DBUILD_TOOLS=OFF -DBUILD_TESTS=OFF -DFFT_LIB=kissfft"
+
+# chromaprint is C++ but its pkgconfig omits -lstdc++ for static linking
+pkg_post_install() {
+  sed 's/-lchromaprint/-lchromaprint -lstdc++/' \
+    "$WORKSPACE/lib/pkgconfig/libchromaprint.pc" > "$WORKSPACE/lib/pkgconfig/libchromaprint.pc.tmp" \
+    && mv "$WORKSPACE/lib/pkgconfig/libchromaprint.pc.tmp" "$WORKSPACE/lib/pkgconfig/libchromaprint.pc"
+}

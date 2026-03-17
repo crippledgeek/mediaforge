@@ -1,12 +1,20 @@
 PKG_NAME="librtmp"
-PKG_VERSION="${PKG_VERSION_LIBRTMP:-fa8646d}"
-PKG_URL="https://git.ffmpeg.org/gitweb/rtmpdump.git/snapshot/${PKG_VERSION}.tar.gz"
-PKG_FILENAME="rtmpdump-${PKG_VERSION}.tar.gz"
+PKG_VERSION="${PKG_VERSION_LIBRTMP:-2.6}"
+PKG_URL=""
+PKG_SKIP_EXTRACT=true
+PKG_FFMPEG_OPT=""
 
 # librtmp has old C code incompatible with C23 (GCC 15+)
 pkg_prepare() {
   CFLAGS="$CFLAGS -std=gnu11"
   export CFLAGS
+
+  # No tarball available — clone from official git repo
+  if [ ! -d "$PACKAGES/rtmpdump" ]; then
+    execute git clone --depth 1 --branch "v${PKG_VERSION}" \
+      https://git.ffmpeg.org/rtmpdump.git "$PACKAGES/rtmpdump"
+  fi
+  cd "$PACKAGES/rtmpdump" || die "Failed to cd to rtmpdump"
 }
 
 pkg_configure() {

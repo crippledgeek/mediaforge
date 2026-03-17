@@ -1,6 +1,11 @@
 #!/bin/sh
 # Final FFmpeg build — consumes CONFIGURE_OPTIONS from all recipes
 
+# flite links against ALSA on Linux (static libflite.a references snd_pcm_*)
+if [ "$IS_LINUX" = true ] && [ -f "$WORKSPACE/lib/libflite.a" ]; then
+  EXTRALIBS="$EXTRALIBS -lasound"
+fi
+
 EXTRA_VERSION=""
 if [ "$IS_DARWIN" = true ]; then
   EXTRA_VERSION="$FFMPEG_VERSION"

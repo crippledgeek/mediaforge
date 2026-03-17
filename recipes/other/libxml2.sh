@@ -5,8 +5,8 @@ PKG_URL="https://github.com/GNOME/libxml2/archive/refs/tags/v${PKG_VERSION}.tar.
 PKG_FILENAME="libxml2-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libxml2"
 
-pkg_configure() {
-  execute ./configure --prefix="$WORKSPACE" --disable-shared --enable-static \
-    --without-python --without-readline --without-lzma \
-    --without-debug --without-icu --with-zlib="$WORKSPACE"
-}
+PKG_CMAKE=true
+PKG_CMAKE_FLAGS="-DCMAKE_BUILD_TYPE=Release \
+  -DLIBXML2_WITH_PYTHON=OFF -DLIBXML2_WITH_LZMA=OFF \
+  -DLIBXML2_WITH_ICU=OFF -DLIBXML2_WITH_TESTS=OFF \
+  -DLIBXML2_WITH_PROGRAMS=OFF"

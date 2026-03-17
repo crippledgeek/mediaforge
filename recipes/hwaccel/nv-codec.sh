@@ -35,6 +35,6 @@ pkg_post_install() {
     fi
     CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS --enable-cuda-nvcc --enable-cuda-llvm"
     _cuda_cc="${CUDA_COMPUTE_CAPABILITY:-52}"
-    NVCC_FLAGS="--nvccflags=-gencode arch=compute_${_cuda_cc},code=sm_${_cuda_cc} -O2"
+    NVCC_FLAGS="--nvccflags=\"-gencode arch=compute_${_cuda_cc},code=sm_${_cuda_cc} -O2\""
   fi
 }
