@@ -1,0 +1,5 @@
+PKG_NAME="libshine"
+PKG_VERSION="${PKG_VERSION_LIBSHINE:-3.1.1}"
+PKG_URL="https://github.com/toots/shine/releases/download/${PKG_VERSION}/shine-${PKG_VERSION}.tar.gz"
+PKG_GITHUB_REPO="toots/shine"
+PKG_FFMPEG_OPT="--enable-libshine"
