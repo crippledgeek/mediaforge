@@ -17,30 +17,38 @@ fetch "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar
 
 print_flags
 
-# Handle NVIDIA flags separately (may contain spaces)
-_nvcc_opt=""
+# Build the full configure command as a string, then eval it.
+# This is necessary because FFMPEG_CONFIGURE_OPTS and NVCCFLAGS
+# contain multiple flags that must word-split, while --extra-cflags
+# and similar must preserve their quoted values.
+_ffconf="./configure $FFMPEG_CONFIGURE_OPTS"
+
 if [ -n "$NVCCFLAGS" ]; then
-  _nvcc_opt="$NVCCFLAGS"
+  _ffconf="$_ffconf --nvccflags=\"$NVCCFLAGS\""
 fi
 
-# Prevent ffmpeg's version.sh from detecting the project's .git
-# shellcheck disable=SC2086
-GIT_DIR=/nonexistent \
-run ./configure $FFMPEG_CONFIGURE_OPTS \
-  $_nvcc_opt \
+_ffconf="$_ffconf \
   --disable-debug \
   --disable-shared \
   --enable-pthreads \
   --enable-static \
   --enable-version3 \
-  --extra-cflags="$CFLAGS" \
-  --extra-ldexeflags="$LDEXEFLAGS" \
-  --extra-ldflags="$LDFLAGS" \
-  --extra-libs="$EXTRALIBS" \
-  --pkgconfigdir="$PREFIX/lib/pkgconfig" \
-  --pkg-config-flags="--static" \
-  --prefix="$PREFIX" \
-  --extra-version="$EXTRA_VERSION"
+  --extra-cflags=\"$CFLAGS\" \
+  --extra-ldexeflags=\"$LDEXEFLAGS\" \
+  --extra-ldflags=\"$LDFLAGS\" \
+  --extra-libs=\"$EXTRALIBS\" \
+  --pkgconfigdir=\"$PREFIX/lib/pkgconfig\" \
+  --pkg-config-flags=\"--static\" \
+  --prefix=\"$PREFIX\" \
+  --extra-version=\"$EXTRA_VERSION\""
+
+# Prevent ffmpeg's version.sh from detecting the project's .git
+log "$ $_ffconf"
+GIT_DIR=/nonexistent \
+eval "$_ffconf" > "$PREFIX/.logs/ffmpeg-configure.log" 2>&1 || {
+  cat "$PREFIX/.logs/ffmpeg-configure.log" >&2
+  die "FFmpeg configure failed"
+}
 
 run make -j "$MJOBS"
 run make install
