@@ -81,11 +81,13 @@ Every reference to renamed variables must be updated. **High-risk files requirin
 - `mediaforge.sh` -- variable initialization, CLI parsing, main loop
 - `lib/utils.sh` -- `$DISTDIR` in stamp functions (was `$PACKAGES`)
 - `lib/download.sh` -- `$DISTDIR` (was `$PACKAGES`)
-- `lib/cleanup.sh` -- `$TOPDIR` in `on_exit()` (was `$CWD`), `$DISTDIR` and `$PREFIX` in `full_cleanup()` (were `$PACKAGES` and `$WORKSPACE`)
-- `lib/framework.sh` -- `$ENABLE_GPL`, `$ENABLE_NONFREE`, `$NO_LV2` in `check_guards()` (were `$GPL`, `$NONFREE`, `$DISABLE_LV2`); `$PREFIX` throughout (was `$WORKSPACE`)
-- `lib/platform.sh` -- `$OS_MACOS`, `$OS_LINUX`, `$OS_MACOS_ARM`, `$OS_FREEBSD` (were `$IS_DARWIN`, `$IS_LINUX`, `$IS_MACOS_SILICON`, `$IS_FREEBSD`). Also replace `nproc`/`sysctl` CPU detection with POSIX `getconf _NPROCESSORS_ONLN` as primary (fallback chain: `getconf` -> `nproc` -> `sysctl -n hw.ncpu` -> `/proc/cpuinfo` -> 1)
+- `lib/cleanup.sh` -- `$TOPDIR` in `on_exit()` (was `$CWD`), `$DISTDIR` and `$PREFIX` in `full_cleanup()` (were `$PACKAGES` and `$WORKSPACE`). After variable renames and `remove_dir()` inlining (to `rm -rf`), `full_cleanup()` is sufficiently different from upstream's `cleanup()`.
+- `lib/framework.sh` -- `$ENABLE_GPL`, `$ENABLE_NONFREE`, `$NO_LV2` in `check_guards()` (were `$GPL`, `$NONFREE`, `$DISABLE_LV2`); `$PREFIX` throughout (was `$WORKSPACE`). **Critical:** After `fetch()` no longer `cd`s into the source directory, `run_recipe()` must add `cd "$DISTDIR/$PKG_DIRNAME"` after calling `fetch()` to set the working directory for build phases.
+- `lib/platform.sh` -- `$OS_MACOS`, `$OS_LINUX`, `$OS_MACOS_ARM`, `$OS_FREEBSD` (were `$IS_DARWIN`, `$IS_LINUX`, `$IS_MACOS_SILICON`, `$IS_FREEBSD`). Also replace `nproc`/`sysctl` CPU detection with POSIX `getconf _NPROCESSORS_ONLN` as primary (fallback chain: `getconf _NPROCESSORS_ONLN` -> `nproc` -> `sysctl -n hw.ncpu` -> `/proc/cpuinfo` via `awk` -> default `1`). Ultimate fallback is `1` (safer than upstream's `4` for unknown systems).
 - `lib/install.sh` -- full rewrite (Section 5), no propagation needed
 - `recipes/**/*.sh` -- `$PREFIX` (was `$WORKSPACE`), `$DISTDIR` (was `$PACKAGES`) in any recipe referencing these
+- `recipes/other/lv2.sh` -- **HIGH RISK:** Calls `build()`/`build_done()` for 7 sub-packages (waflib, serd, pcre, zix, sord, sratom, lilv) with different package names than the parent recipe. All must become `stamp_check()`/`stamp_write()`. Also calls `download()` with positional args for sub-packages — must use `fetch()` positional arg fallback.
+- `recipes/hwaccel/opencl.sh` -- **HIGH RISK:** Calls `build()`/`build_done()` for `opencl-icd-loader` sub-package, and calls `download()` with positional args inside `pkg_install()`. Same treatment as lv2.sh.
 - `recipes/ffmpeg.sh` -- `$FFMPEG_CONFIGURE_OPTS` (was `$CONFIGURE_OPTIONS`), `$NVCCFLAGS` (was `$NVCC_FLAGS`)
 - `recipes/hwaccel/nv-codec.sh` -- `$NVCCFLAGS` (was `$NVCC_FLAGS`)
 
@@ -299,6 +301,28 @@ This is a clean break, not a deprecation period.
 - Exit codes: 0 success, 1 runtime error, 2 usage error
 - `--help` output to stdout; usage errors to stderr
 
+### New CLI state variables
+
+The CLI redesign introduces new state variables not present in upstream:
+
+| Variable | Set by | Used by |
+|---|---|---|
+| `FULL_STATIC` | `--enable-static` / `-s` | `mediaforge.sh` (sets `LDEXEFLAGS="-static -fPIC"`) |
+| `ENABLE_SMALL` | `--enable-small` / `-m` | `recipes/ffmpeg.sh` (adds `--enable-small`) |
+| `VERBOSE` | `--verbose` / `-v` (incremental) | `run()` function, progress output |
+| `QUIET` | `--quiet` / `-q` | Progress output suppression |
+| `DRY_RUN` | `--dry-run` / `-n` | `run_recipe()` (skip execution, print plan) |
+| `KEEP_GOING` | `--keep-going` / `-k` | `run_recipe()` error handler |
+
+Note: `vaapi.sh` and other recipes that check `LDEXEFLAGS` for static mode detection continue to work unchanged since `FULL_STATIC` sets `LDEXEFLAGS`.
+
+### New flag implementation details
+
+- **`--dry-run`**: Prints the recipe name, version, and action (build/skip) for each entry in `_order.conf` without executing. Format matches Ninja progress output. Stamp checks still run to determine skip/build status.
+- **`--keep-going`**: On recipe failure, `run()` logs the error but does not call `die()`. Instead, the failed recipe is recorded and the loop continues. At the end, all failures are printed and the script exits 1 if any failed.
+- **`--verbose` / `-v`**: Level 1 (`-v`) streams `run()` output to stderr in real-time (tee to log + stderr). Level 2 (`-vv`) also prints the full command being executed before running it.
+- **`--quiet` / `-q`**: Suppresses progress output. Only errors are printed (to stderr).
+
 ### Progress Output (Ninja-style)
 
 ```
@@ -365,18 +389,26 @@ Reads the manifest and removes every listed file. `--yes` skips confirmation. `-
 
 ## 6. Recipe Fix Rewrites
 
-~6 recipes where the specific fix implementation is creative expression copied from upstream. The fix itself (what it does) is functional; only the implementation needs to differ.
+~9 recipes where the specific fix implementation is creative expression copied from upstream. The fix itself (what it does) is functional; only the implementation needs to differ.
 
 **Strategy change:** Convert inline `sed` fixes to `patch -p1` files stored in a new `patches/` directory. This is more auditable, version-trackable, and structurally different from the upstream's inline sed approach. `patch` is POSIX-mandated.
 
 | Recipe | Derived fix | New approach |
 |---|---|---|
 | `libvorbis` | `force_cpusubtype_ALL` sed removal | `patch -p1 < patches/libvorbis-cpusubtype.patch` |
-| `giflib` | Makefile doc/man sed removal | `patch -p1 < patches/giflib-makefile.patch` or `awk` rewrite of Makefile targets |
-| `libzmq` | `stats_proxy` sed fix | Verify if still needed in current version; if so, `patch -p1` |
-| `srt` | `lgcc_eh` pkgconfig sed fix | `awk` rewrite of pkgconfig file (field-based, structurally different from sed) |
+| `giflib` | Makefile doc/man sed removal | `patch -p1 < patches/giflib-makefile.patch` or `awk` rewrite |
+| `libzmq` | `stats_proxy` sed fix | Verify if still needed; if so, `patch -p1` |
+| `srt` | `lgcc_eh` pkgconfig sed fix | `awk` rewrite of pkgconfig file |
 | `x265` | `lgcc_s` -> `lgcc_eh` pkgconfig sed | `awk` rewrite of pkgconfig file |
+| `chromaprint` | `-lstdc++` appended to pkgconfig Libs via sed | `awk` rewrite of pkgconfig file |
+| `openh264` | `-lstdc++` appended to pkgconfig Libs via sed | `awk` rewrite of pkgconfig file |
+| `libjxl` | pkgconfig and cmake sed fixes (2 patterns) | `patch -p1` for cmake fix; `awk` for pkgconfig |
 | `ffmpeg.sh` | `--extra-version` value | Use `--extra-version=mediaforge` unconditionally |
+
+### Additional recipe notes
+
+- **`xvidcore`** post-install cleanup (`rm -f libxvidcore.4.dylib`, `rm -f libxvidcore.so*`) matches upstream. After variable renames and `remove_dir()` inlining, the structure is sufficiently different. No additional action needed.
+- **`ffmpeg.sh`** -- the `GIT_DIR=/nonexistent` workaround is a **different implementation** from upstream's `.git -> .git.bak` rename approach. No change needed. The `verify_binary_type` equivalent uses a different sed pattern. No change needed.
 
 ### Tooling guidelines for all recipes
 
