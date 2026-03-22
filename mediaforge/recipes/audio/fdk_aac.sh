@@ -6,3 +6,7 @@ PKG_GITHUB_REPO="mstorsjo/fdk-aac"
 PKG_FFMPEG_OPT="--enable-libfdk-aac"
 PKG_NONFREE=true
 PKG_CONFIGURE_FLAGS="--enable-pic"
+
+pkg_prepare() {
+  run autoreconf -fiv
+}
