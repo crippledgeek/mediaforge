@@ -1,32 +1,34 @@
 #!/bin/sh
+# shellcheck disable=SC2034
 # Platform detection — single source of truth for OS/arch info
 
 OS_TYPE=$(uname -s)
 OS_ARCH=$(uname -m)
 
-IS_DARWIN=false
-IS_LINUX=false
-IS_FREEBSD=false
-IS_MACOS_SILICON=false
+# shellcheck disable=SC2034
+OS_MACOS=false
+OS_LINUX=false
+OS_FREEBSD=false
+OS_MACOS_ARM=false
 
 case "$OS_TYPE" in
   Darwin)
-    IS_DARWIN=true
+    OS_MACOS=true
     if [ "$OS_ARCH" = "arm64" ]; then
-      IS_MACOS_SILICON=true
+      OS_MACOS_ARM=true
     fi
     ;;
-  Linux)   IS_LINUX=true ;;
-  FreeBSD) IS_FREEBSD=true ;;
+  Linux)   OS_LINUX=true ;;
+  FreeBSD) OS_FREEBSD=true ;;
 esac
 
 # Multiarch triplet for pkg-config paths
-MULTIARCH=""
+MULTIARCH_TRIPLET=""
 if command_exists dpkg-architecture; then
-  MULTIARCH=$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null) || MULTIARCH=""
+  MULTIARCH_TRIPLET=$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null) || MULTIARCH_TRIPLET=""
 fi
-if [ -z "$MULTIARCH" ] && command_exists gcc; then
-  MULTIARCH=$(gcc -dumpmachine 2>/dev/null) || MULTIARCH=""
+if [ -z "$MULTIARCH_TRIPLET" ] && command_exists gcc; then
+  MULTIARCH_TRIPLET=$(gcc -dumpmachine 2>/dev/null) || MULTIARCH_TRIPLET=""
 fi
 
 # Parallel job count detection
@@ -36,7 +38,7 @@ detect_jobs() {
     printf '%s' "$NUMJOBS"
   elif [ -f /proc/cpuinfo ]; then
     grep -c processor /proc/cpuinfo
-  elif [ "$IS_DARWIN" = true ]; then
+  elif [ "$OS_MACOS" = true ]; then
     sysctl -n machdep.cpu.thread_count
   elif command_exists nproc; then
     nproc
@@ -45,4 +47,5 @@ detect_jobs() {
   fi
 }
 
+# shellcheck disable=SC2034
 MJOBS=$(detect_jobs)

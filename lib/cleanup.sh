@@ -15,20 +15,20 @@ on_exit() {
 
   if [ "$_exit_code" -ne 0 ]; then
     warn "Build failed during: ${_CURRENT_PACKAGE:-unknown}"
-    warn "Successfully built packages are preserved (done-files intact)."
+    warn "Successfully built packages are preserved (stamp files intact)."
     warn "Fix the issue and re-run to resume from the failed package."
   fi
 
   # Restore working directory
-  cd "$CWD" 2>/dev/null
+  cd "$TOPDIR" 2>/dev/null || true
 
   exit "$_exit_code"
 }
 
-# User cleanup (--cleanup flag)
+# User cleanup (clean subcommand)
 full_cleanup() {
-  remove_dir "$PACKAGES"
-  remove_dir "$WORKSPACE"
+  rm -rf "$DISTDIR"
+  rm -rf "$PREFIX"
   log "Cleanup done."
 }
 

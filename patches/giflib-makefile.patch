@@ -1,0 +1,35 @@
+--- a/Makefile	2026-03-22 02:13:02.836808088 +0100
++++ b/Makefile	2026-03-22 02:13:02.838598699 +0100
+@@ -90,7 +90,7 @@
+ all: $(LIBGIFSO) libgif.a $(LIBUTILSO) libutil.a $(UTILS)
+ ifeq ($(UNAME), Darwin)
+ else
+-	$(MAKE) -C doc
++	
+ endif
+ 
+ $(UTILS):: libgif.a libutil.a
+@@ -132,7 +132,7 @@
+ ifeq ($(UNAME), Darwin)
+ install: all install-bin install-include install-lib
+ else
+-install: all install-bin install-include install-lib install-man
++install: all install-bin install-include install-lib 
+ endif
+ 
+ install-bin: $(INSTALLABLE)
+@@ -208,12 +208,12 @@
+ 
+ # release using the shipper tool
+ release: all distcheck
+-	$(MAKE) -C doc website
++	 website
+ 	shipper --no-stale version=$(VERSION) | sh -e -x
+ 	rm -fr doc/staging
+ 
+ # Refresh the website
+ refresh: all
+-	$(MAKE) -C doc website
++	 website
+ 	shipper --no-stale -w version=$(VERSION) | sh -e -x
+ 	rm -fr doc/staging

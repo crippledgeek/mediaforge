@@ -1,17 +1,17 @@
 PKG_NAME="giflib"
-PKG_VERSION="5.2.2"
-PKG_URL="https://sources.voidlinux.org/giflib-${PKG_VERSION}/giflib-${PKG_VERSION}.tar.gz"
+PKG_VERSION="${PKG_VERSION_GIFLIB:-5.2.2}"
+PKG_URL="https://sourceforge.net/projects/giflib/files/giflib-${PKG_VERSION}.tar.gz/download"
+PKG_FILENAME="giflib-${PKG_VERSION}.tar.gz"
 
 pkg_configure() {
-  cd "$PACKAGES/giflib-${PKG_VERSION}" || die "Failed to cd to giflib"
-  sed 's/$(MAKE) -C doc//g' Makefile > Makefile.tmp && mv Makefile.tmp Makefile
-  sed 's/install: all install-bin install-include install-lib install-man/install: all install-bin install-include install-lib/g' Makefile > Makefile.tmp && mv Makefile.tmp Makefile
+  cd "$DISTDIR/giflib-${PKG_VERSION}" || die "Failed to cd to giflib"
+  patch -p1 < "$SCRIPT_DIR/patches/giflib-makefile.patch" 2>/dev/null || true
 }
 
 pkg_build() {
-  execute make
+  run make
 }
 
 pkg_install() {
-  execute make PREFIX="$WORKSPACE" install
+  run make PREFIX="$PREFIX" install
 }
