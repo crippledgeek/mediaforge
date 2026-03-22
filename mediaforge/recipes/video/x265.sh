@@ -1,6 +1,6 @@
 PKG_NAME="x265"
 PKG_VERSION="${PKG_VERSION_X265:-4.1}"
-PKG_URL="https://bitbucket.org/multicoreware/x265_git/downloads/x265_${PKG_VERSION}.tar.gz"
+PKG_URL="https://download.videolan.org/pub/videolan/x265/x265_${PKG_VERSION}.tar.gz"
 PKG_FILENAME="x265-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libx265"
 PKG_GPL=true

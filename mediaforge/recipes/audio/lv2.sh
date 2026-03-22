@@ -37,7 +37,7 @@ pkg_install() {
 
   # pcre
   if stamp_check "pcre" "8.45"; then
-    fetch "https://altushost-swe.dl.sourceforge.net/project/pcre/pcre/8.45/pcre-8.45.tar.gz" "pcre-8.45.tar.gz"
+    fetch "https://sourceforge.net/projects/pcre/files/pcre/8.45/pcre-8.45.tar.gz/download" "pcre-8.45.tar.gz"
     run ./configure --prefix="$PREFIX" --disable-shared --enable-static
     run make -j "$MJOBS"
     run make install
