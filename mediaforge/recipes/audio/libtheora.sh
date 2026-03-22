@@ -10,7 +10,7 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  execute ./configure --prefix="$PREFIX" \
+  run ./configure --prefix="$PREFIX" \
     --with-ogg-libraries="$PREFIX/lib" \
     --with-ogg-includes="$PREFIX/include/" \
     --with-vorbis-libraries="$PREFIX/lib" \

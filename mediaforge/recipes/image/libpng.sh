@@ -6,5 +6,5 @@ PKG_FILENAME="libpng-${PKG_VERSION}.tar.gz"
 pkg_configure() {
   export LDFLAGS="$LDFLAGS"
   export CPPFLAGS="$CFLAGS"
-  execute ./configure --prefix="$PREFIX" --disable-shared --enable-static
+  run ./configure --prefix="$PREFIX" --disable-shared --enable-static
 }

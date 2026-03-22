@@ -12,7 +12,7 @@ pkg_prepare() {
 
 pkg_configure() {
   cd build/generic || die "Failed to cd to build/generic"
-  execute ./configure --prefix="$PREFIX" --disable-shared --enable-static
+  run ./configure --prefix="$PREFIX" --disable-shared --enable-static
 }
 
 pkg_post_install() {

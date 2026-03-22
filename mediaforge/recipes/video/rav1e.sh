@@ -11,7 +11,7 @@ fi
 
 pkg_prepare() {
   log "If you get 'requires rustc x.xx or newer', try 'rustup update'"
-  execute cargo install cargo-c
+  run cargo install cargo-c
 }
 
 pkg_configure() {
@@ -26,6 +26,6 @@ pkg_install() {
   # Build as shared library (cdylib) to avoid embedding Rust's std/alloc/gimli
   # symbols into a static .a — those cause duplicate symbol errors when any
   # other Rust project links against this FFmpeg build
-  execute cargo cinstall --prefix="$PREFIX" --libdir=lib \
+  run cargo cinstall --prefix="$PREFIX" --libdir=lib \
     --library-type=cdylib --release
 }

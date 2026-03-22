@@ -9,9 +9,9 @@ pkg_configure() {
 }
 
 pkg_build() {
-  execute make
+  run make
 }
 
 pkg_install() {
-  execute make PREFIX="$PREFIX" install
+  run make PREFIX="$PREFIX" install
 }

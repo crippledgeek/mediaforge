@@ -6,14 +6,14 @@ PKG_DIRNAME="av1"
 PKG_FFMPEG_OPT="--enable-libaom"
 
 pkg_configure() {
-  make_dir "$DISTDIR/aom_build"
+  rm -rf "$DISTDIR/aom_build" && mkdir -p "$DISTDIR/aom_build"
   cd "$DISTDIR/aom_build" || die "Failed to cd to aom_build"
   if [ "$OS_MACOS_ARM" = true ]; then
-    execute cmake -DENABLE_TESTS=0 -DENABLE_EXAMPLES=0 \
+    run cmake -DENABLE_TESTS=0 -DENABLE_EXAMPLES=0 \
       -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_INSTALL_LIBDIR=lib \
       -DCONFIG_RUNTIME_CPU_DETECT=0 "$DISTDIR/av1"
   else
-    execute cmake -DENABLE_TESTS=0 -DENABLE_EXAMPLES=0 \
+    run cmake -DENABLE_TESTS=0 -DENABLE_EXAMPLES=0 \
       -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_INSTALL_LIBDIR=lib \
       "$DISTDIR/av1"
   fi

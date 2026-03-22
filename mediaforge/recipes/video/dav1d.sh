@@ -10,8 +10,8 @@ pkg_configure() {
   if [ "$OS_MACOS_ARM" = true ]; then
     export CFLAGS="-arch arm64"
   fi
-  make_dir build
-  execute meson build --prefix="$PREFIX" --buildtype=release \
+  rm -rf build && mkdir -p build
+  run meson build --prefix="$PREFIX" --buildtype=release \
     --default-library=static --libdir="$PREFIX/lib"
   if [ "$OS_MACOS_ARM" = true ]; then
     export CFLAGS="$_cflagsbackup"
@@ -19,9 +19,9 @@ pkg_configure() {
 }
 
 pkg_build() {
-  execute ninja -C build
+  run ninja -C build
 }
 
 pkg_install() {
-  execute ninja -C build install
+  run ninja -C build install
 }

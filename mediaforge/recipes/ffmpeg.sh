@@ -15,7 +15,7 @@ log ""
 log "Building FFmpeg $FFMPEG_VERSION"
 log "======================="
 
-download "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" \
+fetch "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" \
   "FFmpeg-release-${FFMPEG_VERSION}.tar.gz"
 
 print_flags
@@ -29,7 +29,7 @@ fi
 # Prevent ffmpeg's version.sh from detecting the project's .git
 # shellcheck disable=SC2086
 GIT_DIR=/nonexistent \
-execute ./configure $FFMPEG_CONFIGURE_OPTS \
+run ./configure $FFMPEG_CONFIGURE_OPTS \
   $_nvcc_opt \
   --disable-debug \
   --disable-shared \
@@ -45,8 +45,8 @@ execute ./configure $FFMPEG_CONFIGURE_OPTS \
   --prefix="$PREFIX" \
   --extra-version="$EXTRA_VERSION"
 
-execute make -j "$MJOBS"
-execute make install
+run make -j "$MJOBS"
+run make install
 
 # Verify the binary
 if command_exists "file"; then

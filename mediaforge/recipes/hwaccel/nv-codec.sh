@@ -10,11 +10,11 @@ pkg_configure() {
 }
 
 pkg_build() {
-  execute make PREFIX="$PREFIX"
+  run make PREFIX="$PREFIX"
 }
 
 pkg_install() {
-  execute make PREFIX="$PREFIX" install
+  run make PREFIX="$PREFIX" install
 }
 
 pkg_post_install() {

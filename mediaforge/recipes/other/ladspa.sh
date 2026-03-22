@@ -8,5 +8,5 @@ pkg_configure() { :; }
 pkg_build() { :; }
 
 pkg_install() {
-  execute cp src/ladspa.h "$PREFIX/include/"
+  run cp src/ladspa.h "$PREFIX/include/"
 }

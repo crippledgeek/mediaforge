@@ -7,13 +7,13 @@ PKG_GPL=true
 
 pkg_configure() {
   if [ "$OS_LINUX" = true ]; then
-    execute ./configure --prefix="$PREFIX" --enable-static --enable-pic \
+    run ./configure --prefix="$PREFIX" --enable-static --enable-pic \
       CXXFLAGS="-fPIC $CXXFLAGS"
   else
-    execute ./configure --prefix="$PREFIX" --enable-static --enable-pic
+    run ./configure --prefix="$PREFIX" --enable-static --enable-pic
   fi
 }
 
 pkg_post_install() {
-  execute make install-lib-static
+  run make install-lib-static
 }

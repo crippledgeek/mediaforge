@@ -6,5 +6,5 @@ PKG_URL="https://github.com/Kitware/CMake/releases/download/v${PKG_VERSION}/cmak
 pkg_configure() {
   CXXFLAGS="$CXXFLAGS -std=c++11"
   export CXXFLAGS
-  execute ./configure --prefix="$PREFIX" --parallel="$MJOBS" -- -DCMAKE_USE_OPENSSL=OFF
+  run ./configure --prefix="$PREFIX" --parallel="$MJOBS" -- -DCMAKE_USE_OPENSSL=OFF
 }

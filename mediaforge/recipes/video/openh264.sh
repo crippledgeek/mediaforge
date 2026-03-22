@@ -7,17 +7,17 @@ PKG_FFMPEG_OPT="--enable-libopenh264"
 PKG_REQUIRES_MESON=true
 
 pkg_configure() {
-  make_dir build
-  execute meson setup build --prefix="$PREFIX" --buildtype=release \
+  rm -rf build && mkdir -p build
+  run meson setup build --prefix="$PREFIX" --buildtype=release \
     --default-library=static --libdir="$PREFIX/lib"
 }
 
 pkg_build() {
-  execute ninja -C build
+  run ninja -C build
 }
 
 pkg_install() {
-  execute ninja -C build install
+  run ninja -C build install
 }
 
 # openh264 is C++ but its pkgconfig omits -lstdc++ for static linking

@@ -6,7 +6,7 @@ PKG_FILENAME="Vulkan-Headers-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-vulkan"
 
 pkg_configure() {
-  execute cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" -B build/
+  run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" -B build/
 }
 
 pkg_build() {
@@ -14,5 +14,5 @@ pkg_build() {
 }
 
 pkg_install() {
-  execute cmake --install build --prefix "$PREFIX"
+  run cmake --install build --prefix "$PREFIX"
 }

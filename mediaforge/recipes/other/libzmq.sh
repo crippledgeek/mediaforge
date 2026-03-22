@@ -11,11 +11,11 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  execute ./configure --prefix="$PREFIX" --disable-shared --enable-static
+  run ./configure --prefix="$PREFIX" --disable-shared --enable-static
 }
 
 pkg_build() {
   sed "s/stats_proxy stats = {0}/stats_proxy stats = {{{0, 0}, {0, 0}}, {{0, 0}, {0, 0}}}/g" \
     src/proxy.cpp > src/proxy.cpp.tmp && mv src/proxy.cpp.tmp src/proxy.cpp
-  execute make -j "$MJOBS"
+  run make -j "$MJOBS"
 }

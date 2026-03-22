@@ -14,7 +14,7 @@ pkg_configure() {
 }
 
 pkg_build() {
-  execute make -j "$MJOBS" INSTALL_ROOT="$PREFIX" \
+  run make -j "$MJOBS" INSTALL_ROOT="$PREFIX" \
     CC="gcc" CCFLAGS="$CFLAGS -c -DNeedFunctionPrototypes=1 -Wall -fPIC"
 }
 

@@ -7,16 +7,16 @@ PKG_GPL=true
 PKG_REQUIRES_MESON=true
 
 pkg_configure() {
-  make_dir build
-  execute meson setup build --prefix="$PREFIX" --buildtype=release \
+  rm -rf build && mkdir -p build
+  run meson setup build --prefix="$PREFIX" --buildtype=release \
     --default-library=static --libdir="$PREFIX/lib" \
     -Dfft=builtin -Dresampler=builtin -Dtests=disabled
 }
 
 pkg_build() {
-  execute ninja -C build
+  run ninja -C build
 }
 
 pkg_install() {
-  execute ninja -C build install
+  run ninja -C build install
 }

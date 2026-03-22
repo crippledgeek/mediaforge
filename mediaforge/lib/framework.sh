@@ -5,23 +5,23 @@
 default_configure() {
   if [ "$PKG_CMAKE" = true ]; then
     # shellcheck disable=SC2086
-    execute cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+    run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
       -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF \
       $PKG_CMAKE_FLAGS .
   else
     # shellcheck disable=SC2086
-    execute ./configure --prefix="$PREFIX" \
+    run ./configure --prefix="$PREFIX" \
       --disable-shared --enable-static \
       $PKG_CONFIGURE_FLAGS
   fi
 }
 
 default_build() {
-  execute make -j "$MJOBS"
+  run make -j "$MJOBS"
 }
 
 default_install() {
-  execute make install
+  run make install
 }
 
 default_noop() {
@@ -152,14 +152,16 @@ run_recipe() {
   # Check guards
   if ! check_guards; then
     # Still accumulate ffmpeg option if the package was previously built
-    if [ -n "$PKG_FFMPEG_OPT" ] && [ -f "$DISTDIR/$PKG_NAME.done" ]; then
+    _has_stamp=false
+    for _s in "$PREFIX/.stamps/${PKG_NAME}-"*; do [ -f "$_s" ] && _has_stamp=true && break; done
+    if [ -n "$PKG_FFMPEG_OPT" ] && [ "$_has_stamp" = true ]; then
       FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
     fi
     return 0
   fi
 
-  # Check done-file (build returns 1 if already built)
-  if ! build "$PKG_NAME" "$PKG_VERSION"; then
+  # Check stamp (stamp_check returns 1 if already built)
+  if ! stamp_check "$PKG_NAME" "$PKG_VERSION"; then
     # Already built — accumulate ffmpeg option and skip
     if [ -n "$PKG_FFMPEG_OPT" ]; then
       FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
@@ -187,7 +189,7 @@ run_recipe() {
     if [ -n "$PKG_DIRNAME" ]; then
       _dl_dir="$PKG_DIRNAME"
     fi
-    download "$PKG_URL" "$_dl_file" "$_dl_dir"
+    fetch "$PKG_URL" "$_dl_file" "$_dl_dir"
   fi
 
   # Run phases
@@ -198,7 +200,7 @@ run_recipe() {
   pkg_post_install
 
   # Mark as done
-  build_done "$PKG_NAME" "$PKG_VERSION"
+  stamp_write "$PKG_NAME" "$PKG_VERSION"
 
   # Accumulate ffmpeg configure option
   if [ -n "$PKG_FFMPEG_OPT" ]; then

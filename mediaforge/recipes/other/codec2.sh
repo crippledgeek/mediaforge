@@ -13,17 +13,17 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  make_dir build
-  execute cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+  rm -rf build && mkdir -p build
+  run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF \
     -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DUNITTEST=OFF \
     -B build .
 }
 
 pkg_build() {
-  execute cmake --build build -j "$MJOBS"
+  run cmake --build build -j "$MJOBS"
 }
 
 pkg_install() {
-  execute cmake --install build
+  run cmake --install build
 }

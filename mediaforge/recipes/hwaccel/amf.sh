@@ -13,5 +13,5 @@ pkg_build() { :; }
 pkg_install() {
   rm -rf "$PREFIX/include/AMF"
   mkdir -p "$PREFIX/include/AMF" || die "Failed to create AMF include dir"
-  execute cp -r AMF/components AMF/core "$PREFIX/include/AMF/"
+  run cp -r AMF/components AMF/core "$PREFIX/include/AMF/"
 }

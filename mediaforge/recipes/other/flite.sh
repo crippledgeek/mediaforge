@@ -12,14 +12,14 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  execute ./configure --prefix="$PREFIX" --with-pic
+  run ./configure --prefix="$PREFIX" --with-pic
 }
 
 # Build only libraries (parallel make races on flite_voice_list.c for tools)
 pkg_build() {
-  execute make -j "$MJOBS" -C include
-  execute make -j "$MJOBS" -C src
-  execute make -j "$MJOBS" -C lang
+  run make -j "$MJOBS" -C include
+  run make -j "$MJOBS" -C src
+  run make -j "$MJOBS" -C lang
 }
 
 pkg_install() {
@@ -29,6 +29,6 @@ pkg_install() {
     die "Cannot find flite build directory"
   fi
   mkdir -p "$PREFIX/include/flite" "$PREFIX/lib"
-  execute cp include/*.h "$PREFIX/include/flite/"
-  execute cp "$_builddir"/lib/*.a "$PREFIX/lib/"
+  run cp include/*.h "$PREFIX/include/flite/"
+  run cp "$_builddir"/lib/*.a "$PREFIX/lib/"
 }

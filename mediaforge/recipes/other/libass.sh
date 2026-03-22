@@ -5,6 +5,6 @@ PKG_URL="https://github.com/libass/libass/releases/download/${PKG_VERSION}/libas
 PKG_FFMPEG_OPT="--enable-libass"
 
 pkg_configure() {
-  execute ./configure --prefix="$PREFIX" --disable-shared --enable-static \
+  run ./configure --prefix="$PREFIX" --disable-shared --enable-static \
     --disable-require-system-font-provider
 }

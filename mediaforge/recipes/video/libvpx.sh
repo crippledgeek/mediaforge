@@ -17,6 +17,6 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  execute ./configure --prefix="$PREFIX" --disable-unit-tests --disable-shared \
+  run ./configure --prefix="$PREFIX" --disable-unit-tests --disable-shared \
     --disable-examples --as=yasm --enable-vp9-highbitdepth
 }

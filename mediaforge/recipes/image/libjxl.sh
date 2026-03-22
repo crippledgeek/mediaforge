@@ -20,11 +20,11 @@ pkg_prepare() {
     lib/jxl_threads.cmake > lib/jxl_threads.cmake.tmp \
     && mv lib/jxl_threads.cmake.tmp lib/jxl_threads.cmake
 
-  execute ./deps.sh
+  run ./deps.sh
 }
 
 pkg_configure() {
-  execute cmake -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+  run cmake -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_BINDIR=bin \
     -DCMAKE_INSTALL_INCLUDEDIR=include -DENABLE_SHARED=off -DENABLE_STATIC=ON \
     -DCMAKE_BUILD_TYPE=Release -DJPEGXL_ENABLE_BENCHMARK=OFF \

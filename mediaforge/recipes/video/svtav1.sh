@@ -6,10 +6,10 @@ PKG_FFMPEG_OPT="--enable-libsvtav1"
 
 pkg_configure() {
   cd "$DISTDIR/svtav1-${PKG_VERSION}/Build/linux" || die "Failed to cd to SVT-AV1 build dir"
-  execute cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" -DENABLE_SHARED=off \
+  run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" -DENABLE_SHARED=off \
     -DBUILD_SHARED_LIBS=OFF ../.. -G"Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
 }
 
 pkg_post_install() {
-  execute cp SvtAv1Enc.pc "$PREFIX/lib/pkgconfig/"
+  run cp SvtAv1Enc.pc "$PREFIX/lib/pkgconfig/"
 }

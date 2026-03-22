@@ -7,11 +7,11 @@ PKG_FFMPEG_OPT="--enable-openssl"
 PKG_NONFREE=true
 
 pkg_configure() {
-  execute ./Configure --prefix="$PREFIX" --openssldir="$PREFIX" --libdir="lib" \
+  run ./Configure --prefix="$PREFIX" --openssldir="$PREFIX" --libdir="lib" \
     --with-zlib-include="$PREFIX/include/" --with-zlib-lib="$PREFIX/lib" \
     no-shared zlib
 }
 
 pkg_install() {
-  execute make install_sw
+  run make install_sw
 }

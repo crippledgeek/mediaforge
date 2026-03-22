@@ -8,11 +8,11 @@ pkg_prepare() {
   export CFLAGS
   sed "s/-force_cpusubtype_ALL//g" configure.ac > configure.ac.tmp \
     && mv configure.ac.tmp configure.ac
-  execute ./autogen.sh --prefix="$PREFIX"
+  run ./autogen.sh --prefix="$PREFIX"
 }
 
 pkg_configure() {
-  execute ./configure --prefix="$PREFIX" \
+  run ./configure --prefix="$PREFIX" \
     --with-ogg-libraries="$PREFIX/lib" \
     --with-ogg-includes="$PREFIX/include/" \
     --enable-static --disable-shared --disable-oggtest
