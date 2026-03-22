@@ -234,6 +234,17 @@ do_uninstall() {
       fi
     done < "$_manifest"
 
+    # Clean up empty directories left behind (bottom-up)
+    # Sort deepest paths first so rmdir works bottom-up
+    while IFS= read -r _rel; do
+      [ -z "$_rel" ] && continue
+      _dir="$_target/$(dirname "$_rel")"
+      while [ "$_dir" != "$_target" ] && [ -d "$_dir" ]; do
+        $_priv rmdir "$_dir" 2>/dev/null || break
+        _dir=$(dirname "$_dir")
+      done
+    done < "$_manifest"
+
     $_priv rm -f "$_manifest"
     log "Removed $_removed files from $_target"
   done
