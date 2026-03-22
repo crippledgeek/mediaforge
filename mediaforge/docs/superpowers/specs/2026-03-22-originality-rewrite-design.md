@@ -391,19 +391,52 @@ Reads the manifest and removes every listed file. `--yes` skips confirmation. `-
 
 ~9 recipes where the specific fix implementation is creative expression copied from upstream. The fix itself (what it does) is functional; only the implementation needs to differ.
 
-**Strategy change:** Convert inline `sed` fixes to `patch -p1` files stored in a new `patches/` directory. This is more auditable, version-trackable, and structurally different from the upstream's inline sed approach. `patch` is POSIX-mandated.
+**Strategy:** Two approaches depending on fix complexity:
 
-| Recipe | Derived fix | New approach |
-|---|---|---|
-| `libvorbis` | `force_cpusubtype_ALL` sed removal | `patch -p1 < patches/libvorbis-cpusubtype.patch` |
-| `giflib` | Makefile doc/man sed removal | `patch -p1 < patches/giflib-makefile.patch` or `awk` rewrite |
-| `libzmq` | `stats_proxy` sed fix | Verify if still needed; if so, `patch -p1` |
-| `srt` | `lgcc_eh` pkgconfig sed fix | `awk` rewrite of pkgconfig file |
-| `x265` | `lgcc_s` -> `lgcc_eh` pkgconfig sed | `awk` rewrite of pkgconfig file |
-| `chromaprint` | `-lstdc++` appended to pkgconfig Libs via sed | `awk` rewrite of pkgconfig file |
-| `openh264` | `-lstdc++` appended to pkgconfig Libs via sed | `awk` rewrite of pkgconfig file |
-| `libjxl` | pkgconfig and cmake sed fixes (2 patterns) | `patch -p1` for cmake fix; `awk` for pkgconfig |
-| `ffmpeg.sh` | `--extra-version` value | Use `--extra-version=mediaforge` unconditionally |
+1. **`awk` rewrites** for single-line pkgconfig/metadata fixes (one-liners that work across versions)
+2. **`patch -p1` files** for complex multi-line source fixes (version-pinned, stored in `patches/`)
+
+Patch files are generated during implementation by: downloading the source tarball, copying the target file, applying the fix manually, then `diff -u original fixed > patches/name.patch`. Version-specific patches are gated in `pkg_prepare()` with `case "$PKG_VERSION"`.
+
+| Recipe | Derived fix | New approach | Why |
+|---|---|---|---|
+| `libvorbis` | `force_cpusubtype_ALL` sed removal | `patch -p1` | Multi-line source fix |
+| `giflib` | Makefile doc/man sed removal | `patch -p1` | Multi-line Makefile edit |
+| `libzmq` | `stats_proxy` sed fix | Verify if still needed; if so, `patch -p1` | Source fix |
+| `libjxl` | cmake sed fix (multi-line) | `patch -p1` | Multi-line cmake edit |
+| `srt` | `lgcc_eh` pkgconfig sed fix | `awk` | One-liner, version-independent |
+| `x265` | `lgcc_s` -> `lgcc_eh` pkgconfig sed | `awk` | One-liner, version-independent |
+| `chromaprint` | `-lstdc++` appended to pkgconfig Libs | `awk` | One-liner, version-independent |
+| `openh264` | `-lstdc++` appended to pkgconfig Libs | `awk` | One-liner, version-independent |
+| `libjxl` | pkgconfig sed fix | `awk` | One-liner, version-independent |
+| `ffmpeg.sh` | `--extra-version` value | Inline change | Just change the string value |
+
+### Patch generation workflow
+
+For recipes using `patch -p1`:
+```sh
+# 1. Download and extract source
+cd /tmp && curl -L "$PKG_URL" | tar xz
+# 2. Copy target file
+cp source/Makefile source/Makefile.orig
+# 3. Apply the fix (manually or with the current sed)
+# 4. Generate patch
+diff -u source/Makefile.orig source/Makefile > patches/giflib-makefile.patch
+```
+
+### awk rewrite pattern for pkgconfig fixes
+
+All pkgconfig one-liner fixes follow the same `awk` pattern (replacing upstream's `sed`):
+```sh
+# Current (derived from upstream):
+#   sed -i 's/-lchromaprint/-lchromaprint -lstdc++/' file.pc
+#
+# New (awk, structurally different):
+_pc="$PREFIX/lib/pkgconfig/chromaprint.pc"
+awk '/^Libs:/ && !/-lstdc\+\+/ {$0 = $0 " -lstdc++"} {print}' "$_pc" > "$_pc.tmp" && mv "$_pc.tmp" "$_pc"
+```
+
+This is structurally different: `awk` operates on fields/lines with conditionals vs `sed`'s pattern substitution. It also guards against double-appending.
 
 ### Additional recipe notes
 
@@ -414,7 +447,7 @@ Reads the manifest and removes every listed file. `--yes` skips confirmation. `-
 
 | Task | Use | Avoid |
 |---|---|---|
-| Fix third-party source bugs | `patch -p1 < patches/name.patch` | Inline `sed` on source files |
+| Complex multi-line source fixes | `patch -p1 < patches/name.patch` | Inline `sed` on source files |
 | Fix pkgconfig/build metadata | `awk` with `-v` variables | `sed` (awk is better for field-based edits) |
 | Simple single-line substitution | `sed 's/old/new/'` with `> tmp && mv tmp orig` | `sed -i` (not POSIX) |
 | Template expansion | `awk` with `-v` or `sed` with multiple `-e` | `sed -i`, `envsubst` |
@@ -428,6 +461,7 @@ Reads the manifest and removes every listed file. `--yes` skips confirmation. `-
 patches/
   libvorbis-cpusubtype.patch
   giflib-makefile.patch
+  libjxl-cmake.patch
   libzmq-stats-proxy.patch    (if still needed)
 ```
 
