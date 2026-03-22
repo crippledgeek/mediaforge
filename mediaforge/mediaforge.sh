@@ -252,6 +252,7 @@ cmd_build() {
   # Install (unless --no-install)
   if [ "$SKIP_INSTALL" != "yes" ]; then
     . "$SCRIPT_DIR/lib/install.sh"
+    do_install ""
   fi
 }
 
@@ -264,15 +265,39 @@ cmd_clean() {
 # ─── Install ─────────────────────────────────────────────────────────
 
 cmd_install() {
-  # TODO: Phase 4 will add menu-based install with manifest
   . "$SCRIPT_DIR/lib/install.sh"
+  _prefix=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --prefix=*) _prefix="${1#--prefix=}" ;;
+      --prefix)   shift; _prefix="$1" ;;
+      --yes|-y)   AUTOINSTALL=yes ;;
+      --)         shift; break ;;
+      -*)         die "Unknown option for install: $1" ;;
+      *)          break ;;
+    esac
+    shift
+  done
+  do_install "$_prefix"
 }
 
 # ─── Uninstall ───────────────────────────────────────────────────────
 
 cmd_uninstall() {
-  # TODO: Phase 4 will add manifest-based uninstall
-  die "Uninstall not yet implemented. Remove installed files manually."
+  . "$SCRIPT_DIR/lib/install.sh"
+  _prefix=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --prefix=*) _prefix="${1#--prefix=}" ;;
+      --prefix)   shift; _prefix="$1" ;;
+      --yes|-y)   AUTOINSTALL=yes ;;
+      --)         shift; break ;;
+      -*)         die "Unknown option for uninstall: $1" ;;
+      *)          break ;;
+    esac
+    shift
+  done
+  do_uninstall "$_prefix"
 }
 
 # ─── Check Updates ───────────────────────────────────────────────────
