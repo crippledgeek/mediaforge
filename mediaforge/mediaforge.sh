@@ -162,6 +162,21 @@ cmd_build() {
   command_exists "cargo"   || warn "cargo not installed — rav1e will be skipped"
   command_exists "python3" || warn "python3 not installed — dav1d and lv2 will be skipped"
 
+  # Static build: check for required static system libraries
+  if [ -n "$LDEXEFLAGS" ]; then
+    _missing=""
+    for _slib in expat bz2 lzma unibreak bsd md deflate jbig jpeg unwind; do
+      if [ ! -f "/usr/lib/lib${_slib}.a" ]; then
+        _missing="$_missing $_slib"
+      fi
+    done
+    if [ -n "$_missing" ]; then
+      warn "Static build: missing system static libraries:$_missing"
+      warn "FFmpeg configure may fail. See BUILDING.md for details."
+      warn "On Arch Linux, rebuild these packages with staticlibs or use AUR static packages."
+    fi
+  fi
+
   # Platform-specific setup
   if [ "$OS_MACOS_ARM" = true ]; then
     export ARCH=arm64
