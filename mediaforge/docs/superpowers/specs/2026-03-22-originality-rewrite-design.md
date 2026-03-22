@@ -83,7 +83,7 @@ Every reference to renamed variables must be updated. **High-risk files requirin
 - `lib/download.sh` -- `$DISTDIR` (was `$PACKAGES`)
 - `lib/cleanup.sh` -- `$TOPDIR` in `on_exit()` (was `$CWD`), `$DISTDIR` and `$PREFIX` in `full_cleanup()` (were `$PACKAGES` and `$WORKSPACE`)
 - `lib/framework.sh` -- `$ENABLE_GPL`, `$ENABLE_NONFREE`, `$NO_LV2` in `check_guards()` (were `$GPL`, `$NONFREE`, `$DISABLE_LV2`); `$PREFIX` throughout (was `$WORKSPACE`)
-- `lib/platform.sh` -- `$OS_MACOS`, `$OS_LINUX`, `$OS_MACOS_ARM`, `$OS_FREEBSD` (were `$IS_DARWIN`, `$IS_LINUX`, `$IS_MACOS_SILICON`, `$IS_FREEBSD`)
+- `lib/platform.sh` -- `$OS_MACOS`, `$OS_LINUX`, `$OS_MACOS_ARM`, `$OS_FREEBSD` (were `$IS_DARWIN`, `$IS_LINUX`, `$IS_MACOS_SILICON`, `$IS_FREEBSD`). Also replace `nproc`/`sysctl` CPU detection with POSIX `getconf _NPROCESSORS_ONLN` as primary (fallback chain: `getconf` -> `nproc` -> `sysctl -n hw.ncpu` -> `/proc/cpuinfo` -> 1)
 - `lib/install.sh` -- full rewrite (Section 5), no propagation needed
 - `recipes/**/*.sh` -- `$PREFIX` (was `$WORKSPACE`), `$DISTDIR` (was `$PACKAGES`) in any recipe referencing these
 - `recipes/ffmpeg.sh` -- `$FFMPEG_CONFIGURE_OPTS` (was `$CONFIGURE_OPTIONS`), `$NVCCFLAGS` (was `$NVCC_FLAGS`)
@@ -343,7 +343,9 @@ Behavior modifiers:
 - `--yes` selects User (non-root) or System (root) automatically
 - `--no-install` on `build` skips the install phase entirely
 
-Privilege escalation: if the selected prefix requires root (e.g., `/usr/local`), `sudo` is used for copy commands. Detected by checking write permissions on the target directory.
+Privilege escalation: if the selected prefix requires root (e.g., `/usr/local`), `sudo` is used for copy commands. Detected by checking write permissions on the target directory (`[ -w "$_dest" ]`).
+
+File installation uses POSIX tools only: `mkdir -p` for directories, `cp` for files, `chmod` for permissions. The `install` utility is NOT used (not POSIX-mandated).
 
 ### Uninstall
 
@@ -361,18 +363,43 @@ Reads the manifest and removes every listed file. `--yes` skips confirmation. `-
 
 ---
 
-## 6. Recipe Sed Pattern Rewrites
+## 6. Recipe Fix Rewrites
 
-~6 recipes where the specific sed expression is creative expression copied from upstream. The fix itself (what the sed does) is functional; only the sed implementation needs to differ.
+~6 recipes where the specific fix implementation is creative expression copied from upstream. The fix itself (what it does) is functional; only the implementation needs to differ.
 
-| Recipe | Derived sed pattern | Change |
+**Strategy change:** Convert inline `sed` fixes to `patch -p1` files stored in a new `patches/` directory. This is more auditable, version-trackable, and structurally different from the upstream's inline sed approach. `patch` is POSIX-mandated.
+
+| Recipe | Derived fix | New approach |
 |---|---|---|
-| `libvorbis` | `force_cpusubtype_ALL` removal | Different sed approach or `autoreconf` |
-| `giflib` | Makefile doc/man target removal | Different sed pattern or `make` target override |
-| `libzmq` | `stats_proxy` fix | Verify if still needed; rewrite sed |
-| `srt` | `lgcc_eh` pkgconfig fix | Different sed implementation |
-| `x265` | `lgcc_s` -> `lgcc_eh` in pkgconfig | Different sed implementation |
-| `ffmpeg.sh` | `--extra-version` value | Use `--extra-version=mediaforge` unconditionally (replaces the conditional Darwin-only `$FFMPEG_VERSION` value) |
+| `libvorbis` | `force_cpusubtype_ALL` sed removal | `patch -p1 < patches/libvorbis-cpusubtype.patch` |
+| `giflib` | Makefile doc/man sed removal | `patch -p1 < patches/giflib-makefile.patch` or `awk` rewrite of Makefile targets |
+| `libzmq` | `stats_proxy` sed fix | Verify if still needed in current version; if so, `patch -p1` |
+| `srt` | `lgcc_eh` pkgconfig sed fix | `awk` rewrite of pkgconfig file (field-based, structurally different from sed) |
+| `x265` | `lgcc_s` -> `lgcc_eh` pkgconfig sed | `awk` rewrite of pkgconfig file |
+| `ffmpeg.sh` | `--extra-version` value | Use `--extra-version=mediaforge` unconditionally |
+
+### Tooling guidelines for all recipes
+
+| Task | Use | Avoid |
+|---|---|---|
+| Fix third-party source bugs | `patch -p1 < patches/name.patch` | Inline `sed` on source files |
+| Fix pkgconfig/build metadata | `awk` with `-v` variables | `sed` (awk is better for field-based edits) |
+| Simple single-line substitution | `sed 's/old/new/'` with `> tmp && mv tmp orig` | `sed -i` (not POSIX) |
+| Template expansion | `awk` with `-v` or `sed` with multiple `-e` | `sed -i`, `envsubst` |
+| CPU detection | `getconf _NPROCESSORS_ONLN` (POSIX) | `nproc` (Linux-only) |
+| File installation | `cp` + `chmod` + `mkdir -p` | `install` (not POSIX) |
+| Output | `printf` | `echo` (non-portable flags) |
+
+### Patch directory structure
+
+```
+patches/
+  libvorbis-cpusubtype.patch
+  giflib-makefile.patch
+  libzmq-stats-proxy.patch    (if still needed)
+```
+
+Patches are generated with `diff -u` and applied with `patch -p1`. Each patch targets a specific upstream version; version-specific patches can be gated with `case "$PKG_VERSION"` in the recipe's `pkg_prepare()` phase.
 
 ---
 
