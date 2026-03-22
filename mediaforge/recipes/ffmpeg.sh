@@ -2,8 +2,13 @@
 # Final FFmpeg build — consumes FFMPEG_CONFIGURE_OPTS from all recipes
 
 # flite links against ALSA on Linux (static libflite.a references snd_pcm_*)
+# Skip in full-static builds if no static libasound.a is available
 if [ "$OS_LINUX" = true ] && [ -f "$PREFIX/lib/libflite.a" ]; then
-  EXTRALIBS="$EXTRALIBS -lasound"
+  if [ -n "$LDEXEFLAGS" ] && [ ! -f /usr/lib/libasound.a ]; then
+    warn "Static libasound.a not found — flite audio output will be unavailable"
+  else
+    EXTRALIBS="$EXTRALIBS -lasound"
+  fi
 fi
 
 EXTRA_VERSION="mediaforge"
