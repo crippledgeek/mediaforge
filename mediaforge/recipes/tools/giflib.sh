@@ -4,8 +4,8 @@ PKG_URL="https://sources.voidlinux.org/giflib-${PKG_VERSION}/giflib-${PKG_VERSIO
 
 pkg_configure() {
   cd "$DISTDIR/giflib-${PKG_VERSION}" || die "Failed to cd to giflib"
-  sed 's/$(MAKE) -C doc//g' Makefile > Makefile.tmp && mv Makefile.tmp Makefile
-  sed 's/install: all install-bin install-include install-lib install-man/install: all install-bin install-include install-lib/g' Makefile > Makefile.tmp && mv Makefile.tmp Makefile
+  awk '{gsub(/\$\(MAKE\) -C doc/, "")} {print}' Makefile > Makefile.tmp && mv Makefile.tmp Makefile
+  awk '/^install:/ {gsub(/install-man/, "")} {print}' Makefile > Makefile.tmp && mv Makefile.tmp Makefile
 }
 
 pkg_build() {

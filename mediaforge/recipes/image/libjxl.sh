@@ -10,13 +10,12 @@ pkg_prepare() {
   # (upstream bug — jxl.cmake does this for libjxl but jxl_threads.cmake doesn't)
 
   # 1) Add @JPEGXL_THREADS_PUBLIC_LIBS@ placeholder to the .pc.in template
-  sed 's/-ljxl_threads/-ljxl_threads @JPEGXL_THREADS_PUBLIC_LIBS@/' \
+  awk '{gsub(/-ljxl_threads/, "-ljxl_threads @JPEGXL_THREADS_PUBLIC_LIBS@")} {print}' \
     lib/threads/libjxl_threads.pc.in > lib/threads/libjxl_threads.pc.in.tmp \
     && mv lib/threads/libjxl_threads.pc.in.tmp lib/threads/libjxl_threads.pc.in
 
   # 2) Define the variable in jxl_threads.cmake (static build branch)
-  sed '/set(JPEGXL_REQUIRES_TYPE "Requires")/a\
-  set(JPEGXL_THREADS_PUBLIC_LIBS "-lm ${PKGCONFIG_CXX_LIB}")' \
+  awk '/set\(JPEGXL_REQUIRES_TYPE "Requires"\)/ {print; print "  set(JPEGXL_THREADS_PUBLIC_LIBS \"-lm ${PKGCONFIG_CXX_LIB}\")"; next} {print}' \
     lib/jxl_threads.cmake > lib/jxl_threads.cmake.tmp \
     && mv lib/jxl_threads.cmake.tmp lib/jxl_threads.cmake
 

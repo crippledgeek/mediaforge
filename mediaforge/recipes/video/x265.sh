@@ -68,8 +68,7 @@ pkg_install() {
 
 pkg_post_install() {
   if [ -n "$LDEXEFLAGS" ]; then
-    sed 's/-lgcc_s/-lgcc_eh/g' "$PREFIX/lib/pkgconfig/x265.pc" \
-      > "$PREFIX/lib/pkgconfig/x265.pc.tmp" \
-      && mv "$PREFIX/lib/pkgconfig/x265.pc.tmp" "$PREFIX/lib/pkgconfig/x265.pc"
+    _pc="$PREFIX/lib/pkgconfig/x265.pc"
+    awk '/^Libs/ {gsub(/-lgcc_s/, "-lgcc_eh")} {print}' "$_pc" > "$_pc.tmp" && mv "$_pc.tmp" "$_pc"
   fi
 }

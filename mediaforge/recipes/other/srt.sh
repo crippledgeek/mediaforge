@@ -22,8 +22,7 @@ pkg_install() {
 
 pkg_post_install() {
   if [ -n "$LDEXEFLAGS" ]; then
-    sed 's/-lgcc_s/-lgcc_eh/g' "$PREFIX/lib/pkgconfig/srt.pc" \
-      > "$PREFIX/lib/pkgconfig/srt.pc.tmp" \
-      && mv "$PREFIX/lib/pkgconfig/srt.pc.tmp" "$PREFIX/lib/pkgconfig/srt.pc"
+    _pc="$PREFIX/lib/pkgconfig/srt.pc"
+    awk '/^Libs/ {gsub(/-lgcc_s/, "-lgcc_eh")} {print}' "$_pc" > "$_pc.tmp" && mv "$_pc.tmp" "$_pc"
   fi
 }

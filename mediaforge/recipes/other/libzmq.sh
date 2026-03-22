@@ -15,7 +15,8 @@ pkg_configure() {
 }
 
 pkg_build() {
-  sed "s/stats_proxy stats = {0}/stats_proxy stats = {{{0, 0}, {0, 0}}, {{0, 0}, {0, 0}}}/g" \
+  # Fix aggregate initialization for GCC 15+ (C23 stricter rules)
+  awk '{gsub(/stats_proxy stats = \{0\}/, "stats_proxy stats = {{{0, 0}, {0, 0}}, {{0, 0}, {0, 0}}}")} {print}' \
     src/proxy.cpp > src/proxy.cpp.tmp && mv src/proxy.cpp.tmp src/proxy.cpp
   run make -j "$MJOBS"
 }

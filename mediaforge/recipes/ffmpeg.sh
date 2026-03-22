@@ -6,10 +6,7 @@ if [ "$OS_LINUX" = true ] && [ -f "$PREFIX/lib/libflite.a" ]; then
   EXTRALIBS="$EXTRALIBS -lasound"
 fi
 
-EXTRA_VERSION=""
-if [ "$OS_MACOS" = true ]; then
-  EXTRA_VERSION="$FFMPEG_VERSION"
-fi
+EXTRA_VERSION="mediaforge"
 
 log ""
 log "Building FFmpeg $FFMPEG_VERSION"
