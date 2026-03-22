@@ -35,6 +35,6 @@ pkg_post_install() {
     fi
     FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-cuda-nvcc --enable-cuda-llvm"
     _cuda_cc="${CUDA_COMPUTE_CAPABILITY:-52}"
-    NVCCFLAGS="--nvccflags=\"-gencode arch=compute_${_cuda_cc},code=sm_${_cuda_cc} -O2\""
+    NVCCFLAGS="-gencode arch=compute_${_cuda_cc},code=sm_${_cuda_cc} -O2"
   fi
 }
