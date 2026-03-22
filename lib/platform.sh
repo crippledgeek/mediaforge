@@ -1,9 +1,11 @@
 #!/bin/sh
+# shellcheck disable=SC2034
 # Platform detection — single source of truth for OS/arch info
 
 OS_TYPE=$(uname -s)
 OS_ARCH=$(uname -m)
 
+# shellcheck disable=SC2034
 OS_MACOS=false
 OS_LINUX=false
 OS_FREEBSD=false
@@ -45,4 +47,5 @@ detect_jobs() {
   fi
 }
 
+# shellcheck disable=SC2034
 MJOBS=$(detect_jobs)

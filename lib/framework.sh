@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC1090
 # Build engine — recipe loading and phase execution
 
 # Default phase functions
@@ -48,6 +49,7 @@ reset_recipe() {
   PKG_CONFIGURE_FLAGS=""
   PKG_CMAKE=false
   PKG_CMAKE_FLAGS=""
+  # shellcheck disable=SC2034
   PKG_GITHUB_REPO=""
 
   # Reset phase functions to defaults

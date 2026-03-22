@@ -53,7 +53,7 @@ fetch() {
   esac
 
   # Extract based on archive type
-  rm -rf "$DISTDIR/$_dir"
+  rm -rf "${DISTDIR:?}/${_dir:?}"
   mkdir -p "$DISTDIR/$_dir" || die "Failed to create $DISTDIR/$_dir"
 
   if [ -n "$3" ]; then
