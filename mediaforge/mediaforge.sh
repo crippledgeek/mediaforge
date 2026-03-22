@@ -79,32 +79,25 @@ cmd_version() {
 # ─── Build ───────────────────────────────────────────────────────────
 
 cmd_build() {
-  # Phase 1: getopts handles short options
-  OPTIND=1
-  while getopts "gGLsmp:j:Iyvqnkh" _opt; do
-    case "$_opt" in
-      g) ENABLE_GPL=true ;;
-      G) ENABLE_NONFREE=true; ENABLE_GPL=true ;;
-      L) NO_LV2=true ;;
-      s) _enable_static=true ;;
-      m) _enable_small=true ;;
-      p) PROFILE_NAME="$OPTARG" ;;
-      j) MJOBS="$OPTARG" ;;
-      I) SKIP_INSTALL=yes ;;
-      y) AUTOINSTALL=yes ;;
-      v) VERBOSE=$((VERBOSE + 1)) ;;
-      q) QUIET=true ;;
-      n) DRY_RUN=true ;;
-      k) KEEP_GOING=true ;;
-      h) cmd_help; exit 0 ;;
-      '?') exit 2 ;;
-    esac
-  done
-  shift $((OPTIND - 1))
-
-  # Phase 2: case handles remaining long options
+  # Unified option parser — handles both short and long options
   while [ $# -gt 0 ]; do
     case "$1" in
+      # Short options
+      -g)  ENABLE_GPL=true ;;
+      -G)  ENABLE_NONFREE=true; ENABLE_GPL=true ;;
+      -L)  NO_LV2=true ;;
+      -s)  _enable_static=true ;;
+      -m)  _enable_small=true ;;
+      -p)  shift; PROFILE_NAME="$1" ;;
+      -j)  shift; MJOBS="$1" ;;
+      -I)  SKIP_INSTALL=yes ;;
+      -y)  AUTOINSTALL=yes ;;
+      -v)  VERBOSE=$((VERBOSE + 1)) ;;
+      -q)  QUIET=true ;;
+      -n)  DRY_RUN=true ;;
+      -k)  KEEP_GOING=true ;;
+      -h)  cmd_help; exit 0 ;;
+      # Long options
       --enable-gpl)        ENABLE_GPL=true ;;
       --enable-nonfree)    ENABLE_NONFREE=true; ENABLE_GPL=true ;;
       --disable-lv2)       NO_LV2=true ;;
