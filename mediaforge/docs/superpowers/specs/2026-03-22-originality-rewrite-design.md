@@ -204,20 +204,81 @@ Each `cmd_*` function handles its own option parsing. Global options (none curre
 
 | Flag | Short | Description |
 |---|---|---|
-| `--enable-gpl` | | Enable GPL-licensed codecs |
-| `--enable-nonfree` | | Enable non-free codecs (implies `--enable-gpl`) |
-| `--disable-lv2` | | Skip LV2 plugin chain |
-| `--enable-static` | | Full static binary (Linux only) |
-| `--enable-small` | | Minimal build |
+| `--enable-gpl` | `-g` | Enable GPL-licensed codecs |
+| `--enable-nonfree` | `-G` | Enable non-free codecs (implies `--enable-gpl`) |
+| `--disable-lv2` | `-L` | Skip LV2 plugin chain |
+| `--enable-static` | `-s` | Full static binary (Linux only) |
+| `--enable-small` | `-m` | Minimal build |
 | `--profile=X.Y` | `-p` | Version profile |
 | `--jobs=N` | `-j` | Parallel job count (default: auto-detect) |
-| `--rebuild-outdated` | | Rebuild stale dependencies |
-| `--no-install` | | Skip post-build install |
+| `--rebuild-outdated` | `-u` | Rebuild stale dependencies |
+| `--no-install` | `-I` | Skip post-build install |
 | `--yes` | `-y` | Non-interactive mode |
 | `--verbose` | `-v` | Show build commands (`-vv` for compiler lines) |
 | `--quiet` | `-q` | Errors only |
 | `--dry-run` | `-n` | Show what would build without building |
 | `--keep-going` | `-k` | Don't stop on first recipe failure |
+
+### Option Parsing: Hybrid getopts + case
+
+Each `cmd_*` function uses POSIX `getopts` for short options, then a `case` fallback for long options. This is portable and avoids external `getopt`.
+
+```sh
+cmd_build() {
+  # Phase 1: getopts handles short options
+  OPTIND=1
+  while getopts "gGLsmp:j:Iyvqnkh" _opt; do
+    case "$_opt" in
+      g) ENABLE_GPL=true ;;
+      G) ENABLE_NONFREE=true; ENABLE_GPL=true ;;
+      L) NO_LV2=true ;;
+      s) FULL_STATIC=true ;;
+      m) ENABLE_SMALL=true ;;
+      p) PROFILE_NAME="$OPTARG" ;;
+      j) MJOBS="$OPTARG" ;;
+      I) SKIP_INSTALL=true ;;
+      y) AUTOINSTALL=true ;;
+      v) VERBOSE=$((VERBOSE + 1)) ;;
+      q) QUIET=true ;;
+      n) DRY_RUN=true ;;
+      k) KEEP_GOING=true ;;
+      h) cmd_help; exit 0 ;;
+      '?') exit 2 ;;
+    esac
+  done
+  shift $((OPTIND - 1))
+
+  # Phase 2: case handles remaining long options
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --enable-gpl)        ENABLE_GPL=true ;;
+      --enable-nonfree)    ENABLE_NONFREE=true; ENABLE_GPL=true ;;
+      --disable-lv2)       NO_LV2=true ;;
+      --enable-static)     FULL_STATIC=true ;;
+      --enable-small)      ENABLE_SMALL=true ;;
+      --profile=*)         PROFILE_NAME="${1#--profile=}" ;;
+      --profile)           shift; PROFILE_NAME="$1" ;;
+      --jobs=*)            MJOBS="${1#--jobs=}" ;;
+      --jobs)              shift; MJOBS="$1" ;;
+      --rebuild-outdated)  REBUILD_OUTDATED=true ;;
+      --no-install)        SKIP_INSTALL=true ;;
+      --yes)               AUTOINSTALL=true ;;
+      --verbose)           VERBOSE=$((VERBOSE + 1)) ;;
+      --quiet)             QUIET=true ;;
+      --dry-run)           DRY_RUN=true ;;
+      --keep-going)        KEEP_GOING=true ;;
+      --)                  shift; break ;;
+      -*)                  die "Unknown option: $1" ;;
+      *)                   break ;;
+    esac
+    shift
+  done
+}
+```
+
+**How it works:** `getopts` consumes all leading short options and option groups (e.g., `-gvj8`). After `getopts` exhausts short options, the `while`/`case` loop handles any remaining `--long-form` arguments. Users can freely mix: `mediaforge build -gv --profile=7.1 --keep-going`.
+
+**Note on `-vv`:** POSIX `getopts` handles repeated short options naturally. `-vv` is parsed as `-v -v`, incrementing `VERBOSE` twice.
 
 ### Backward compatibility
 
@@ -231,7 +292,8 @@ This is a clean break, not a deprecation period.
 
 ### POSIX Compliance
 
-- Manual `while`/`case` parsing (no external `getopt`)
+- POSIX `getopts` for short options (portable across sh, dash, bash, ksh, zsh)
+- Manual `while`/`case` for long options (no external `getopt`)
 - All long options support `--option=value` syntax
 - `--` end-of-options marker supported
 - Exit codes: 0 success, 1 runtime error, 2 usage error
