@@ -34,7 +34,12 @@ pkg_post_install() {
       printf '%s\n' "-L$_cuda_home/lib64" >> "$PREFIX/.extra_ldflags"
     fi
     FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-cuda-nvcc --enable-cuda-llvm"
-    _cuda_cc="${CUDA_COMPUTE_CAPABILITY:-52}"
+    # Auto-detect GPU compute capability, fallback to 61 (Pascal)
+    _cuda_cc="${CUDA_COMPUTE_CAPABILITY:-}"
+    if [ -z "$_cuda_cc" ] && command_exists nvidia-smi; then
+      _cuda_cc=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '.')
+    fi
+    _cuda_cc="${_cuda_cc:-61}"
     NVCCFLAGS="-gencode arch=compute_${_cuda_cc},code=sm_${_cuda_cc} -O2"
   fi
 }
