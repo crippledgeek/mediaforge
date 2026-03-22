@@ -60,12 +60,12 @@ build() {
   log "Building $_pkg - version $_ver"
   log "======================="
 
-  if [ -f "$PACKAGES/$_pkg.done" ]; then
-    _done_ver=$(cat "$PACKAGES/$_pkg.done")
+  if [ -f "$DISTDIR/$_pkg.done" ]; then
+    _done_ver=$(cat "$DISTDIR/$_pkg.done")
     if [ "$_done_ver" = "$_ver" ]; then
-      log "$_pkg version $_ver already built. Remove $PACKAGES/$_pkg.done to rebuild."
+      log "$_pkg version $_ver already built. Remove $DISTDIR/$_pkg.done to rebuild."
       return 1
-    elif [ "$LATEST" = true ]; then
+    elif [ "$REBUILD_OUTDATED" = true ]; then
       log "$_pkg is outdated, rebuilding with version $_ver"
       return 0
     else
@@ -79,7 +79,7 @@ build() {
 
 # Mark package as built
 build_done() {
-  printf '%s\n' "$2" > "$PACKAGES/$1.done"
+  printf '%s\n' "$2" > "$DISTDIR/$1.done"
 }
 
 # Print compiler flags

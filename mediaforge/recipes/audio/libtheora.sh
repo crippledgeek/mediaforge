@@ -10,11 +10,11 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  execute ./configure --prefix="$WORKSPACE" \
-    --with-ogg-libraries="$WORKSPACE/lib" \
-    --with-ogg-includes="$WORKSPACE/include/" \
-    --with-vorbis-libraries="$WORKSPACE/lib" \
-    --with-vorbis-includes="$WORKSPACE/include/" \
+  execute ./configure --prefix="$PREFIX" \
+    --with-ogg-libraries="$PREFIX/lib" \
+    --with-ogg-includes="$PREFIX/include/" \
+    --with-vorbis-libraries="$PREFIX/lib" \
+    --with-vorbis-includes="$PREFIX/include/" \
     --enable-static --disable-shared \
     --disable-oggtest --disable-vorbistest \
     --disable-examples --disable-spec

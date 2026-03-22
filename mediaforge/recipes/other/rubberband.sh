@@ -8,8 +8,8 @@ PKG_REQUIRES_MESON=true
 
 pkg_configure() {
   make_dir build
-  execute meson setup build --prefix="$WORKSPACE" --buildtype=release \
-    --default-library=static --libdir="$WORKSPACE/lib" \
+  execute meson setup build --prefix="$PREFIX" --buildtype=release \
+    --default-library=static --libdir="$PREFIX/lib" \
     -Dfft=builtin -Dresampler=builtin -Dtests=disabled
 }
 

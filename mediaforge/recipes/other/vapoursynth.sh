@@ -8,6 +8,6 @@ pkg_configure() { :; }
 pkg_build() { :; }
 
 pkg_install() {
-  mkdir -p "$WORKSPACE/include/vapoursynth" || die "Failed to create vapoursynth include dir"
-  cp -r "include/." "$WORKSPACE/include/vapoursynth/"
+  mkdir -p "$PREFIX/include/vapoursynth" || die "Failed to create vapoursynth include dir"
+  cp -r "include/." "$PREFIX/include/vapoursynth/"
 }

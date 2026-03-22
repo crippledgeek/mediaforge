@@ -5,13 +5,13 @@ PKG_URL="https://github.com/zeromq/libzmq/releases/download/v${PKG_VERSION}/zero
 PKG_FFMPEG_OPT="--enable-libzmq"
 
 pkg_prepare() {
-  if [ "$IS_DARWIN" = true ]; then
+  if [ "$OS_MACOS" = true ]; then
     export XML_CATALOG_FILES=/usr/local/etc/xml/catalog
   fi
 }
 
 pkg_configure() {
-  execute ./configure --prefix="$WORKSPACE" --disable-shared --enable-static
+  execute ./configure --prefix="$PREFIX" --disable-shared --enable-static
 }
 
 pkg_build() {

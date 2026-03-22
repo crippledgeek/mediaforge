@@ -15,8 +15,8 @@ pkg_prepare() {
 
 pkg_configure() {
   make_dir build
-  execute meson setup build --prefix="$WORKSPACE" --buildtype=release \
-    --default-library=static --libdir="$WORKSPACE/lib" \
+  execute meson setup build --prefix="$PREFIX" --buildtype=release \
+    --default-library=static --libdir="$PREFIX/lib" \
     -Dbuilt_tools=false -Dtest=false
 }
 

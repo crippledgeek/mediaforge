@@ -7,10 +7,10 @@ PKG_FFMPEG_OPT="--enable-libsrt"
 PKG_NONFREE=true
 
 pkg_configure() {
-  export OPENSSL_ROOT_DIR="$WORKSPACE"
-  export OPENSSL_LIB_DIR="$WORKSPACE/lib"
-  export OPENSSL_INCLUDE_DIR="$WORKSPACE/include/"
-  execute cmake . -DCMAKE_INSTALL_PREFIX="$WORKSPACE" \
+  export OPENSSL_ROOT_DIR="$PREFIX"
+  export OPENSSL_LIB_DIR="$PREFIX/lib"
+  export OPENSSL_INCLUDE_DIR="$PREFIX/include/"
+  execute cmake . -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_BINDIR=bin \
     -DCMAKE_INSTALL_INCLUDEDIR=include -DENABLE_SHARED=OFF \
     -DENABLE_STATIC=ON -DENABLE_APPS=OFF -DUSE_STATIC_LIBSTDCXX=ON
@@ -22,8 +22,8 @@ pkg_install() {
 
 pkg_post_install() {
   if [ -n "$LDEXEFLAGS" ]; then
-    sed 's/-lgcc_s/-lgcc_eh/g' "$WORKSPACE/lib/pkgconfig/srt.pc" \
-      > "$WORKSPACE/lib/pkgconfig/srt.pc.tmp" \
-      && mv "$WORKSPACE/lib/pkgconfig/srt.pc.tmp" "$WORKSPACE/lib/pkgconfig/srt.pc"
+    sed 's/-lgcc_s/-lgcc_eh/g' "$PREFIX/lib/pkgconfig/srt.pc" \
+      > "$PREFIX/lib/pkgconfig/srt.pc.tmp" \
+      && mv "$PREFIX/lib/pkgconfig/srt.pc.tmp" "$PREFIX/lib/pkgconfig/srt.pc"
   fi
 }

@@ -11,7 +11,7 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  execute ./configure --prefix="$WORKSPACE" --disable-shared --enable-static \
+  execute ./configure --prefix="$PREFIX" --disable-shared --enable-static \
     --disable-doc --disable-java --disable-csharp --disable-ruby \
     --disable-python --disable-x11 --disable-gl --disable-cocoa \
     --disable-ncurses --disable-slang --disable-imlib2
@@ -24,5 +24,5 @@ pkg_build() {
 
 pkg_install() {
   execute make -C caca install
-  execute cp caca/caca.pc "$WORKSPACE/lib/pkgconfig/"
+  execute cp caca/caca.pc "$PREFIX/lib/pkgconfig/"
 }

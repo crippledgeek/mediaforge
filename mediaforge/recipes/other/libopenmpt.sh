@@ -5,7 +5,7 @@ PKG_FILENAME="libopenmpt-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libopenmpt"
 
 pkg_configure() {
-  execute ./configure --prefix="$WORKSPACE" --disable-shared --enable-static \
+  execute ./configure --prefix="$PREFIX" --disable-shared --enable-static \
     --disable-examples --disable-tests --disable-openmpt123 \
     --without-mpg123 --without-portaudio --without-portaudiocpp
 }

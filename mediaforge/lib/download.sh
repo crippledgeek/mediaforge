@@ -18,14 +18,14 @@ download() {
   fi
 
   # Download if not cached
-  if [ ! -f "$PACKAGES/$_file" ]; then
+  if [ ! -f "$DISTDIR/$_file" ]; then
     log "Downloading $_url"
-    if ! curl -L -sS -o "$PACKAGES/$_file" "$_url"; then
-      rm -f "$PACKAGES/$_file"
+    if ! curl -L -sS -o "$DISTDIR/$_file" "$_url"; then
+      rm -f "$DISTDIR/$_file"
       warn "Download failed. Retrying in 10 seconds..."
       sleep 10
-      if ! curl -L -sS -o "$PACKAGES/$_file" "$_url"; then
-        rm -f "$PACKAGES/$_file"
+      if ! curl -L -sS -o "$DISTDIR/$_file" "$_url"; then
+        rm -f "$DISTDIR/$_file"
         die "Failed to download $_url"
       fi
     fi
@@ -40,8 +40,8 @@ download() {
   esac
 
   # Extract
-  remove_dir "$PACKAGES/$_dir"
-  mkdir -p "$PACKAGES/$_dir" || die "Failed to create $PACKAGES/$_dir"
+  remove_dir "$DISTDIR/$_dir"
+  mkdir -p "$DISTDIR/$_dir" || die "Failed to create $DISTDIR/$_dir"
 
   if [ -n "$3" ]; then
     _strip=""
@@ -50,10 +50,10 @@ download() {
   fi
 
   # shellcheck disable=SC2086
-  if ! tar -xf "$PACKAGES/$_file" -C "$PACKAGES/$_dir" $_strip 2>/dev/null; then
+  if ! tar -xf "$DISTDIR/$_file" -C "$DISTDIR/$_dir" $_strip 2>/dev/null; then
     die "Failed to extract $_file"
   fi
 
   log "Extracted $_file"
-  cd "$PACKAGES/$_dir" || die "Failed to enter $PACKAGES/$_dir"
+  cd "$DISTDIR/$_dir" || die "Failed to enter $DISTDIR/$_dir"
 }

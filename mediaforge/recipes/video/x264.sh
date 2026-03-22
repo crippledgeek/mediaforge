@@ -6,11 +6,11 @@ PKG_FFMPEG_OPT="--enable-libx264"
 PKG_GPL=true
 
 pkg_configure() {
-  if [ "$IS_LINUX" = true ]; then
-    execute ./configure --prefix="$WORKSPACE" --enable-static --enable-pic \
+  if [ "$OS_LINUX" = true ]; then
+    execute ./configure --prefix="$PREFIX" --enable-static --enable-pic \
       CXXFLAGS="-fPIC $CXXFLAGS"
   else
-    execute ./configure --prefix="$WORKSPACE" --enable-static --enable-pic
+    execute ./configure --prefix="$PREFIX" --enable-static --enable-pic
   fi
 }
 

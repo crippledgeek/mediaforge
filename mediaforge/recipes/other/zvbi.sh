@@ -7,10 +7,10 @@ PKG_FFMPEG_OPT="--enable-libzvbi"
 PKG_NONFREE=true
 
 pkg_prepare() {
-  execute ./autogen.sh --prefix="$WORKSPACE"
+  execute ./autogen.sh --prefix="$PREFIX"
 }
 
 pkg_configure() {
-  execute ./configure CFLAGS="-I$WORKSPACE/include/libpng16 $CFLAGS" \
-    --prefix="$WORKSPACE" --enable-static --disable-shared
+  execute ./configure CFLAGS="-I$PREFIX/include/libpng16 $CFLAGS" \
+    --prefix="$PREFIX" --enable-static --disable-shared
 }

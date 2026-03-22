@@ -14,7 +14,7 @@ pkg_prepare() {
 
 pkg_configure() {
   make_dir build
-  execute cmake -DCMAKE_INSTALL_PREFIX="$WORKSPACE" \
+  execute cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF \
     -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DUNITTEST=OFF \
     -B build .

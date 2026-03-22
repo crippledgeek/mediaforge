@@ -8,6 +8,6 @@ PKG_FFMPEG_OPT="--enable-libzimg"
 
 pkg_prepare() {
   cd "zimg-release-${PKG_VERSION}" || die "Failed to cd to zimg source"
-  execute "$WORKSPACE/bin/libtoolize" -i -f -q
-  execute ./autogen.sh --prefix="$WORKSPACE"
+  execute "$PREFIX/bin/libtoolize" -i -f -q
+  execute ./autogen.sh --prefix="$PREFIX"
 }

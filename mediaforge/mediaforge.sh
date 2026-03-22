@@ -7,9 +7,9 @@ PROGNAME=$(basename "$0")
 # Resolve script's own directory (portable)
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
-CWD=$(pwd)
-PACKAGES="$CWD/packages"
-WORKSPACE="$CWD/workspace"
+TOPDIR=$(pwd)
+DISTDIR="$TOPDIR/packages"
+PREFIX="$TOPDIR/workspace"
 
 # Source libraries (order matters — utils first, platform needs command_exists)
 . "$SCRIPT_DIR/lib/utils.sh"
@@ -19,21 +19,21 @@ WORKSPACE="$CWD/workspace"
 . "$SCRIPT_DIR/lib/framework.sh"
 
 # Compiler flags
-CFLAGS="-I$WORKSPACE/include"
-CXXFLAGS="-I$WORKSPACE/include"
-LDFLAGS="-L$WORKSPACE/lib"
+CFLAGS="-I$PREFIX/include"
+CXXFLAGS="-I$PREFIX/include"
+LDFLAGS="-L$PREFIX/lib"
 LDEXEFLAGS=""
 EXTRALIBS="-ldl -lpthread -lm -lz"
-CONFIGURE_OPTIONS=""
-NVCC_FLAGS=""
+FFMPEG_CONFIGURE_OPTS=""
+NVCCFLAGS=""
 
 # Feature flags
-GPL=false
-NONFREE=false
-DISABLE_LV2=false
-LATEST=false
-MANPAGES=1
-SKIPINSTALL=""
+ENABLE_GPL=false
+ENABLE_NONFREE=false
+NO_LV2=false
+REBUILD_OUTDATED=false
+INSTALL_MANPAGES=1
+SKIP_INSTALL=""
 AUTOINSTALL=""
 PROFILE_NAME=""
 CHECK_UPDATES=false
@@ -80,32 +80,32 @@ while [ $# -gt 0 ]; do
       bflag=yes
       ;;
     --gpl)
-      GPL=true
-      CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS --enable-gpl"
+      ENABLE_GPL=true
+      FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-gpl"
       ;;
     --nonfree)
-      NONFREE=true
-      if [ "$GPL" != true ]; then
-        GPL=true
-        CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS --enable-gpl"
+      ENABLE_NONFREE=true
+      if [ "$ENABLE_GPL" != true ]; then
+        ENABLE_GPL=true
+        FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-gpl"
       fi
-      CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS --enable-nonfree"
+      FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-nonfree"
       ;;
     --disable-lv2)
-      DISABLE_LV2=true
+      NO_LV2=true
       ;;
     -c|--cleanup)
       cflag=yes
       ;;
     --latest)
-      LATEST=true
+      REBUILD_OUTDATED=true
       ;;
     --small)
-      CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS --enable-small --disable-doc"
-      MANPAGES=0
+      FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-small --disable-doc"
+      INSTALL_MANPAGES=0
       ;;
     --full-static)
-      if [ "$IS_DARWIN" = true ]; then
+      if [ "$OS_MACOS" = true ]; then
         die "Full static binaries can only be built on Linux."
       fi
       LDEXEFLAGS="-static -fPIC"
@@ -116,10 +116,10 @@ while [ $# -gt 0 ]; do
       if [ "$AUTOINSTALL" = "yes" ]; then
         die "--skip-install cannot be used with --auto-install"
       fi
-      SKIPINSTALL=yes
+      SKIP_INSTALL=yes
       ;;
     --auto-install)
-      if [ "$SKIPINSTALL" = "yes" ]; then
+      if [ "$SKIP_INSTALL" = "yes" ]; then
         die "--auto-install cannot be used with --skip-install"
       fi
       AUTOINSTALL=yes
@@ -192,7 +192,7 @@ command_exists "cargo"   || warn "cargo not installed — rav1e will be skipped"
 command_exists "python3" || warn "python3 not installed — dav1d and lv2 will be skipped"
 
 # Platform-specific setup
-if [ "$IS_MACOS_SILICON" = true ]; then
+if [ "$OS_MACOS_ARM" = true ]; then
   export ARCH=arm64
   export MACOSX_DEPLOYMENT_TARGET=11.0
   CXX=$(command -v clang++)
@@ -201,15 +201,15 @@ if [ "$IS_MACOS_SILICON" = true ]; then
   log "Apple Silicon detected ($(sw_vers -productVersion))"
 fi
 
-MACOS_LIBTOOL=""
-if [ "$IS_DARWIN" = true ]; then
-  CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS --enable-videotoolbox"
-  MACOS_LIBTOOL="$(command -v libtool)"
+GNU_LIBTOOL=""
+if [ "$OS_MACOS" = true ]; then
+  FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-videotoolbox"
+  GNU_LIBTOOL="$(command -v libtool)"
 fi
 
 # Setup paths
-mkdir -p "$PACKAGES" || die "Failed to create $PACKAGES"
-mkdir -p "$WORKSPACE" || die "Failed to create $WORKSPACE"
+mkdir -p "$DISTDIR" || die "Failed to create $DISTDIR"
+mkdir -p "$PREFIX" || die "Failed to create $PREFIX"
 # Add CUDA to PATH if installed (common locations)
 for _cuda_dir in /opt/cuda /usr/local/cuda; do
   if [ -d "$_cuda_dir/bin" ]; then
@@ -217,23 +217,23 @@ for _cuda_dir in /opt/cuda /usr/local/cuda; do
     break
   fi
 done
-export PATH="$WORKSPACE/bin:$PATH"
+export PATH="$PREFIX/bin:$PATH"
 
 # Build pkg-config path dynamically
-PKG_CONFIG_PATH="$WORKSPACE/lib/pkgconfig:/usr/local/lib/pkgconfig"
-if [ -n "$MULTIARCH" ]; then
-  PKG_CONFIG_PATH="$PKG_CONFIG_PATH:/usr/lib/$MULTIARCH/pkgconfig"
-  PKG_CONFIG_PATH="$PKG_CONFIG_PATH:/usr/local/lib/$MULTIARCH/pkgconfig"
+PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:/usr/local/lib/pkgconfig"
+if [ -n "$MULTIARCH_TRIPLET" ]; then
+  PKG_CONFIG_PATH="$PKG_CONFIG_PATH:/usr/lib/$MULTIARCH_TRIPLET/pkgconfig"
+  PKG_CONFIG_PATH="$PKG_CONFIG_PATH:/usr/local/lib/$MULTIARCH_TRIPLET/pkgconfig"
 fi
 PKG_CONFIG_PATH="$PKG_CONFIG_PATH:/usr/local/share/pkgconfig:/usr/lib/pkgconfig"
 PKG_CONFIG_PATH="$PKG_CONFIG_PATH:/usr/share/pkgconfig:/usr/lib64/pkgconfig"
 export PKG_CONFIG_PATH
 
 log "Using $MJOBS parallel jobs"
-if [ "$GPL" = true ]; then
+if [ "$ENABLE_GPL" = true ]; then
   log "GPL codecs enabled"
 fi
-if [ "$NONFREE" = true ]; then
+if [ "$ENABLE_NONFREE" = true ]; then
   log "Non-free codecs enabled"
 fi
 if [ -n "$LDEXEFLAGS" ]; then
@@ -249,20 +249,20 @@ while IFS= read -r _recipe || [ -n "$_recipe" ]; do
 done < "$SCRIPT_DIR/recipes/_order.conf"
 
 # Read extra flags from accumulator files (written by recipes like lv2, nv-codec)
-if [ -f "$WORKSPACE/.extra_cflags" ]; then
+if [ -f "$PREFIX/.extra_cflags" ]; then
   while IFS= read -r _flag || [ -n "$_flag" ]; do
     CFLAGS="$CFLAGS $_flag"
-  done < "$WORKSPACE/.extra_cflags"
+  done < "$PREFIX/.extra_cflags"
 fi
-if [ -f "$WORKSPACE/.extra_ldflags" ]; then
+if [ -f "$PREFIX/.extra_ldflags" ]; then
   while IFS= read -r _flag || [ -n "$_flag" ]; do
     LDFLAGS="$LDFLAGS $_flag"
-  done < "$WORKSPACE/.extra_ldflags"
+  done < "$PREFIX/.extra_ldflags"
 fi
 
 # If on Linux and nvcc not found, explicitly disable ffnvcodec
-if [ "$IS_LINUX" = true ] && ! command_exists nvcc; then
-  CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS --disable-ffnvcodec"
+if [ "$OS_LINUX" = true ] && ! command_exists nvcc; then
+  FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --disable-ffnvcodec"
 fi
 
 # Build FFmpeg

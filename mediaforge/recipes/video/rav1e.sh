@@ -26,6 +26,6 @@ pkg_install() {
   # Build as shared library (cdylib) to avoid embedding Rust's std/alloc/gimli
   # symbols into a static .a — those cause duplicate symbol errors when any
   # other Rust project links against this FFmpeg build
-  execute cargo cinstall --prefix="$WORKSPACE" --libdir=lib \
+  execute cargo cinstall --prefix="$PREFIX" --libdir=lib \
     --library-type=cdylib --release
 }

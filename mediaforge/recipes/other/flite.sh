@@ -12,7 +12,7 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  execute ./configure --prefix="$WORKSPACE" --with-pic
+  execute ./configure --prefix="$PREFIX" --with-pic
 }
 
 # Build only libraries (parallel make races on flite_voice_list.c for tools)
@@ -28,7 +28,7 @@ pkg_install() {
   if [ -z "$_builddir" ]; then
     die "Cannot find flite build directory"
   fi
-  mkdir -p "$WORKSPACE/include/flite" "$WORKSPACE/lib"
-  execute cp include/*.h "$WORKSPACE/include/flite/"
-  execute cp "$_builddir"/lib/*.a "$WORKSPACE/lib/"
+  mkdir -p "$PREFIX/include/flite" "$PREFIX/lib"
+  execute cp include/*.h "$PREFIX/include/flite/"
+  execute cp "$_builddir"/lib/*.a "$PREFIX/lib/"
 }

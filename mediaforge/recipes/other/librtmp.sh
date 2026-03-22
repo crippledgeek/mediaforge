@@ -10,11 +10,11 @@ pkg_prepare() {
   export CFLAGS
 
   # No tarball available — clone from official git repo
-  if [ ! -d "$PACKAGES/rtmpdump" ]; then
+  if [ ! -d "$DISTDIR/rtmpdump" ]; then
     execute git clone --depth 1 --branch "v${PKG_VERSION}" \
-      https://git.ffmpeg.org/rtmpdump.git "$PACKAGES/rtmpdump"
+      https://git.ffmpeg.org/rtmpdump.git "$DISTDIR/rtmpdump"
   fi
-  cd "$PACKAGES/rtmpdump" || die "Failed to cd to rtmpdump"
+  cd "$DISTDIR/rtmpdump" || die "Failed to cd to rtmpdump"
 }
 
 pkg_configure() {
@@ -23,17 +23,17 @@ pkg_configure() {
 
 pkg_build() {
   cd librtmp || die "Failed to cd to librtmp"
-  execute make SYS=posix prefix="$WORKSPACE" \
+  execute make SYS=posix prefix="$PREFIX" \
     SHARED= CRYPTO=OPENSSL \
-    XCFLAGS="$CFLAGS -I$WORKSPACE/include" \
-    XLDFLAGS="-L$WORKSPACE/lib" \
+    XCFLAGS="$CFLAGS -I$PREFIX/include" \
+    XLDFLAGS="-L$PREFIX/lib" \
     LIB_OPENSSL="-lssl -lcrypto -lz -ldl -lpthread"
 }
 
 pkg_install() {
-  execute make SYS=posix prefix="$WORKSPACE" SHARED= install
+  execute make SYS=posix prefix="$PREFIX" SHARED= install
 }
 
 pkg_post_install() {
-  CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS --enable-librtmp"
+  FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-librtmp"
 }

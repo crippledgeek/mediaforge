@@ -8,12 +8,12 @@ pkg_prepare() {
   export CFLAGS
   sed "s/-force_cpusubtype_ALL//g" configure.ac > configure.ac.tmp \
     && mv configure.ac.tmp configure.ac
-  execute ./autogen.sh --prefix="$WORKSPACE"
+  execute ./autogen.sh --prefix="$PREFIX"
 }
 
 pkg_configure() {
-  execute ./configure --prefix="$WORKSPACE" \
-    --with-ogg-libraries="$WORKSPACE/lib" \
-    --with-ogg-includes="$WORKSPACE/include/" \
+  execute ./configure --prefix="$PREFIX" \
+    --with-ogg-libraries="$PREFIX/lib" \
+    --with-ogg-includes="$PREFIX/include/" \
     --enable-static --disable-shared --disable-oggtest
 }

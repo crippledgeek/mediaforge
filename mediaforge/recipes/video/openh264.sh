@@ -8,8 +8,8 @@ PKG_REQUIRES_MESON=true
 
 pkg_configure() {
   make_dir build
-  execute meson setup build --prefix="$WORKSPACE" --buildtype=release \
-    --default-library=static --libdir="$WORKSPACE/lib"
+  execute meson setup build --prefix="$PREFIX" --buildtype=release \
+    --default-library=static --libdir="$PREFIX/lib"
 }
 
 pkg_build() {
@@ -23,6 +23,6 @@ pkg_install() {
 # openh264 is C++ but its pkgconfig omits -lstdc++ for static linking
 pkg_post_install() {
   sed 's/-lopenh264/-lopenh264 -lstdc++/' \
-    "$WORKSPACE/lib/pkgconfig/openh264.pc" > "$WORKSPACE/lib/pkgconfig/openh264.pc.tmp" \
-    && mv "$WORKSPACE/lib/pkgconfig/openh264.pc.tmp" "$WORKSPACE/lib/pkgconfig/openh264.pc"
+    "$PREFIX/lib/pkgconfig/openh264.pc" > "$PREFIX/lib/pkgconfig/openh264.pc.tmp" \
+    && mv "$PREFIX/lib/pkgconfig/openh264.pc.tmp" "$PREFIX/lib/pkgconfig/openh264.pc"
 }

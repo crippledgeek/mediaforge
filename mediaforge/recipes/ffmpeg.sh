@@ -1,13 +1,13 @@
 #!/bin/sh
-# Final FFmpeg build — consumes CONFIGURE_OPTIONS from all recipes
+# Final FFmpeg build — consumes FFMPEG_CONFIGURE_OPTS from all recipes
 
 # flite links against ALSA on Linux (static libflite.a references snd_pcm_*)
-if [ "$IS_LINUX" = true ] && [ -f "$WORKSPACE/lib/libflite.a" ]; then
+if [ "$OS_LINUX" = true ] && [ -f "$PREFIX/lib/libflite.a" ]; then
   EXTRALIBS="$EXTRALIBS -lasound"
 fi
 
 EXTRA_VERSION=""
-if [ "$IS_DARWIN" = true ]; then
+if [ "$OS_MACOS" = true ]; then
   EXTRA_VERSION="$FFMPEG_VERSION"
 fi
 
@@ -22,14 +22,14 @@ print_flags
 
 # Handle NVIDIA flags separately (may contain spaces)
 _nvcc_opt=""
-if [ -n "$NVCC_FLAGS" ]; then
-  _nvcc_opt="$NVCC_FLAGS"
+if [ -n "$NVCCFLAGS" ]; then
+  _nvcc_opt="$NVCCFLAGS"
 fi
 
 # Prevent ffmpeg's version.sh from detecting the project's .git
 # shellcheck disable=SC2086
 GIT_DIR=/nonexistent \
-execute ./configure $CONFIGURE_OPTIONS \
+execute ./configure $FFMPEG_CONFIGURE_OPTS \
   $_nvcc_opt \
   --disable-debug \
   --disable-shared \
@@ -40,9 +40,9 @@ execute ./configure $CONFIGURE_OPTIONS \
   --extra-ldexeflags="$LDEXEFLAGS" \
   --extra-ldflags="$LDFLAGS" \
   --extra-libs="$EXTRALIBS" \
-  --pkgconfigdir="$WORKSPACE/lib/pkgconfig" \
+  --pkgconfigdir="$PREFIX/lib/pkgconfig" \
   --pkg-config-flags="--static" \
-  --prefix="$WORKSPACE" \
+  --prefix="$PREFIX" \
   --extra-version="$EXTRA_VERSION"
 
 execute make -j "$MJOBS"
@@ -50,13 +50,13 @@ execute make install
 
 # Verify the binary
 if command_exists "file"; then
-  _binary_type=$(file "$WORKSPACE/bin/ffmpeg" | sed 's/^.*: //')
+  _binary_type=$(file "$PREFIX/bin/ffmpeg" | sed 's/^.*: //')
   log ""
   log "Built binary: $_binary_type"
 fi
 
 log ""
 log "Build complete. Binaries available at:"
-log "  ffmpeg:  $WORKSPACE/bin/ffmpeg"
-log "  ffprobe: $WORKSPACE/bin/ffprobe"
-log "  ffplay:  $WORKSPACE/bin/ffplay"
+log "  ffmpeg:  $PREFIX/bin/ffmpeg"
+log "  ffprobe: $PREFIX/bin/ffprobe"
+log "  ffplay:  $PREFIX/bin/ffplay"

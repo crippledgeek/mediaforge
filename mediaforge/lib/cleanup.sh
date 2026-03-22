@@ -20,15 +20,15 @@ on_exit() {
   fi
 
   # Restore working directory
-  cd "$CWD" 2>/dev/null
+  cd "$TOPDIR" 2>/dev/null
 
   exit "$_exit_code"
 }
 
 # User cleanup (--cleanup flag)
 full_cleanup() {
-  remove_dir "$PACKAGES"
-  remove_dir "$WORKSPACE"
+  remove_dir "$DISTDIR"
+  remove_dir "$PREFIX"
   log "Cleanup done."
 }
 

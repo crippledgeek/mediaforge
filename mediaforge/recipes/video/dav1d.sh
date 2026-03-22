@@ -7,13 +7,13 @@ PKG_REQUIRES_MESON=true
 
 pkg_configure() {
   _cflagsbackup="$CFLAGS"
-  if [ "$IS_MACOS_SILICON" = true ]; then
+  if [ "$OS_MACOS_ARM" = true ]; then
     export CFLAGS="-arch arm64"
   fi
   make_dir build
-  execute meson build --prefix="$WORKSPACE" --buildtype=release \
-    --default-library=static --libdir="$WORKSPACE/lib"
-  if [ "$IS_MACOS_SILICON" = true ]; then
+  execute meson build --prefix="$PREFIX" --buildtype=release \
+    --default-library=static --libdir="$PREFIX/lib"
+  if [ "$OS_MACOS_ARM" = true ]; then
     export CFLAGS="$_cflagsbackup"
   fi
 }

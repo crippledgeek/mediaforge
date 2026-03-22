@@ -8,7 +8,7 @@ PKG_FFMPEG_OPT="--enable-libwebp"
 pkg_configure() {
   make_dir build
   cd build || die "Failed to cd to libwebp build dir"
-  execute cmake -DCMAKE_INSTALL_PREFIX="$WORKSPACE" \
+  execute cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_BINDIR=bin \
     -DCMAKE_INSTALL_INCLUDEDIR=include -DENABLE_SHARED=OFF -DENABLE_STATIC=ON \
     -DWEBP_BUILD_CWEBP=OFF -DWEBP_BUILD_DWEBP=OFF -DWEBP_BUILD_GIF2WEBP=OFF \
