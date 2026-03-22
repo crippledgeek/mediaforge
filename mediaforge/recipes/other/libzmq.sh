@@ -8,15 +8,10 @@ pkg_prepare() {
   if [ "$OS_MACOS" = true ]; then
     export XML_CATALOG_FILES=/usr/local/etc/xml/catalog
   fi
+  # Fix aggregate initialization for GCC 15+ (C23 stricter rules)
+  patch -p1 < "$SCRIPT_DIR/patches/libzmq-stats-proxy.patch" 2>/dev/null || true
 }
 
 pkg_configure() {
   run ./configure --prefix="$PREFIX" --disable-shared --enable-static
-}
-
-pkg_build() {
-  # Fix aggregate initialization for GCC 15+ (C23 stricter rules)
-  awk '{gsub(/stats_proxy stats = \{0\}/, "stats_proxy stats = {{{0, 0}, {0, 0}}, {{0, 0}, {0, 0}}}")} {print}' \
-    src/proxy.cpp > src/proxy.cpp.tmp && mv src/proxy.cpp.tmp src/proxy.cpp
-  run make -j "$MJOBS"
 }

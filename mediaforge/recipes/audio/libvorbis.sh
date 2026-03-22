@@ -6,8 +6,7 @@ PKG_FFMPEG_OPT="--enable-libvorbis"
 pkg_prepare() {
   CFLAGS="$CFLAGS -std=gnu11"
   export CFLAGS
-  awk '{gsub(/-force_cpusubtype_ALL/, "")} {print}' configure.ac > configure.ac.tmp \
-    && mv configure.ac.tmp configure.ac
+  patch -p1 < "$SCRIPT_DIR/patches/libvorbis-cpusubtype.patch" 2>/dev/null || true
   run ./autogen.sh --prefix="$PREFIX"
 }
 
