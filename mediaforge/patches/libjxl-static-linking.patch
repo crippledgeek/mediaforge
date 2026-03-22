@@ -1,0 +1,21 @@
+--- a/lib/threads/libjxl_threads.pc.in	2026-03-22 02:13:28.299069647 +0100
++++ b/lib/threads/libjxl_threads.pc.in	2026-03-22 02:13:28.299600618 +0100
+@@ -7,7 +7,7 @@
+ Description: JPEG XL multi-thread runner using std::threads.
+ Version: @JPEGXL_LIBRARY_VERSION@
+ @JPEGXL_REQUIRES_TYPE@: @JPEGXL_THREADS_LIBRARY_REQUIRES@
+-Libs: -L${libdir} -ljxl_threads
++Libs: -L${libdir} -ljxl_threads @JPEGXL_THREADS_PUBLIC_LIBS@
+ Libs.private: -lm
+ Cflags: -I${includedir}
+ Cflags.private: -DJXL_THREADS_STATIC_DEFINE
+--- a/lib/jxl_threads.cmake	2026-03-22 02:13:28.301785656 +0100
++++ b/lib/jxl_threads.cmake	2026-03-22 02:13:28.303600618 +0100
+@@ -87,6 +87,7 @@
+   set(JPEGXL_REQUIRES_TYPE "Requires.private")
+ else()
+   set(JPEGXL_REQUIRES_TYPE "Requires")
++  set(JPEGXL_THREADS_PUBLIC_LIBS "-lm ${PKGCONFIG_CXX_LIB}")
+ endif()
+ 
+ set(JPEGXL_THREADS_LIBRARY_REQUIRES "")

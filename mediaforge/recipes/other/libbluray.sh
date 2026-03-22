@@ -12,6 +12,6 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  execute ./configure --prefix="$WORKSPACE" --disable-shared --enable-static \
+  run ./configure --prefix="$PREFIX" --disable-shared --enable-static \
     --disable-bdjava-jar --disable-doxygen-doc --disable-examples
 }

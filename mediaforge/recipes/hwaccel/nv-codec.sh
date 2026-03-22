@@ -10,16 +10,16 @@ pkg_configure() {
 }
 
 pkg_build() {
-  execute make PREFIX="$WORKSPACE"
+  run make PREFIX="$PREFIX"
 }
 
 pkg_install() {
-  execute make PREFIX="$WORKSPACE" install
+  run make PREFIX="$PREFIX" install
 }
 
 pkg_post_install() {
   # NVENC/NVDEC/CUVID work with headers + runtime driver only
-  CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS --enable-cuvid --enable-nvdec --enable-nvenc --enable-ffnvcodec"
+  FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-cuvid --enable-nvdec --enable-nvenc --enable-ffnvcodec"
 
   # Full CUDA compiler support (scale_npp, cuda filters) requires nvcc
   if command_exists nvcc; then
@@ -30,11 +30,11 @@ pkg_post_install() {
       done
     fi
     if [ -n "$_cuda_home" ]; then
-      printf '%s\n' "-I$_cuda_home/include" >> "$WORKSPACE/.extra_cflags"
-      printf '%s\n' "-L$_cuda_home/lib64" >> "$WORKSPACE/.extra_ldflags"
+      printf '%s\n' "-I$_cuda_home/include" >> "$PREFIX/.extra_cflags"
+      printf '%s\n' "-L$_cuda_home/lib64" >> "$PREFIX/.extra_ldflags"
     fi
-    CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS --enable-cuda-nvcc --enable-cuda-llvm"
+    FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-cuda-nvcc --enable-cuda-llvm"
     _cuda_cc="${CUDA_COMPUTE_CAPABILITY:-52}"
-    NVCC_FLAGS="--nvccflags=\"-gencode arch=compute_${_cuda_cc},code=sm_${_cuda_cc} -O2\""
+    NVCCFLAGS="-gencode arch=compute_${_cuda_cc},code=sm_${_cuda_cc} -O2"
   fi
 }

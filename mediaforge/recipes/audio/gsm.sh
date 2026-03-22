@@ -14,12 +14,12 @@ pkg_configure() {
 }
 
 pkg_build() {
-  execute make -j "$MJOBS" INSTALL_ROOT="$WORKSPACE" \
+  run make -j "$MJOBS" INSTALL_ROOT="$PREFIX" \
     CC="gcc" CCFLAGS="$CFLAGS -c -DNeedFunctionPrototypes=1 -Wall -fPIC"
 }
 
 pkg_install() {
-  mkdir -p "$WORKSPACE/include/gsm" "$WORKSPACE/lib"
-  cp inc/gsm.h "$WORKSPACE/include/gsm/"
-  cp lib/libgsm.a "$WORKSPACE/lib/"
+  mkdir -p "$PREFIX/include/gsm" "$PREFIX/lib"
+  cp inc/gsm.h "$PREFIX/include/gsm/"
+  cp lib/libgsm.a "$PREFIX/lib/"
 }

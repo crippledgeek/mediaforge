@@ -5,23 +5,23 @@
 default_configure() {
   if [ "$PKG_CMAKE" = true ]; then
     # shellcheck disable=SC2086
-    execute cmake -DCMAKE_INSTALL_PREFIX="$WORKSPACE" \
+    run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
       -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF \
       $PKG_CMAKE_FLAGS .
   else
     # shellcheck disable=SC2086
-    execute ./configure --prefix="$WORKSPACE" \
+    run ./configure --prefix="$PREFIX" \
       --disable-shared --enable-static \
       $PKG_CONFIGURE_FLAGS
   fi
 }
 
 default_build() {
-  execute make -j "$MJOBS"
+  run make -j "$MJOBS"
 }
 
 default_install() {
-  execute make install
+  run make install
 }
 
 default_noop() {
@@ -68,19 +68,19 @@ check_guards() {
   fi
 
   # Skip-if-nonfree guard (gmp/nettle/gnutls vs openssl mutual exclusion)
-  if [ "$PKG_SKIP_IF_NONFREE" = true ] && [ "$NONFREE" = true ]; then
+  if [ "$PKG_SKIP_IF_NONFREE" = true ] && [ "$ENABLE_NONFREE" = true ]; then
     log "Skipping $PKG_NAME (nonfree path uses alternative)"
     return 1
   fi
 
   # GPL guard
-  if [ "$PKG_GPL" = true ] && [ "$GPL" != true ]; then
+  if [ "$PKG_GPL" = true ] && [ "$ENABLE_GPL" != true ]; then
     log "Skipping $PKG_NAME (requires --gpl)"
     return 1
   fi
 
   # Nonfree guard
-  if [ "$PKG_NONFREE" = true ] && [ "$NONFREE" != true ]; then
+  if [ "$PKG_NONFREE" = true ] && [ "$ENABLE_NONFREE" != true ]; then
     log "Skipping $PKG_NAME (requires --nonfree)"
     return 1
   fi
@@ -104,7 +104,7 @@ check_guards() {
   fi
 
   # Linux-only guard
-  if [ "$PKG_LINUX_ONLY" = true ] && [ "$IS_LINUX" != true ]; then
+  if [ "$PKG_LINUX_ONLY" = true ] && [ "$OS_LINUX" != true ]; then
     log "Skipping $PKG_NAME (Linux only)"
     return 1
   fi
@@ -119,7 +119,7 @@ check_guards() {
   # The entire LV2 dependency chain (serd, pcre, zix, sord, sratom, lilv)
   # is embedded in the single lv2.sh recipe, so guarding on PKG_NAME="lv2"
   # correctly skips all sub-dependencies.
-  if [ "$DISABLE_LV2" = true ] && [ "$PKG_NAME" = "lv2" ]; then
+  if [ "$NO_LV2" = true ] && [ "$PKG_NAME" = "lv2" ]; then
     log "Skipping $PKG_NAME (--disable-lv2)"
     return 1
   fi
@@ -152,17 +152,19 @@ run_recipe() {
   # Check guards
   if ! check_guards; then
     # Still accumulate ffmpeg option if the package was previously built
-    if [ -n "$PKG_FFMPEG_OPT" ] && [ -f "$PACKAGES/$PKG_NAME.done" ]; then
-      CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS $PKG_FFMPEG_OPT"
+    _has_stamp=false
+    for _s in "$PREFIX/.stamps/${PKG_NAME}-"*; do [ -f "$_s" ] && _has_stamp=true && break; done
+    if [ -n "$PKG_FFMPEG_OPT" ] && [ "$_has_stamp" = true ]; then
+      FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
     fi
     return 0
   fi
 
-  # Check done-file (build returns 1 if already built)
-  if ! build "$PKG_NAME" "$PKG_VERSION"; then
+  # Check stamp (stamp_check returns 1 if already built)
+  if ! stamp_check "$PKG_NAME" "$PKG_VERSION"; then
     # Already built — accumulate ffmpeg option and skip
     if [ -n "$PKG_FFMPEG_OPT" ]; then
-      CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS $PKG_FFMPEG_OPT"
+      FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
     fi
     return 0
   fi
@@ -187,7 +189,7 @@ run_recipe() {
     if [ -n "$PKG_DIRNAME" ]; then
       _dl_dir="$PKG_DIRNAME"
     fi
-    download "$PKG_URL" "$_dl_file" "$_dl_dir"
+    fetch "$PKG_URL" "$_dl_file" "$_dl_dir"
   fi
 
   # Run phases
@@ -198,11 +200,11 @@ run_recipe() {
   pkg_post_install
 
   # Mark as done
-  build_done "$PKG_NAME" "$PKG_VERSION"
+  stamp_write "$PKG_NAME" "$PKG_VERSION"
 
   # Accumulate ffmpeg configure option
   if [ -n "$PKG_FFMPEG_OPT" ]; then
-    CONFIGURE_OPTIONS="$CONFIGURE_OPTIONS $PKG_FFMPEG_OPT"
+    FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
   fi
 
   # Restore compiler flags

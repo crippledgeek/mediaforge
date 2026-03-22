@@ -12,14 +12,14 @@ pkg_prepare() {
 
 pkg_configure() {
   cd build/generic || die "Failed to cd to build/generic"
-  execute ./configure --prefix="$WORKSPACE" --disable-shared --enable-static
+  run ./configure --prefix="$PREFIX" --disable-shared --enable-static
 }
 
 pkg_post_install() {
-  if [ -f "$WORKSPACE/lib/libxvidcore.4.dylib" ]; then
-    rm -f "$WORKSPACE/lib/libxvidcore.4.dylib"
+  if [ -f "$PREFIX/lib/libxvidcore.4.dylib" ]; then
+    rm -f "$PREFIX/lib/libxvidcore.4.dylib"
   fi
-  if [ -f "$WORKSPACE/lib/libxvidcore.so" ]; then
-    rm -f "$WORKSPACE"/lib/libxvidcore.so*
+  if [ -f "$PREFIX/lib/libxvidcore.so" ]; then
+    rm -f "$PREFIX"/lib/libxvidcore.so*
   fi
 }

@@ -4,5 +4,5 @@ PKG_GITHUB_REPO="madler/zlib"
 PKG_URL="https://github.com/madler/zlib/releases/download/v${PKG_VERSION}/zlib-${PKG_VERSION}.tar.gz"
 
 pkg_configure() {
-  execute ./configure --static --prefix="$WORKSPACE"
+  run ./configure --static --prefix="$PREFIX"
 }

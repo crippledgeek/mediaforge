@@ -1,11 +1,13 @@
 #!/bin/sh
 # Download and extract helpers
 
-# download URL [FILENAME [DIRNAME]]
-download() {
-  _url="$1"
-  _file="${2:-${_url##*/}}"
-  _dir="$3"
+# fetch [URL [FILENAME [DIRNAME]]]
+# Reads PKG_URL, PKG_FILENAME, PKG_DIRNAME by default.
+# Positional args override for non-recipe downloads (ffmpeg.sh, sub-packages).
+fetch() {
+  _url="${1:-$PKG_URL}"
+  _file="${2:-${PKG_FILENAME:-${_url##*/}}}"
+  _dir="${3:-$PKG_DIRNAME}"
 
   # Auto-detect target dir from tarball name if not specified
   if [ -z "$_dir" ]; then
@@ -13,21 +15,32 @@ download() {
       *.tar.gz)  _dir="${_file%.tar.gz}" ;;
       *.tar.xz)  _dir="${_file%.tar.xz}" ;;
       *.tar.bz2) _dir="${_file%.tar.bz2}" ;;
+      *.zip)     _dir="${_file%.zip}" ;;
       *)         _dir="${_file%.*}" ;;
     esac
   fi
 
   # Download if not cached
-  if [ ! -f "$PACKAGES/$_file" ]; then
+  if [ ! -f "$DISTDIR/$_file" ]; then
     log "Downloading $_url"
-    if ! curl -L -sS -o "$PACKAGES/$_file" "$_url"; then
-      rm -f "$PACKAGES/$_file"
-      warn "Download failed. Retrying in 10 seconds..."
-      sleep 10
-      if ! curl -L -sS -o "$PACKAGES/$_file" "$_url"; then
-        rm -f "$PACKAGES/$_file"
-        die "Failed to download $_url"
+    _retry_wait=1
+    _ok=false
+    _attempts=0
+    while [ "$_attempts" -lt 3 ]; do
+      if curl -L -sS -o "$DISTDIR/$_file" "$_url"; then
+        _ok=true
+        break
       fi
+      rm -f "$DISTDIR/$_file"
+      _attempts=$((_attempts + 1))
+      if [ "$_attempts" -lt 3 ]; then
+        warn "Download failed. Retrying in ${_retry_wait}s..."
+        sleep "$_retry_wait"
+        _retry_wait=$((_retry_wait * 2))
+      fi
+    done
+    if [ "$_ok" != true ]; then
+      die "Failed to download $_url after 3 attempts"
     fi
     log "Download complete"
   else
@@ -39,9 +52,9 @@ download() {
     *patch*) return 0 ;;
   esac
 
-  # Extract
-  remove_dir "$PACKAGES/$_dir"
-  mkdir -p "$PACKAGES/$_dir" || die "Failed to create $PACKAGES/$_dir"
+  # Extract based on archive type
+  rm -rf "$DISTDIR/$_dir"
+  mkdir -p "$DISTDIR/$_dir" || die "Failed to create $DISTDIR/$_dir"
 
   if [ -n "$3" ]; then
     _strip=""
@@ -49,11 +62,34 @@ download() {
     _strip="--strip-components 1"
   fi
 
-  # shellcheck disable=SC2086
-  if ! tar -xf "$PACKAGES/$_file" -C "$PACKAGES/$_dir" $_strip 2>/dev/null; then
-    die "Failed to extract $_file"
-  fi
+  case "$_file" in
+    *.tar.gz|*.tgz)
+      # shellcheck disable=SC2086
+      tar -xzf "$DISTDIR/$_file" -C "$DISTDIR/$_dir" $_strip 2>/dev/null \
+        || die "Failed to extract $_file"
+      ;;
+    *.tar.xz)
+      # shellcheck disable=SC2086
+      tar -xJf "$DISTDIR/$_file" -C "$DISTDIR/$_dir" $_strip 2>/dev/null \
+        || die "Failed to extract $_file"
+      ;;
+    *.tar.bz2)
+      # shellcheck disable=SC2086
+      tar -xjf "$DISTDIR/$_file" -C "$DISTDIR/$_dir" $_strip 2>/dev/null \
+        || die "Failed to extract $_file"
+      ;;
+    *.zip)
+      unzip -q -o "$DISTDIR/$_file" -d "$DISTDIR/$_dir" 2>/dev/null \
+        || die "Failed to extract $_file"
+      ;;
+    *)
+      # Fallback: let tar auto-detect
+      # shellcheck disable=SC2086
+      tar -xf "$DISTDIR/$_file" -C "$DISTDIR/$_dir" $_strip 2>/dev/null \
+        || die "Failed to extract $_file"
+      ;;
+  esac
 
   log "Extracted $_file"
-  cd "$PACKAGES/$_dir" || die "Failed to enter $PACKAGES/$_dir"
+  cd "$DISTDIR/$_dir" || die "Failed to enter $DISTDIR/$_dir"
 }
