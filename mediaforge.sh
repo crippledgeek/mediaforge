@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
+# shellcheck disable=SC2034,SC1090
 
 SCRIPT_VERSION="3.0"
+# shellcheck disable=SC2034
 FFMPEG_VERSION="8.0.1"
 PROGNAME=$(basename "$0")
 
@@ -23,6 +25,7 @@ CFLAGS="-I$PREFIX/include"
 CXXFLAGS="-I$PREFIX/include"
 LDFLAGS="-L$PREFIX/lib"
 LDEXEFLAGS=""
+# shellcheck disable=SC2034
 EXTRALIBS="-ldl -lpthread -lm -lz"
 FFMPEG_CONFIGURE_OPTS=""
 NVCCFLAGS=""
@@ -36,6 +39,7 @@ INSTALL_MANPAGES=1
 SKIP_INSTALL=""
 AUTOINSTALL=""
 PROFILE_NAME=""
+# shellcheck disable=SC2034
 VERBOSE=0
 QUIET=false
 DRY_RUN=false
@@ -187,6 +191,7 @@ cmd_build() {
     log "Apple Silicon detected ($(sw_vers -productVersion))"
   fi
 
+  # shellcheck disable=SC2034
   GNU_LIBTOOL=""
   if [ "$OS_MACOS" = true ]; then
     FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-videotoolbox"

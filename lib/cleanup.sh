@@ -20,7 +20,7 @@ on_exit() {
   fi
 
   # Restore working directory
-  cd "$TOPDIR" 2>/dev/null
+  cd "$TOPDIR" 2>/dev/null || true
 
   exit "$_exit_code"
 }

@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC1090
 # GitHub-based dependency update checker
 
 # Strip common tag prefixes to get bare version string
