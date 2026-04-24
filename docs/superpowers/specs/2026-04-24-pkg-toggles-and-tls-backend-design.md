@@ -65,6 +65,15 @@ are disabled at the FFmpeg layer.
 `native` for `aac` is also a sentinel (no recipe); it means "use FFmpeg's
 built-in AAC encoder", which is always compiled in.
 
+**Patent caveat for `h264` group.** Both `x264` and `openh264` are
+patent-encumbered when built from source. `openh264`'s BSD-3 source license
+covers the *code*, not the H.264 patents — Cisco's royalty-free distribution
+applies only to their pre-built binary download, not to a source build
+linked into mediaforge's `libavcodec.a`. Choosing between them is a
+software-license trade-off (GPL vs BSD), not a patent trade-off. End users
+distributing binaries built from either remain liable for MPEG-LA royalties
+unless they qualify for an exemption. Document this in `docs/cli-flags.md`.
+
 ## 5. CLI Surface
 
 ### 5.1 New flags
@@ -80,6 +89,16 @@ built-in AAC encoder", which is always compiled in.
 --menu                Launch interactive selector (whiptail preferred, POSIX fallback otherwise).
 --list-pkgs           Print every recipe name with its category and mutex group, then exit 0.
 ```
+
+**`--enable=PKG` override scope.** `--enable=` overrides only the
+recipe-level `PKG_DISABLED=true` flag and any `--disable=PKG` token earlier
+on the same command line. It does **not** override licence guards
+(`PKG_GPL`, `PKG_NONFREE`), platform guards (`PKG_LINUX_ONLY`,
+`PKG_SKIP_ON_ARCH`), or required-command guards (`PKG_REQUIRES_CMD`). To
+build `fdk_aac`, the user still needs `--enable-nonfree`. To build a
+GPL-only recipe, the user still needs `--enable-gpl`. This keeps licence
+opt-in explicit and prevents accidental nonfree linkage via an
+auto-completed `--enable=` token.
 
 ### 5.2 Preserved flags
 
@@ -149,7 +168,10 @@ Four screens, shown in order:
    `DISABLE_PKGS` or tick to add to `ENABLE_PKGS`.
 
 Exit handling:
-- Exit 0 → continue with selections.
+- Exit 0 with selections → continue with selections.
+- Exit 0 with empty stdout → user pressed OK without ticking any item;
+  treat as "no overrides for this screen", continue. (whiptail does not
+  conflate this with Cancel.)
 - Exit 1 (Cancel) → abort with "menu cancelled".
 - Exit 255 (ESC/error) → abort with "menu aborted".
 
@@ -244,8 +266,15 @@ Remove `PKG_SKIP_IF_NONFREE` handling; it is superseded by mutex groups.
 - `recipes/crypto/gmp.sh`, `recipes/crypto/nettle.sh` — drop `PKG_SKIP_IF_NONFREE=true`;
   these are gnutls build-deps and are handled by the gnutls recipe's guard
   (active only when `tls=gnutls`).
-- `recipes/crypto/mbedtls.sh` **(new)** — `PKG_MUTEX_GROUP="tls"`.
-- `recipes/crypto/libressl.sh` **(new)** — `PKG_MUTEX_GROUP="tls"`, providing libtls.
+- `recipes/crypto/mbedtls.sh` **(new)** — `PKG_MUTEX_GROUP="tls"`. Configure
+  with `-DUSE_SHARED_MBEDTLS_LIBRARY=Off -DUSE_STATIC_MBEDTLS_LIBRARY=On
+  -DENABLE_PROGRAMS=Off -DENABLE_TESTING=Off` (cmake) so the recipe
+  produces only static `.a` archives, matching the rest of the toolchain.
+- `recipes/crypto/libressl.sh` **(new)** — `PKG_MUTEX_GROUP="tls"`, providing
+  libtls. Configure with `--disable-shared --enable-static
+  --disable-asm-tests` (autoconf), again static-only. Verify the resulting
+  `libtls.a` is found by FFmpeg's pkg-config probe (LibreSSL ships
+  `libtls.pc`).
 - `recipes/audio/fdk_aac.sh` — add `PKG_MUTEX_GROUP="aac"` (keep `PKG_NONFREE=true`).
 - `recipes/video/x264.sh` — add `PKG_MUTEX_GROUP="h264"`.
 - `recipes/video/openh264.sh` — add `PKG_MUTEX_GROUP="h264"`.
@@ -275,6 +304,23 @@ tls_disable_companions() {
 ```
 
 ## 11. Profiles
+
+### 11.1 Precedence (definitive)
+
+Sources of truth for the final choice matrix, highest precedence first:
+
+1. Explicit CLI flag (`--tls=`, `--enable=`, etc.)
+2. `--menu` selections (when `--menu` is passed; ignores the stored file)
+3. Smart-prompt answers from the current run (§8)
+4. `$PREFIX/.mediaforge-choices` (stored choices from the previous run)
+5. Active profile's `*_DEFAULT` value
+6. Global conservative default (§4)
+
+Each lower level is consulted only when the higher level did not set a value.
+Conflicts within a single level (e.g. `--tls=openssl` and `--tls=gnutls`) are
+last-wins with a warning logged.
+
+### 11.2 Profile defaults
 
 Each `profiles/ffmpeg-*.conf` may declare group defaults:
 
@@ -318,17 +364,40 @@ Failures print the full opts line and the delta.
 - `--tls=bogus` → exits non-zero with enum error.
 - `--tls=openssl --tls=gnutls` → last-wins with a warn line (parser already
   does this; test locks it in).
+- `--tls=gnutls --disable=gnutls` → exits non-zero, stderr explicitly names
+  the contradiction.
+- `--enable=fdk_aac` (without `--enable-nonfree`) → fdk_aac still skipped;
+  log line confirms "PKG_NONFREE guard prevented force-enable".
+
+### 12.4 Menu and smart-prompt verification
+
+These paths are interactive; they are validated two ways:
+
+- **Scripted stdin** for the POSIX fallback path: `printf '2\n\n' |
+  ./mediaforge.sh build --dry-run` simulates choosing item 2 then confirming.
+  The harness asserts the resulting `FFMPEG_CONFIGURE_OPTS` matches.
+- **Manual checklist** in `docs/menu.md` for the whiptail path. Each release
+  candidate is exercised against the checklist before merge to `develop`.
+
+No automated whiptail tests; the dependency on a real terminal is too high
+relative to the value of catching regressions in a stable third-party
+binary.
 
 ## 13. Documentation
 
 - `CLAUDE.md` §"Recipe Framework" — new `PKG_MUTEX_GROUP` entry.
 - `CLAUDE.md` §"CLI Structure" — new flags.
 - `CLAUDE.md` §"Commands" — example invocations for common TLS backends.
-- New `docs/cli-flags.md` — complete recipe listing with category + mutex group,
-  auto-generatable from `--list-pkgs`.
+- New `docs/cli-flags.md` — complete recipe listing with category + mutex
+  group, plus the H.264 patent caveat from §4. Generated by piping
+  `mediaforge.sh --list-pkgs` into the file at release time.
 - New `docs/menu.md` — walkthrough screenshots (ASCII) of the `--menu` flow.
-- `MEMORY.md` entry — "mediaforge TLS backends now first-class; rdlp unblocked
-  via `--tls=gnutls`".
+
+`--list-pkgs` implementation: derive recipe name from the file path
+(`recipes/<category>/<name>.sh` → name); read `PKG_MUTEX_GROUP` and
+`PKG_GPL`/`PKG_NONFREE` via `grep` (one regex per attribute) rather than
+sourcing each recipe. This keeps the command fast (~80 files, <50 ms) and
+side-effect-free.
 
 ## 14. Migration Notes
 
