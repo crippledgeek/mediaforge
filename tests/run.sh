@@ -6,5 +6,6 @@ cd "$ROOT"
 
 sh tests/shellcheck.sh
 sh tests/negative.sh
+sh tests/dry-run-matrix.sh
 
 printf 'All tests passed.\n'
