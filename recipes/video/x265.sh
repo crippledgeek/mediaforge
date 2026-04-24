@@ -4,6 +4,7 @@ PKG_URL="https://download.videolan.org/pub/videolan/x265/x265_${PKG_VERSION}.tar
 PKG_FILENAME="x265-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libx265"
 PKG_GPL=true
+PKG_MUTEX_GROUP="h265"
 
 # x265 4.1 bundles json11.cpp which uses uint8_t without #include <cstdint>
 # (GCC 15 no longer transitively includes it)

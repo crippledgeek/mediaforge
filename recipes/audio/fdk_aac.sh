@@ -5,6 +5,7 @@ PKG_FILENAME="fdk-aac-${PKG_VERSION}.tar.gz"
 PKG_GITHUB_REPO="mstorsjo/fdk-aac"
 PKG_FFMPEG_OPT="--enable-libfdk-aac"
 PKG_NONFREE=true
+PKG_MUTEX_GROUP="aac"
 PKG_CONFIGURE_FLAGS="--enable-pic"
 
 pkg_prepare() {
