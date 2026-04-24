@@ -41,6 +41,9 @@ _run "unknown pkg with suggestion" "Did you mean: openssl" \
 _run_log "force-enable does not bypass nonfree guard" "Skipping srt (requires --nonfree)" \
   ./mediaforge.sh build --enable=srt --dry-run --yes
 
+_run "--menu --yes is rejected" "mutually exclusive" \
+  ./mediaforge.sh build --menu --yes
+
 _run "unknown pkg, no suggestion" "Run '.*--list-pkgs'" \
   ./mediaforge.sh build --disable=zzznonexistent --dry-run --yes
 
