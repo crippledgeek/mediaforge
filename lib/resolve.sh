@@ -47,6 +47,36 @@ _validate_enum() {
 
 # Top-level resolver. Mutates DISABLE_PKGS in place. Idempotent.
 resolve_choices() {
+  # Smart prompts: ask interactively when the user did not pick.
+  if is_interactive; then
+    [ -z "$TLS_BACKEND" ] && TLS_BACKEND=$(menu_radiolist \
+      "Pick a TLS backend" "$TLS_BACKEND_DEFAULT_BUILTIN" \
+      gnutls   "GnuTLS — free, default" \
+      openssl  "OpenSSL — Apache 2.0" \
+      mbedtls  "mbedTLS — small footprint" \
+      libressl "LibreSSL libtls" \
+      none     "No TLS support") || die "TLS prompt cancelled"
+    [ -z "$AAC_IMPL" ] && AAC_IMPL=$(menu_radiolist \
+      "Pick an AAC encoder" "$AAC_IMPL_DEFAULT_BUILTIN" \
+      native   "FFmpeg native AAC (always available)" \
+      fdk_aac  "Fraunhofer FDK-AAC (requires --enable-nonfree)") || die "AAC prompt cancelled"
+    if [ "$ENABLE_GPL" = true ]; then
+      [ -z "$H264_IMPL" ] && H264_IMPL=$(menu_radiolist \
+        "Pick an H.264 encoder" "$H264_IMPL_DEFAULT_BUILTIN" \
+        x264     "x264 — GPL, de-facto standard" \
+        openh264 "OpenH264 — BSD source, MPEG-LA royalties apply") || die "H.264 prompt cancelled"
+      [ -z "$H265_IMPL" ] && H265_IMPL=$(menu_radiolist \
+        "Pick an H.265 encoder" "$H265_IMPL_DEFAULT_BUILTIN" \
+        x265    "x265 — GPL" \
+        kvazaar "Kvazaar — LGPL") || die "H.265 prompt cancelled"
+    fi
+    [ -z "$AV1_ENC_IMPL" ] && AV1_ENC_IMPL=$(menu_radiolist \
+      "Pick an AV1 encoder" "$AV1_ENC_IMPL_DEFAULT_BUILTIN" \
+      svtav1 "SVT-AV1 — fastest, recommended" \
+      rav1e  "rav1e — pure Rust" \
+      av1    "libaom — reference encoder, slow") || die "AV1 prompt cancelled"
+  fi
+
   # Apply built-in defaults if nothing set them.
   : "${TLS_BACKEND:=$TLS_BACKEND_DEFAULT_BUILTIN}"
   : "${AAC_IMPL:=$AAC_IMPL_DEFAULT_BUILTIN}"

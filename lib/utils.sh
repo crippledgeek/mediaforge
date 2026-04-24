@@ -109,3 +109,11 @@ print_flags() {
   log "LDFLAGS: $LDFLAGS"
   log "LDEXEFLAGS: $LDEXEFLAGS"
 }
+
+# Returns 0 if running interactively (TTY on stdin, --yes not set, $CI not set).
+is_interactive() {
+  [ "${AUTOINSTALL:-}" = "yes" ] && return 1
+  [ -n "${CI:-}" ] && return 1
+  [ -t 0 ] || return 1
+  return 0
+}
