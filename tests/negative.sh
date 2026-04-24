@@ -38,8 +38,8 @@ _run_log() {
 _run "unknown pkg with suggestion" "Did you mean: openssl" \
   ./mediaforge.sh build --disable=openss --dry-run --yes
 
-_run_log "force-enable does not bypass nonfree guard" "Skipping fdk_aac (requires --nonfree)" \
-  ./mediaforge.sh build --enable=fdk_aac --dry-run --yes
+_run_log "force-enable does not bypass nonfree guard" "Skipping srt (requires --nonfree)" \
+  ./mediaforge.sh build --enable=srt --dry-run --yes
 
 _run "unknown pkg, no suggestion" "Run '.*--list-pkgs'" \
   ./mediaforge.sh build --disable=zzznonexistent --dry-run --yes

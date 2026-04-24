@@ -76,6 +76,11 @@ cmd_help() {
   printf '  -q, --quiet               Errors only\n'
   printf '  -n, --dry-run             Show what would build\n'
   printf '  -k, --keep-going          Continue on recipe failure\n'
+  printf '      --tls=BACKEND         TLS backend: openssl|gnutls|mbedtls|libressl|none (default: gnutls)\n'
+  printf '      --aac=IMPL            AAC encoder: fdk_aac|native (default: native)\n'
+  printf '      --h264=IMPL           H.264 encoder: x264|openh264 (default: x264)\n'
+  printf '      --h265=IMPL           H.265 encoder: x265|kvazaar (default: x265)\n'
+  printf '      --av1-enc=IMPL        AV1 encoder: svtav1|rav1e|av1 (default: svtav1)\n'
   printf '      --disable=PKG         Disable a recipe by name (repeatable, comma-separated ok)\n'
   printf '      --enable=PKG          Force-enable a recipe that defaults to off\n'
   printf '      --list-pkgs           Print every recipe with category and mutex group\n'
@@ -129,6 +134,16 @@ cmd_build() {
       --enable=*)          ENABLE_PKGS="$ENABLE_PKGS $(echo "${1#--enable=}" | tr ',' ' ')" ;;
       --enable)            shift; ENABLE_PKGS="$ENABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
       --list-pkgs)         list_pkgs; exit 0 ;;
+      --tls=*)             TLS_BACKEND="${1#--tls=}" ;;
+      --tls)               shift; TLS_BACKEND="$1" ;;
+      --aac=*)             AAC_IMPL="${1#--aac=}" ;;
+      --aac)               shift; AAC_IMPL="$1" ;;
+      --h264=*)            H264_IMPL="${1#--h264=}" ;;
+      --h264)              shift; H264_IMPL="$1" ;;
+      --h265=*)            H265_IMPL="${1#--h265=}" ;;
+      --h265)              shift; H265_IMPL="$1" ;;
+      --av1-enc=*)         AV1_ENC_IMPL="${1#--av1-enc=}" ;;
+      --av1-enc)           shift; AV1_ENC_IMPL="$1" ;;
       --)                  shift; break ;;
       -*)                  die "Unknown option: $1" ;;
       *)                   break ;;
@@ -148,6 +163,15 @@ cmd_build() {
       fi
     fi
   done
+
+  # Snapshot the user-provided disables before resolver augments them
+  DISABLE_PKGS_INPUT="$DISABLE_PKGS"
+
+  # Resolve per-group choices into DISABLE_PKGS
+  resolve_choices
+
+  # Log final choice matrix
+  log "Choices: tls=$TLS_BACKEND aac=$AAC_IMPL h264=$H264_IMPL h265=$H265_IMPL av1-enc=$AV1_ENC_IMPL"
 
   # Apply deferred flags
   if [ "$ENABLE_GPL" = true ]; then
