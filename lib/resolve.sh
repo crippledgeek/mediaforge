@@ -77,12 +77,12 @@ resolve_choices() {
       av1    "libaom — reference encoder, slow") || die "AV1 prompt cancelled"
   fi
 
-  # Apply built-in defaults if nothing set them.
-  : "${TLS_BACKEND:=$TLS_BACKEND_DEFAULT_BUILTIN}"
-  : "${AAC_IMPL:=$AAC_IMPL_DEFAULT_BUILTIN}"
-  : "${H264_IMPL:=$H264_IMPL_DEFAULT_BUILTIN}"
-  : "${H265_IMPL:=$H265_IMPL_DEFAULT_BUILTIN}"
-  : "${AV1_ENC_IMPL:=$AV1_ENC_IMPL_DEFAULT_BUILTIN}"
+  # Apply profile *_DEFAULT then built-in defaults if nothing set them.
+  : "${TLS_BACKEND:=${TLS_BACKEND_DEFAULT:-$TLS_BACKEND_DEFAULT_BUILTIN}}"
+  : "${AAC_IMPL:=${AAC_IMPL_DEFAULT:-$AAC_IMPL_DEFAULT_BUILTIN}}"
+  : "${H264_IMPL:=${H264_IMPL_DEFAULT:-$H264_IMPL_DEFAULT_BUILTIN}}"
+  : "${H265_IMPL:=${H265_IMPL_DEFAULT:-$H265_IMPL_DEFAULT_BUILTIN}}"
+  : "${AV1_ENC_IMPL:=${AV1_ENC_IMPL_DEFAULT:-$AV1_ENC_IMPL_DEFAULT_BUILTIN}}"
 
   _validate_enum "--tls"     "$TLS_BACKEND"  "openssl|gnutls|mbedtls|libressl|none"
   _validate_enum "--aac"     "$AAC_IMPL"     "fdk_aac|native"
