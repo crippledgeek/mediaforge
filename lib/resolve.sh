@@ -1,0 +1,94 @@
+# shellcheck disable=SC2154
+# Resolver — translate per-group flags + stored choices + profile defaults
+# into a final DISABLE_PKGS string. Idempotent.
+
+# Per-group user choices (set from CLI; empty means "not chosen").
+TLS_BACKEND=""
+AAC_IMPL=""
+H264_IMPL=""
+H265_IMPL=""
+AV1_ENC_IMPL=""
+
+# Conservative defaults (used when non-interactive and nothing else resolves).
+TLS_BACKEND_DEFAULT_BUILTIN="gnutls"
+AAC_IMPL_DEFAULT_BUILTIN="native"
+H264_IMPL_DEFAULT_BUILTIN="x264"
+H265_IMPL_DEFAULT_BUILTIN="x265"
+AV1_ENC_IMPL_DEFAULT_BUILTIN="svtav1"
+
+# Members of each mutex group (excluding sentinels like "none" and "native").
+TLS_GROUP="openssl gnutls mbedtls libressl"
+AAC_GROUP="fdk_aac"
+H264_GROUP="x264 openh264"
+H265_GROUP="x265 kvazaar"
+AV1_ENC_GROUP="svtav1 rav1e av1"   # av1 = libaom recipe filename
+
+# Given a chosen TLS backend, return the space-separated list of TLS-related
+# packages that must be disabled. gmp/nettle are gnutls build-deps.
+tls_disable_companions() {
+  case "$1" in
+    gnutls)   echo "openssl mbedtls libressl" ;;
+    openssl)  echo "gnutls gmp nettle mbedtls libressl" ;;
+    mbedtls)  echo "openssl gnutls gmp nettle libressl" ;;
+    libressl) echo "openssl gnutls gmp nettle mbedtls" ;;
+    none)     echo "openssl gnutls gmp nettle mbedtls libressl" ;;
+    *)        echo "" ;;
+  esac
+}
+
+# Validate a value against a "|"-separated enum. Aborts on mismatch.
+_validate_enum() {
+  _name=$1; _value=$2; _allowed=$3
+  case "|$_allowed|" in
+    *"|$_value|"*) return 0 ;;
+  esac
+  die "Invalid $_name: $_value. Allowed: $(printf '%s' "$_allowed" | tr '|' ',')"
+}
+
+# Top-level resolver. Mutates DISABLE_PKGS in place. Idempotent.
+resolve_choices() {
+  # Apply built-in defaults if nothing set them.
+  : "${TLS_BACKEND:=$TLS_BACKEND_DEFAULT_BUILTIN}"
+  : "${AAC_IMPL:=$AAC_IMPL_DEFAULT_BUILTIN}"
+  : "${H264_IMPL:=$H264_IMPL_DEFAULT_BUILTIN}"
+  : "${H265_IMPL:=$H265_IMPL_DEFAULT_BUILTIN}"
+  : "${AV1_ENC_IMPL:=$AV1_ENC_IMPL_DEFAULT_BUILTIN}"
+
+  _validate_enum "--tls"     "$TLS_BACKEND"  "openssl|gnutls|mbedtls|libressl|none"
+  _validate_enum "--aac"     "$AAC_IMPL"     "fdk_aac|native"
+  _validate_enum "--h264"    "$H264_IMPL"    "x264|openh264"
+  _validate_enum "--h265"    "$H265_IMPL"    "x265|kvazaar"
+  _validate_enum "--av1-enc" "$AV1_ENC_IMPL" "svtav1|rav1e|av1"
+
+  # TLS: disable companions of the chosen backend
+  for _p in $(tls_disable_companions "$TLS_BACKEND"); do
+    DISABLE_PKGS="$DISABLE_PKGS $_p"
+  done
+
+  # AAC: only fdk_aac is a mutex member; native means "skip fdk_aac"
+  case "$AAC_IMPL" in
+    native) DISABLE_PKGS="$DISABLE_PKGS fdk_aac" ;;
+  esac
+
+  # H264 / H265 / AV1-enc: disable every member of the group except the chosen one
+  for _g_var in H264_GROUP H265_GROUP AV1_ENC_GROUP; do
+    eval "_members=\$$_g_var"
+    eval "_chosen=\$${_g_var%_GROUP}_IMPL"
+    for _m in $_members; do
+      [ "$_m" = "$_chosen" ] && continue
+      DISABLE_PKGS="$DISABLE_PKGS $_m"
+    done
+  done
+
+  # Detect contradictions: --tls=X --disable=X
+  for _chosen in "$TLS_BACKEND" "$AAC_IMPL" "$H264_IMPL" "$H265_IMPL" "$AV1_ENC_IMPL"; do
+    case "$_chosen" in
+      none|native) continue ;;
+    esac
+    for _d in ${DISABLE_PKGS_INPUT:-}; do
+      if [ "$_d" = "$_chosen" ]; then
+        die "Contradiction: '$_chosen' is both selected via per-group flag and listed in --disable="
+      fi
+    done
+  done
+}
