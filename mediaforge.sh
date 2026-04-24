@@ -21,6 +21,7 @@ PREFIX="$TOPDIR/workspace"
 . "$SCRIPT_DIR/lib/cleanup.sh"
 . "$SCRIPT_DIR/lib/framework.sh"
 . "$SCRIPT_DIR/lib/resolve.sh"
+. "$SCRIPT_DIR/lib/menu.sh"
 
 # Compiler flags
 CFLAGS="-I$PREFIX/include"
