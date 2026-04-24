@@ -126,15 +126,6 @@ check_guards() {
     return 1
   fi
 
-  # LV2 disable guard
-  # The entire LV2 dependency chain (serd, pcre, zix, sord, sratom, lilv)
-  # is embedded in the single lv2.sh recipe, so guarding on PKG_NAME="lv2"
-  # correctly skips all sub-dependencies.
-  if [ "$NO_LV2" = true ] && [ "$PKG_NAME" = "lv2" ]; then
-    log "Skipping $PKG_NAME (--disable-lv2)"
-    return 1
-  fi
-
   return 0
 }
 

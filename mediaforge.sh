@@ -33,7 +33,6 @@ NVCCFLAGS=""
 # Feature flags (defaults)
 ENABLE_GPL=false
 ENABLE_NONFREE=false
-NO_LV2=false
 REBUILD_OUTDATED=false
 INSTALL_MANPAGES=1
 SKIP_INSTALL=""
@@ -91,7 +90,7 @@ cmd_build() {
       # Short options
       -g)  ENABLE_GPL=true ;;
       -G)  ENABLE_NONFREE=true; ENABLE_GPL=true ;;
-      -L)  NO_LV2=true ;;
+      -L)  DISABLE_PKGS="$DISABLE_PKGS lv2" ;;
       -s)  _enable_static=true ;;
       -m)  _enable_small=true ;;
       -p)  shift; PROFILE_NAME="$1" ;;
@@ -106,7 +105,7 @@ cmd_build() {
       # Long options
       --enable-gpl)        ENABLE_GPL=true ;;
       --enable-nonfree)    ENABLE_NONFREE=true; ENABLE_GPL=true ;;
-      --disable-lv2)       NO_LV2=true ;;
+      --disable-lv2)       DISABLE_PKGS="$DISABLE_PKGS lv2" ;;
       --enable-static)     _enable_static=true ;;
       --enable-small)      _enable_small=true ;;
       --profile=*)         PROFILE_NAME="${1#--profile=}" ;;
