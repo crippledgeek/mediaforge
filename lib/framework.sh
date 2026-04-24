@@ -46,6 +46,7 @@ reset_recipe() {
   PKG_SKIP_EXTRACT=false
   PKG_SKIP_IF_NONFREE=false
   PKG_DISABLED=false
+  PKG_MUTEX_GROUP=""
   PKG_CONFIGURE_FLAGS=""
   PKG_CMAKE=false
   PKG_CMAKE_FLAGS=""
