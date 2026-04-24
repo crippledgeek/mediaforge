@@ -71,4 +71,20 @@ else
   _fail=1
 fi
 
+# H264 mutex
+_run "h264=openh264 disables x264" "Skipping x264 (disabled via CLI)" \
+  ./mediaforge.sh build --h264=openh264
+_run_no "h264=openh264 keeps openh264" "Skipping openh264 (disabled via CLI)" \
+  ./mediaforge.sh build --h264=openh264
+
+# H265 mutex
+_run "h265=kvazaar disables x265" "Skipping x265 (disabled via CLI)" \
+  ./mediaforge.sh build --h265=kvazaar
+
+# AV1-enc mutex
+_run "av1-enc=rav1e disables svtav1" "Skipping svtav1 (disabled via CLI)" \
+  ./mediaforge.sh build --av1-enc=rav1e
+_run "av1-enc=rav1e disables av1 (libaom)" "Skipping av1 (disabled via CLI)" \
+  ./mediaforge.sh build --av1-enc=rav1e
+
 exit "$_fail"
