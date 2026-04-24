@@ -44,7 +44,6 @@ reset_recipe() {
   PKG_LINUX_ONLY=false
   PKG_SKIP_ON_ARCH=""
   PKG_SKIP_EXTRACT=false
-  PKG_SKIP_IF_NONFREE=false
   PKG_DISABLED=false
   PKG_MUTEX_GROUP=""
   PKG_CONFIGURE_FLAGS=""
@@ -83,12 +82,6 @@ check_guards() {
       return 1
     fi
     log "Force-enabling $PKG_NAME via --enable=$PKG_NAME"
-  fi
-
-  # Skip-if-nonfree guard (gmp/nettle/gnutls vs openssl mutual exclusion)
-  if [ "$PKG_SKIP_IF_NONFREE" = true ] && [ "$ENABLE_NONFREE" = true ]; then
-    log "Skipping $PKG_NAME (nonfree path uses alternative)"
-    return 1
   fi
 
   # GPL guard
