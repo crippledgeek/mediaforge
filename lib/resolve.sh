@@ -157,3 +157,68 @@ STORED_H265_IMPL=$H265_IMPL
 STORED_AV1_ENC_IMPL=$AV1_ENC_IMPL
 EOF
 }
+
+# Four-screen interactive menu. Sets ENABLE_GPL, ENABLE_NONFREE,
+# the per-group choices, and adds to DISABLE_PKGS. Called from cmd_build
+# before resolve_choices when --menu is passed.
+run_menu() {
+  if ! is_interactive; then
+    die "--menu requires an interactive terminal"
+  fi
+  if [ "${AUTOINSTALL:-}" = "yes" ]; then
+    die "--menu and --yes are mutually exclusive"
+  fi
+
+  # Screen 1 — licence tier
+  _tier=$(menu_radiolist "Licence tier" "free" \
+    free    "Free codecs only" \
+    gpl     "GPL codecs (x264, x265, xvidcore, vid_stab)" \
+    nonfree "GPL + non-free (fdk_aac, srt over openssl)") || die "Menu cancelled"
+  case "$_tier" in
+    free)    ENABLE_GPL=false; ENABLE_NONFREE=false ;;
+    gpl)     ENABLE_GPL=true;  ENABLE_NONFREE=false ;;
+    nonfree) ENABLE_GPL=true;  ENABLE_NONFREE=true ;;
+  esac
+
+  # Screen 2 — build options
+  _opts=$(menu_checklist "Build options" \
+    static  "Full static binary (Linux only)" off \
+    small   "Minimal build" off \
+    lv2     "LV2 audio plugin chain" on \
+    rebuild "Rebuild outdated dependencies" off) || die "Menu cancelled"
+  for _o in $_opts; do
+    case "$_o" in
+      static)  _enable_static=true ;;
+      small)   _enable_small=true ;;
+      lv2)     ;;
+      rebuild) REBUILD_OUTDATED=true ;;
+    esac
+  done
+  case " $_opts " in
+    *" lv2 "*) ;;
+    *) DISABLE_PKGS="$DISABLE_PKGS lv2" ;;
+  esac
+
+  # Screen 3 — mutex group picks
+  TLS_BACKEND=$(menu_radiolist "TLS backend" "${TLS_BACKEND:-gnutls}" \
+    gnutls   "GnuTLS"   \
+    openssl  "OpenSSL"  \
+    mbedtls  "mbedTLS"  \
+    libressl "LibreSSL" \
+    none     "No TLS")  || die "Menu cancelled"
+  AAC_IMPL=$(menu_radiolist "AAC encoder" "${AAC_IMPL:-native}" \
+    native   "FFmpeg native"      \
+    fdk_aac  "FDK-AAC (nonfree)") || die "Menu cancelled"
+  if [ "$ENABLE_GPL" = true ]; then
+    H264_IMPL=$(menu_radiolist "H.264 encoder" "${H264_IMPL:-x264}" \
+      x264     "x264 (GPL)" \
+      openh264 "OpenH264 (BSD source)") || die "Menu cancelled"
+    H265_IMPL=$(menu_radiolist "H.265 encoder" "${H265_IMPL:-x265}" \
+      x265    "x265 (GPL)" \
+      kvazaar "Kvazaar (LGPL)") || die "Menu cancelled"
+  fi
+  AV1_ENC_IMPL=$(menu_radiolist "AV1 encoder" "${AV1_ENC_IMPL:-svtav1}" \
+    svtav1 "SVT-AV1" \
+    rav1e  "rav1e"   \
+    av1    "libaom (slow reference)") || die "Menu cancelled"
+}

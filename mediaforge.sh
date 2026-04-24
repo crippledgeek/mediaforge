@@ -74,6 +74,7 @@ cmd_help() {
   printf '  -u, --rebuild-outdated    Rebuild stale dependencies\n'
   printf '  -I, --no-install          Skip post-build install\n'
   printf '  -y, --yes                 Non-interactive mode\n'
+  printf '      --menu                Interactive selector (whiptail or POSIX fallback)\n'
   printf '  -v, --verbose             Show build commands (-vv for more)\n'
   printf '  -q, --quiet               Errors only\n'
   printf '  -n, --dry-run             Show what would build\n'
@@ -148,6 +149,7 @@ cmd_build() {
       --h265)              shift; H265_IMPL="$1" ;;
       --av1-enc=*)         AV1_ENC_IMPL="${1#--av1-enc=}" ;;
       --av1-enc)           shift; AV1_ENC_IMPL="$1" ;;
+      --menu)              USE_MENU=true ;;
       --)                  shift; break ;;
       -*)                  die "Unknown option: $1" ;;
       *)                   break ;;
@@ -167,6 +169,13 @@ cmd_build() {
       fi
     fi
   done
+
+  if [ "$USE_MENU" = true ]; then
+    if [ "$AUTOINSTALL" = "yes" ]; then
+      die "--menu and --yes are mutually exclusive"
+    fi
+    run_menu
+  fi
 
   # Load stored choices from previous run (CLI flags take precedence —
   # load_stored_choices only sets values that are currently empty).
