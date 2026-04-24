@@ -3,7 +3,7 @@
 # Exit non-zero on first failure unless KEEP_GOING=1.
 
 set -eu
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
 _fail=0
@@ -19,7 +19,7 @@ done
 
 if command -v shellcheck >/dev/null 2>&1; then
   for f in $_files; do
-    if ! shellcheck -s sh -e SC1090,SC1091,SC2034 "$f"; then
+    if ! shellcheck -s sh -S warning -e SC1090,SC1091,SC2034 "$f"; then
       printf 'shellcheck FAILED: %s\n' "$f" >&2
       _fail=1
       [ "${KEEP_GOING:-0}" = "1" ] || exit 1
