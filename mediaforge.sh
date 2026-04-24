@@ -15,6 +15,7 @@ PREFIX="$TOPDIR/workspace"
 
 # Source libraries (order matters — utils first, platform needs command_exists)
 . "$SCRIPT_DIR/lib/utils.sh"
+. "$SCRIPT_DIR/lib/registry.sh"
 . "$SCRIPT_DIR/lib/platform.sh"
 . "$SCRIPT_DIR/lib/download.sh"
 . "$SCRIPT_DIR/lib/cleanup.sh"
