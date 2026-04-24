@@ -5,6 +5,6 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
 sh tests/shellcheck.sh
-# Stage B+ will add more invocations here.
+sh tests/negative.sh
 
 printf 'All tests passed.\n'

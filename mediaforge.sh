@@ -75,6 +75,9 @@ cmd_help() {
   printf '  -q, --quiet               Errors only\n'
   printf '  -n, --dry-run             Show what would build\n'
   printf '  -k, --keep-going          Continue on recipe failure\n'
+  printf '      --disable=PKG         Disable a recipe by name (repeatable, comma-separated ok)\n'
+  printf '      --enable=PKG          Force-enable a recipe that defaults to off\n'
+  printf '      --list-pkgs           Print every recipe with category and mutex group\n'
   printf '\n'
 }
 
@@ -120,11 +123,29 @@ cmd_build() {
       --quiet)             QUIET=true ;;
       --dry-run)           DRY_RUN=true ;;
       --keep-going)        KEEP_GOING=true ;;
+      --disable=*)         DISABLE_PKGS="$DISABLE_PKGS $(echo "${1#--disable=}" | tr ',' ' ')" ;;
+      --disable)           shift; DISABLE_PKGS="$DISABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
+      --enable=*)          ENABLE_PKGS="$ENABLE_PKGS $(echo "${1#--enable=}" | tr ',' ' ')" ;;
+      --enable)            shift; ENABLE_PKGS="$ENABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
+      --list-pkgs)         list_pkgs; exit 0 ;;
       --)                  shift; break ;;
       -*)                  die "Unknown option: $1" ;;
       *)                   break ;;
     esac
     shift
+  done
+
+  # Validate every name in DISABLE_PKGS / ENABLE_PKGS against the recipe registry
+  registry_init
+  for _p in $DISABLE_PKGS $ENABLE_PKGS; do
+    if ! is_known_pkg "$_p"; then
+      _hint=$(suggest_pkg "$_p")
+      if [ -n "$_hint" ]; then
+        die "Unknown package: $_p. Did you mean: $_hint ?"
+      else
+        die "Unknown package: $_p. Run '$PROGNAME build --list-pkgs' to see all."
+      fi
+    fi
   done
 
   # Apply deferred flags
