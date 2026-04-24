@@ -72,10 +72,17 @@ check_guards() {
     fi
   done
 
-  # Disabled guard (e.g., SKIPRAV1E=yes)
+  # Disabled guard (e.g., SKIPRAV1E=yes), with --enable=PKG override
   if [ "$PKG_DISABLED" = true ]; then
-    log "Skipping $PKG_NAME (disabled)"
-    return 1
+    _force=false
+    for _e in $ENABLE_PKGS; do
+      [ "$_e" = "$PKG_NAME" ] && _force=true && break
+    done
+    if [ "$_force" != true ]; then
+      log "Skipping $PKG_NAME (disabled)"
+      return 1
+    fi
+    log "Force-enabling $PKG_NAME via --enable=$PKG_NAME"
   fi
 
   # Skip-if-nonfree guard (gmp/nettle/gnutls vs openssl mutual exclusion)
@@ -165,6 +172,15 @@ run_recipe() {
   # Check stamp (stamp_check returns 1 if already built)
   if ! stamp_check "$PKG_NAME" "$PKG_VERSION"; then
     # Already built — accumulate ffmpeg option and skip
+    if [ -n "$PKG_FFMPEG_OPT" ]; then
+      FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
+    fi
+    return 0
+  fi
+
+  # Dry-run short-circuit: print intent, accumulate ffmpeg flag, skip download/build
+  if [ "${DRY_RUN:-false}" = true ]; then
+    log "Would build $PKG_NAME-$PKG_VERSION"
     if [ -n "$PKG_FFMPEG_OPT" ]; then
       FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
     fi
