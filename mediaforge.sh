@@ -44,6 +44,8 @@ VERBOSE=0
 QUIET=false
 DRY_RUN=false
 KEEP_GOING=false
+DISABLE_PKGS=""
+ENABLE_PKGS=""
 
 # ─── Help ────────────────────────────────────────────────────────────
 

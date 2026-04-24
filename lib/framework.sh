@@ -64,6 +64,14 @@ reset_recipe() {
 # Check whether a recipe should be skipped based on guards
 # Returns 0 if recipe should run, 1 if it should be skipped
 check_guards() {
+  # Generic CLI disable list (drives --disable= and --tls=/--aac=/etc.)
+  for _d in $DISABLE_PKGS; do
+    if [ "$_d" = "$PKG_NAME" ]; then
+      log "Skipping $PKG_NAME (disabled via CLI)"
+      return 1
+    fi
+  done
+
   # Disabled guard (e.g., SKIPRAV1E=yes)
   if [ "$PKG_DISABLED" = true ]; then
     log "Skipping $PKG_NAME (disabled)"
