@@ -85,6 +85,7 @@ cmd_help() {
   printf '      --disable=PKG         Disable a recipe by name (repeatable, comma-separated ok)\n'
   printf '      --enable=PKG          Force-enable a recipe that defaults to off\n'
   printf '      --list-pkgs           Print every recipe with category and mutex group\n'
+  printf '      --clean-choices       Delete the stored choice matrix and exit\n'
   printf '\n'
 }
 
@@ -135,6 +136,7 @@ cmd_build() {
       --enable=*)          ENABLE_PKGS="$ENABLE_PKGS $(echo "${1#--enable=}" | tr ',' ' ')" ;;
       --enable)            shift; ENABLE_PKGS="$ENABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
       --list-pkgs)         list_pkgs; exit 0 ;;
+      --clean-choices)     rm -f "$PREFIX/.mediaforge-choices"; log "Cleared stored choices"; exit 0 ;;
       --tls=*)             TLS_BACKEND="${1#--tls=}" ;;
       --tls)               shift; TLS_BACKEND="$1" ;;
       --aac=*)             AAC_IMPL="${1#--aac=}" ;;
