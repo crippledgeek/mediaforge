@@ -47,6 +47,7 @@ DRY_RUN=false
 KEEP_GOING=false
 DISABLE_PKGS=""
 ENABLE_PKGS=""
+USE_MENU=false
 
 # ─── Help ────────────────────────────────────────────────────────────
 
@@ -164,11 +165,18 @@ cmd_build() {
     fi
   done
 
+  # Load stored choices from previous run (CLI flags take precedence —
+  # load_stored_choices only sets values that are currently empty).
+  load_stored_choices
+
   # Snapshot the user-provided disables before resolver augments them
   DISABLE_PKGS_INPUT="$DISABLE_PKGS"
 
   # Resolve per-group choices into DISABLE_PKGS
   resolve_choices
+
+  # Persist the resolved matrix for next run
+  save_stored_choices
 
   # Log final choice matrix
   log "Choices: tls=$TLS_BACKEND aac=$AAC_IMPL h264=$H264_IMPL h265=$H265_IMPL av1-enc=$AV1_ENC_IMPL"
