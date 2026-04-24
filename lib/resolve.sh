@@ -97,6 +97,7 @@ resolve_choices() {
 # *under* CLI flags (i.e. CLI overrides storage).
 load_stored_choices() {
   [ "${USE_MENU:-false}" = true ] && return 0
+  [ "${DRY_RUN:-false}" = true ] && return 0
   _file="$PREFIX/.mediaforge-choices"
   [ -f "$_file" ] || return 0
   if ! ( . "$_file" ) >/dev/null 2>&1; then
@@ -114,6 +115,7 @@ load_stored_choices() {
 
 # Save resolved choices for next run.
 save_stored_choices() {
+  [ "${DRY_RUN:-false}" = true ] && return 0
   _file="$PREFIX/.mediaforge-choices"
   mkdir -p "$PREFIX" 2>/dev/null || return 0
   cat >"$_file" <<EOF
