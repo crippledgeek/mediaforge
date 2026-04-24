@@ -234,6 +234,21 @@ do_uninstall() {
       fi
     done < "$_manifest"
 
+    # Sweep dangling symlinks under mediaforge's known install subtrees only.
+    # User-created shim dirs (e.g. lib/pkgconfig-ffmpeg/) commonly contain
+    # symlinks pointing back to lib/pkgconfig/ files that the manifest just
+    # removed; those become broken and we tidy them. Restricting the scope to
+    # bin/lib/include/share/man avoids touching unrelated user trees like
+    # share/pnpm or share/applications.
+    for _sweep in bin lib include share/man; do
+      [ -d "$_target/$_sweep" ] || continue
+      find "$_target/$_sweep" -type l 2>/dev/null | while IFS= read -r _link; do
+        if [ ! -e "$_link" ]; then
+          $_priv rm -f "$_link"
+        fi
+      done
+    done
+
     # Clean up empty directories left behind (bottom-up)
     # Sort deepest paths first so rmdir works bottom-up
     while IFS= read -r _rel; do
@@ -244,6 +259,17 @@ do_uninstall() {
         _dir=$(dirname "$_dir")
       done
     done < "$_manifest"
+
+    # Second rmdir pass: clean directories left empty by the dangling-symlink
+    # sweep. Same bounded scope as the sweep above.
+    for _sub in bin lib include share/man; do
+      [ -d "$_target/$_sub" ] || continue
+      find "$_target/$_sub" -depth -type d -empty 2>/dev/null \
+        | while IFS= read -r _empty; do
+            [ "$_empty" = "$_target/$_sub" ] && continue
+            $_priv rmdir "$_empty" 2>/dev/null || true
+          done
+    done
 
     $_priv rm -f "$_manifest"
     log "Removed $_removed files from $_target"
