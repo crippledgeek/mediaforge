@@ -234,18 +234,31 @@ cmd_build() {
   command_exists "cargo"   || warn "cargo not installed — rav1e will be skipped"
   command_exists "python3" || warn "python3 not installed — dav1d and lv2 will be skipped"
 
-  # Static build: check for required static system libraries
+  # Static build: hard-fail when required static system libraries are missing.
+  # Without these, FFmpeg's configure link tests fail and surface as misleading
+  # "libass/libfreetype/... not found" errors deep into the build. Better to
+  # fail-fast at preflight with the actual list.
   if [ -n "$LDEXEFLAGS" ]; then
     _missing=""
-    for _slib in expat bz2 lzma unibreak bsd md deflate jbig jpeg unwind; do
-      if [ ! -f "/usr/lib/lib${_slib}.a" ]; then
+    for _slib in expat bz2 lzma unibreak bsd md deflate jbig jpeg unwind \
+                 brotlidec brotlicommon asound; do
+      if [ ! -f "/usr/lib/lib${_slib}.a" ] && \
+         [ ! -f "/usr/lib/${MULTIARCH_TRIPLET:-}/lib${_slib}.a" ]; then
         _missing="$_missing $_slib"
       fi
     done
     if [ -n "$_missing" ]; then
-      warn "Static build: missing system static libraries:$_missing"
-      warn "FFmpeg configure may fail. See BUILDING.md for details."
-      warn "On Arch Linux, rebuild these packages with staticlibs or use AUR static packages."
+      warn "Static build (--enable-static) requires system static libs that are missing:"
+      for _l in $_missing; do warn "    /usr/lib/lib${_l}.a"; done
+      warn ""
+      warn "On Arch Linux these libs ship !staticlibs by default. Either:"
+      warn "  1. Drop --enable-static (recommended; resulting binary links shared system libs)"
+      warn "  2. Rebuild each missing package with 'staticlibs' in OPTIONS via ABS"
+      warn "  3. Find an AUR <pkg>-static variant"
+      warn ""
+      warn "FFmpeg's configure will report misleading 'libass/libfreetype not found'"
+      warn "errors when these are absent — failing fast here instead."
+      die "Cannot proceed with --enable-static."
     fi
   fi
 
