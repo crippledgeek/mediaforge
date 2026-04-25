@@ -21,39 +21,44 @@ pkg_configure() {
   :
 }
 
+# Resolve CRYPTO once and reuse in both build and install (same Makefile var
+# must be set in both invocations or `make install` regenerates librtmp.pc
+# with the default CRYPTO=OPENSSL).
+_librtmp_crypto() {
+  case "${TLS_BACKEND:-gnutls}" in
+    openssl|libressl) printf 'OPENSSL\n' ;;
+    gnutls)           printf 'GNUTLS\n'  ;;
+    *)                printf '\n'        ;;  # mbedtls/none → no encryption
+  esac
+}
+
 pkg_build() {
   cd librtmp || die "Failed to cd to librtmp"
   # Wipe any stale .o/.a/.pc from a previous CRYPTO= setting so the .pc gets
   # regenerated from librtmp.pc.in with the current REQ_$(CRYPTO).
   run make clean
 
-  # librtmp's Makefile accepts CRYPTO=OPENSSL|GNUTLS|POLARSSL or empty for none.
-  # Match mediaforge's --tls= so librtmp.pc's Requires matches what's in $PREFIX.
-  case "${TLS_BACKEND:-gnutls}" in
-    openssl|libressl) _crypto=OPENSSL; _libs="-lssl -lcrypto -lz -ldl -lpthread" ;;
-    gnutls)           _crypto=GNUTLS;  _libs="" ;;
-    *)                _crypto="";      _libs="" ;;  # mbedtls/none → no encryption
+  _crypto=$(_librtmp_crypto)
+  case "$_crypto" in
+    OPENSSL)
+      run make SYS=posix prefix="$PREFIX" SHARED= CRYPTO="$_crypto" \
+        XCFLAGS="$CFLAGS -I$PREFIX/include" XLDFLAGS="-L$PREFIX/lib" \
+        LIB_OPENSSL="-lssl -lcrypto -lz -ldl -lpthread"
+      ;;
+    GNUTLS)
+      run make SYS=posix prefix="$PREFIX" SHARED= CRYPTO="$_crypto" \
+        XCFLAGS="$CFLAGS -I$PREFIX/include" XLDFLAGS="-L$PREFIX/lib"
+      ;;
+    *)
+      run make SYS=posix prefix="$PREFIX" SHARED= CRYPTO= \
+        XCFLAGS="$CFLAGS -I$PREFIX/include" XLDFLAGS="-L$PREFIX/lib"
+      ;;
   esac
-  if [ "$_crypto" = "OPENSSL" ]; then
-    run make SYS=posix prefix="$PREFIX" \
-      SHARED= CRYPTO="$_crypto" \
-      XCFLAGS="$CFLAGS -I$PREFIX/include" \
-      XLDFLAGS="-L$PREFIX/lib" \
-      LIB_OPENSSL="$_libs"
-  elif [ "$_crypto" = "GNUTLS" ]; then
-    run make SYS=posix prefix="$PREFIX" \
-      SHARED= CRYPTO="$_crypto" \
-      XCFLAGS="$CFLAGS -I$PREFIX/include" \
-      XLDFLAGS="-L$PREFIX/lib"
-  else
-    # No supported crypto for this TLS backend — build without encryption
-    run make SYS=posix prefix="$PREFIX" \
-      SHARED= CRYPTO= \
-      XCFLAGS="$CFLAGS -I$PREFIX/include" \
-      XLDFLAGS="-L$PREFIX/lib"
-  fi
 }
 
 pkg_install() {
-  run make SYS=posix prefix="$PREFIX" SHARED= install
+  # Pass the same CRYPTO so `install_base`'s librtmp.pc target substitutes
+  # the matching REQ_$(CRYPTO) into Requires.
+  _crypto=$(_librtmp_crypto)
+  run make SYS=posix prefix="$PREFIX" SHARED= CRYPTO="$_crypto" install
 }
