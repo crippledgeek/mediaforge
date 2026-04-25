@@ -13,10 +13,12 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  # --disable-libbsd / --disable-libunwind drop optional system deps so
-  # libzmq.pc's Requires.private doesn't pull in -lbsd / -lunwind, neither
-  # of which is reliably available as a system static lib (Arch ships .so
-  # only). libzmq has internal fallbacks for strlcpy and stack tracing.
-  run ./configure --prefix="$PREFIX" --disable-shared --enable-static \
-    --disable-libbsd --disable-libunwind
+  # In a fully-static build (LDEXEFLAGS set), drop libbsd and libunwind so
+  # libzmq.pc's Requires.private doesn't pull -lbsd / -lunwind into FFmpeg's
+  # link — neither is available as a system static lib on Arch. libzmq has
+  # an internal strlcpy fallback. Dynamic builds keep full optional features.
+  _opt_flags=""
+  [ -n "$LDEXEFLAGS" ] && _opt_flags="--disable-libbsd --disable-libunwind"
+  # shellcheck disable=SC2086
+  run ./configure --prefix="$PREFIX" --disable-shared --enable-static $_opt_flags
 }
