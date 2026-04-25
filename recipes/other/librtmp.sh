@@ -23,6 +23,10 @@ pkg_configure() {
 
 pkg_build() {
   cd librtmp || die "Failed to cd to librtmp"
+  # Wipe any stale .o/.a/.pc from a previous CRYPTO= setting so the .pc gets
+  # regenerated from librtmp.pc.in with the current REQ_$(CRYPTO).
+  run make clean
+
   # librtmp's Makefile accepts CRYPTO=OPENSSL|GNUTLS|POLARSSL or empty for none.
   # Match mediaforge's --tls= so librtmp.pc's Requires matches what's in $PREFIX.
   case "${TLS_BACKEND:-gnutls}" in
