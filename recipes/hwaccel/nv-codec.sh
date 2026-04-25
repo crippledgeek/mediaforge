@@ -34,11 +34,17 @@ pkg_post_install() {
     done
   fi
 
-  # Auto-detect GPU compute capability, fallback to 75 (Turing — first
-  # arch supported by every CUDA 13.x toolkit).
+  # Resolve compute capability: explicit env var > nvidia-smi probe of the
+  # actual GPU > the toolkit's own lowest supported arch (best practice — adapts
+  # to whatever CUDA major is installed) > 75 (Turing — CUDA 13 minimum).
   _cuda_cc="${CUDA_COMPUTE_CAPABILITY:-}"
   if [ -z "$_cuda_cc" ] && command_exists nvidia-smi; then
     _cuda_cc=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '.')
+  fi
+  if [ -z "$_cuda_cc" ]; then
+    # `nvcc --list-gpu-arch` emits e.g. "compute_75\ncompute_80\n..." (lowest
+    # first). Available since CUDA 11.6.
+    _cuda_cc=$(nvcc --list-gpu-arch 2>/dev/null | head -1 | sed 's/^compute_//')
   fi
   _cuda_cc="${_cuda_cc:-75}"
 
