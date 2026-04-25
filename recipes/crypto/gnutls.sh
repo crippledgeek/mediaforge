@@ -1,6 +1,7 @@
 PKG_NAME="gnutls"
 PKG_VERSION="${PKG_VERSION_GNUTLS:-3.8.11}"
 PKG_URL="https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-${PKG_VERSION}.tar.xz"
+PKG_FFMPEG_OPT="--enable-gnutls"
 PKG_MUTEX_GROUP="tls"
 PKG_SKIP_ON_ARCH="arm64"
 

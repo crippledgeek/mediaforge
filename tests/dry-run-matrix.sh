@@ -49,9 +49,12 @@ _run "openssl disables gnutls" "Skipping gnutls (disabled via CLI)" \
 _run "gnutls disables openssl" "Skipping openssl (disabled via CLI)" \
   ./mediaforge.sh build --tls=gnutls
 
-# AAC default (native) skips fdk_aac
+# AAC default (native) skips fdk_aac in free builds
 _run "aac=native skips fdk_aac" "Skipping fdk_aac (disabled via CLI)" \
   ./mediaforge.sh build
+
+# --enable-nonfree implies aac=fdk_aac when user didn't pick (historical UX)
+_run "nonfree implies aac=fdk_aac"  "aac=fdk_aac"  ./mediaforge.sh build --enable-nonfree
 
 # Invalid enum is rejected
 _output=$(./mediaforge.sh build --tls=bogus --dry-run --yes 2>&1) || true

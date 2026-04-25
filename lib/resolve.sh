@@ -77,6 +77,14 @@ resolve_choices() {
       av1    "libaom — reference encoder, slow") || die "AV1 prompt cancelled"
   fi
 
+  # When --enable-nonfree is on AND the user didn't explicitly pick an AAC
+  # encoder, default to fdk_aac. This preserves the historical mediaforge
+  # behaviour where `--enable-nonfree` implied fdk_aac (the main reason most
+  # users opt into nonfree). Native AAC is still the default for free builds.
+  if [ -z "$AAC_IMPL" ] && [ "$ENABLE_NONFREE" = true ]; then
+    AAC_IMPL="fdk_aac"
+  fi
+
   # Apply profile *_DEFAULT then built-in defaults if nothing set them.
   : "${TLS_BACKEND:=${TLS_BACKEND_DEFAULT:-$TLS_BACKEND_DEFAULT_BUILTIN}}"
   : "${AAC_IMPL:=${AAC_IMPL_DEFAULT:-$AAC_IMPL_DEFAULT_BUILTIN}}"
