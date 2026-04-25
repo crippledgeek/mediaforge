@@ -80,7 +80,8 @@ cmd_help() {
   printf '  -n, --dry-run             Show what would build\n'
   printf '  -k, --keep-going          Continue on recipe failure\n'
   printf '      --tls=BACKEND         TLS backend: openssl|gnutls|mbedtls|libressl|none (default: gnutls)\n'
-  printf '      --aac=IMPL            AAC encoder: fdk_aac|native (default: native)\n'
+  printf '      --aac=IMPL            AAC encoder: fdk_aac|native (default: native; nonfree -> fdk_aac)\n'
+  printf '      --flac=IMPL           FLAC encoder: libflac|native (default: native)\n'
   printf '      --h264=IMPL           H.264 encoder: x264|openh264 (default: x264)\n'
   printf '      --h265=IMPL           H.265 encoder: x265|kvazaar (default: x265)\n'
   printf '      --av1-enc=IMPL        AV1 encoder: svtav1|rav1e|av1 (default: svtav1)\n'
@@ -143,6 +144,8 @@ cmd_build() {
       --tls)               shift; TLS_BACKEND="$1" ;;
       --aac=*)             AAC_IMPL="${1#--aac=}" ;;
       --aac)               shift; AAC_IMPL="$1" ;;
+      --flac=*)            FLAC_IMPL="${1#--flac=}" ;;
+      --flac)              shift; FLAC_IMPL="$1" ;;
       --h264=*)            H264_IMPL="${1#--h264=}" ;;
       --h264)              shift; H264_IMPL="$1" ;;
       --h265=*)            H265_IMPL="${1#--h265=}" ;;
@@ -191,7 +194,7 @@ cmd_build() {
   save_stored_choices
 
   # Log final choice matrix
-  log "Choices: tls=$TLS_BACKEND aac=$AAC_IMPL h264=$H264_IMPL h265=$H265_IMPL av1-enc=$AV1_ENC_IMPL"
+  log "Choices: tls=$TLS_BACKEND aac=$AAC_IMPL flac=$FLAC_IMPL h264=$H264_IMPL h265=$H265_IMPL av1-enc=$AV1_ENC_IMPL"
 
   # Apply deferred flags
   if [ "$ENABLE_GPL" = true ]; then

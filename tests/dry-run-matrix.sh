@@ -56,6 +56,12 @@ _run "aac=native skips fdk_aac" "Skipping fdk_aac (disabled via CLI)" \
 # --enable-nonfree implies aac=fdk_aac when user didn't pick (historical UX)
 _run "nonfree implies aac=fdk_aac"  "aac=fdk_aac"  ./mediaforge.sh build --enable-nonfree
 
+# FLAC encoder selector
+_run "flac default native skips libflac" "Skipping flac (disabled via CLI)" \
+  ./mediaforge.sh build
+_run "flac=libflac logged"               "flac=libflac" \
+  ./mediaforge.sh build --flac=libflac
+
 # Invalid enum is rejected
 _output=$(./mediaforge.sh build --tls=bogus --dry-run --yes 2>&1) || true
 if printf '%s' "$_output" | grep -q "Invalid --tls: bogus"; then
