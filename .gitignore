@@ -1,5 +1,4 @@
 CLAUDE.md
-docs/*
-!docs/superpowers/
+docs/
 packages/
 workspace/
