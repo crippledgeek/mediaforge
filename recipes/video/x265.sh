@@ -4,6 +4,7 @@ PKG_URL="https://download.videolan.org/pub/videolan/x265/x265_${PKG_VERSION}.tar
 PKG_FILENAME="x265-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libx265"
 PKG_GPL=true
+PKG_MUTEX_GROUP="h265"
 
 # x265 4.1 bundles json11.cpp which uses uint8_t without #include <cstdint>
 # (GCC 15 no longer transitively includes it)
@@ -24,15 +25,20 @@ pkg_build() {
   rm -rf 8bit 10bit 12bit 2>/dev/null
   mkdir -p 8bit 10bit 12bit
 
+  # NUMA support requires libnuma.a, which Arch doesn't ship. Disable for
+  # static builds so x265.pc's Libs.private doesn't reference -lnuma.
+  _x265_numa=""
+  [ -n "$LDEXEFLAGS" ] && _x265_numa="-DENABLE_LIBNUMA=OFF"
+
   cd 12bit || die "Failed to cd to 12bit"
   run cmake ../../../source -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-    -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF -DHIGH_BIT_DEPTH=ON \
+    -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF $_x265_numa -DHIGH_BIT_DEPTH=ON \
     -DENABLE_HDR10_PLUS=ON -DEXPORT_C_API=OFF -DENABLE_CLI=OFF -DMAIN12=ON
   run make -j "$MJOBS"
 
   cd ../10bit || die "Failed to cd to 10bit"
   run cmake ../../../source -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-    -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF -DHIGH_BIT_DEPTH=ON \
+    -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF $_x265_numa -DHIGH_BIT_DEPTH=ON \
     -DENABLE_HDR10_PLUS=ON -DEXPORT_C_API=OFF -DENABLE_CLI=OFF
   run make -j "$MJOBS"
 
@@ -40,7 +46,7 @@ pkg_build() {
   ln -sf ../10bit/libx265.a libx265_main10.a
   ln -sf ../12bit/libx265.a libx265_main12.a
   run cmake ../../../source -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-    -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF \
+    -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF $_x265_numa \
     -DEXTRA_LIB="x265_main10.a;x265_main12.a;-ldl" \
     -DEXTRA_LINK_FLAGS=-L. -DLINKED_10BIT=ON -DLINKED_12BIT=ON
   run make -j "$MJOBS"

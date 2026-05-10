@@ -44,8 +44,8 @@ reset_recipe() {
   PKG_LINUX_ONLY=false
   PKG_SKIP_ON_ARCH=""
   PKG_SKIP_EXTRACT=false
-  PKG_SKIP_IF_NONFREE=false
   PKG_DISABLED=false
+  PKG_MUTEX_GROUP=""
   PKG_CONFIGURE_FLAGS=""
   PKG_CMAKE=false
   PKG_CMAKE_FLAGS=""
@@ -63,16 +63,25 @@ reset_recipe() {
 # Check whether a recipe should be skipped based on guards
 # Returns 0 if recipe should run, 1 if it should be skipped
 check_guards() {
-  # Disabled guard (e.g., SKIPRAV1E=yes)
-  if [ "$PKG_DISABLED" = true ]; then
-    log "Skipping $PKG_NAME (disabled)"
-    return 1
-  fi
+  # Generic CLI disable list (drives --disable= and --tls=/--aac=/etc.)
+  for _d in $DISABLE_PKGS; do
+    if [ "$_d" = "$PKG_NAME" ]; then
+      log "Skipping $PKG_NAME (disabled via CLI)"
+      return 1
+    fi
+  done
 
-  # Skip-if-nonfree guard (gmp/nettle/gnutls vs openssl mutual exclusion)
-  if [ "$PKG_SKIP_IF_NONFREE" = true ] && [ "$ENABLE_NONFREE" = true ]; then
-    log "Skipping $PKG_NAME (nonfree path uses alternative)"
-    return 1
+  # Disabled guard (e.g., SKIPRAV1E=yes), with --enable=PKG override
+  if [ "$PKG_DISABLED" = true ]; then
+    _force=false
+    for _e in $ENABLE_PKGS; do
+      [ "$_e" = "$PKG_NAME" ] && _force=true && break
+    done
+    if [ "$_force" != true ]; then
+      log "Skipping $PKG_NAME (disabled)"
+      return 1
+    fi
+    log "Force-enabling $PKG_NAME via --enable=$PKG_NAME"
   fi
 
   # GPL guard
@@ -117,15 +126,6 @@ check_guards() {
     return 1
   fi
 
-  # LV2 disable guard
-  # The entire LV2 dependency chain (serd, pcre, zix, sord, sratom, lilv)
-  # is embedded in the single lv2.sh recipe, so guarding on PKG_NAME="lv2"
-  # correctly skips all sub-dependencies.
-  if [ "$NO_LV2" = true ] && [ "$PKG_NAME" = "lv2" ]; then
-    log "Skipping $PKG_NAME (--disable-lv2)"
-    return 1
-  fi
-
   return 0
 }
 
@@ -165,6 +165,15 @@ run_recipe() {
   # Check stamp (stamp_check returns 1 if already built)
   if ! stamp_check "$PKG_NAME" "$PKG_VERSION"; then
     # Already built — accumulate ffmpeg option and skip
+    if [ -n "$PKG_FFMPEG_OPT" ]; then
+      FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
+    fi
+    return 0
+  fi
+
+  # Dry-run short-circuit: print intent, accumulate ffmpeg flag, skip download/build
+  if [ "${DRY_RUN:-false}" = true ]; then
+    log "Would build $PKG_NAME-$PKG_VERSION"
     if [ -n "$PKG_FFMPEG_OPT" ]; then
       FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
     fi

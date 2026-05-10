@@ -15,6 +15,9 @@ run() {
   mkdir -p "$_logdir" 2>/dev/null
 
   log "$ $*"
+  if [ "${DRY_RUN:-false}" = true ]; then
+    return 0
+  fi
   if "$@" > "$_logfile" 2>&1; then
     rm -f "$_logfile"
   else
@@ -33,6 +36,10 @@ run_stdin() {
   mkdir -p "$_logdir" 2>/dev/null
 
   log "$ $* < (stdin)"
+  if [ "${DRY_RUN:-false}" = true ]; then
+    cat >/dev/null
+    return 0
+  fi
   if "$@" > "$_logfile" 2>&1; then
     rm -f "$_logfile"
   else
@@ -101,4 +108,12 @@ print_flags() {
   log "CXXFLAGS: $CXXFLAGS"
   log "LDFLAGS: $LDFLAGS"
   log "LDEXEFLAGS: $LDEXEFLAGS"
+}
+
+# Returns 0 if running interactively (TTY on stdin, --yes not set, $CI not set).
+is_interactive() {
+  [ "${AUTOINSTALL:-}" = "yes" ] && return 1
+  [ -n "${CI:-}" ] && return 1
+  [ -t 0 ] || return 1
+  return 0
 }

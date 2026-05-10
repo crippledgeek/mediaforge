@@ -1,0 +1,16 @@
+PKG_NAME="flac"
+PKG_VERSION="${PKG_VERSION_FLAC:-1.5.0}"
+PKG_GITHUB_REPO="xiph/flac"
+PKG_URL="https://github.com/xiph/flac/releases/download/${PKG_VERSION}/flac-${PKG_VERSION}.tar.xz"
+PKG_FILENAME="flac-${PKG_VERSION}.tar.xz"
+PKG_FFMPEG_OPT="--enable-libflac"
+PKG_MUTEX_GROUP="flac"
+PKG_CMAKE=true
+PKG_CMAKE_FLAGS="\
+  -DBUILD_SHARED_LIBS=OFF \
+  -DBUILD_PROGRAMS=OFF \
+  -DBUILD_EXAMPLES=OFF \
+  -DBUILD_TESTING=OFF \
+  -DBUILD_DOCS=OFF \
+  -DINSTALL_MANPAGES=OFF \
+  -DWITH_OGG=OFF"

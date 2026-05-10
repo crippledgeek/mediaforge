@@ -4,6 +4,7 @@ PKG_URL="https://aomedia.googlesource.com/aom/+archive/${PKG_VERSION}.tar.gz"
 PKG_FILENAME="av1.tar.gz"
 PKG_DIRNAME="av1"
 PKG_FFMPEG_OPT="--enable-libaom"
+PKG_MUTEX_GROUP="av1-enc"
 
 pkg_configure() {
   rm -rf "$DISTDIR/aom_build" && mkdir -p "$DISTDIR/aom_build"
