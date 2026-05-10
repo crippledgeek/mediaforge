@@ -4,6 +4,7 @@ PKG_GITHUB_REPO="cisco/openh264"
 PKG_URL="https://github.com/cisco/openh264/archive/refs/tags/v${PKG_VERSION}.tar.gz"
 PKG_FILENAME="openh264-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libopenh264"
+PKG_MUTEX_GROUP="h264"
 PKG_REQUIRES_MESON=true
 
 pkg_configure() {

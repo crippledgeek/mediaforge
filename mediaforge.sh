@@ -15,10 +15,13 @@ PREFIX="$TOPDIR/workspace"
 
 # Source libraries (order matters — utils first, platform needs command_exists)
 . "$SCRIPT_DIR/lib/utils.sh"
+. "$SCRIPT_DIR/lib/registry.sh"
 . "$SCRIPT_DIR/lib/platform.sh"
 . "$SCRIPT_DIR/lib/download.sh"
 . "$SCRIPT_DIR/lib/cleanup.sh"
 . "$SCRIPT_DIR/lib/framework.sh"
+. "$SCRIPT_DIR/lib/resolve.sh"
+. "$SCRIPT_DIR/lib/menu.sh"
 
 # Compiler flags
 CFLAGS="-I$PREFIX/include"
@@ -33,7 +36,6 @@ NVCCFLAGS=""
 # Feature flags (defaults)
 ENABLE_GPL=false
 ENABLE_NONFREE=false
-NO_LV2=false
 REBUILD_OUTDATED=false
 INSTALL_MANPAGES=1
 SKIP_INSTALL=""
@@ -44,6 +46,9 @@ VERBOSE=0
 QUIET=false
 DRY_RUN=false
 KEEP_GOING=false
+DISABLE_PKGS=""
+ENABLE_PKGS=""
+USE_MENU=false
 
 # ─── Help ────────────────────────────────────────────────────────────
 
@@ -69,10 +74,21 @@ cmd_help() {
   printf '  -u, --rebuild-outdated    Rebuild stale dependencies\n'
   printf '  -I, --no-install          Skip post-build install\n'
   printf '  -y, --yes                 Non-interactive mode\n'
+  printf '      --menu                Interactive selector (whiptail or POSIX fallback)\n'
   printf '  -v, --verbose             Show build commands (-vv for more)\n'
   printf '  -q, --quiet               Errors only\n'
   printf '  -n, --dry-run             Show what would build\n'
   printf '  -k, --keep-going          Continue on recipe failure\n'
+  printf '      --tls=BACKEND         TLS backend: openssl|gnutls|mbedtls|libressl|none (default: gnutls)\n'
+  printf '      --aac=IMPL            AAC encoder: fdk_aac|native (default: native; nonfree -> fdk_aac)\n'
+  printf '      --flac=IMPL           FLAC encoder: libflac|native (default: native)\n'
+  printf '      --h264=IMPL           H.264 encoder: x264|openh264 (default: x264)\n'
+  printf '      --h265=IMPL           H.265 encoder: x265|kvazaar (default: x265)\n'
+  printf '      --av1-enc=IMPL        AV1 encoder: svtav1|rav1e|av1 (default: svtav1)\n'
+  printf '      --disable=PKG         Disable a recipe by name (repeatable, comma-separated ok)\n'
+  printf '      --enable=PKG          Force-enable a recipe that defaults to off\n'
+  printf '      --list-pkgs           Print every recipe with category and mutex group\n'
+  printf '      --clean-choices       Delete the stored choice matrix and exit\n'
   printf '\n'
 }
 
@@ -89,7 +105,7 @@ cmd_build() {
       # Short options
       -g)  ENABLE_GPL=true ;;
       -G)  ENABLE_NONFREE=true; ENABLE_GPL=true ;;
-      -L)  NO_LV2=true ;;
+      -L)  DISABLE_PKGS="$DISABLE_PKGS lv2" ;;
       -s)  _enable_static=true ;;
       -m)  _enable_small=true ;;
       -p)  shift; PROFILE_NAME="$1" ;;
@@ -104,7 +120,7 @@ cmd_build() {
       # Long options
       --enable-gpl)        ENABLE_GPL=true ;;
       --enable-nonfree)    ENABLE_NONFREE=true; ENABLE_GPL=true ;;
-      --disable-lv2)       NO_LV2=true ;;
+      --disable-lv2)       DISABLE_PKGS="$DISABLE_PKGS lv2" ;;
       --enable-static)     _enable_static=true ;;
       --enable-small)      _enable_small=true ;;
       --profile=*)         PROFILE_NAME="${1#--profile=}" ;;
@@ -118,12 +134,67 @@ cmd_build() {
       --quiet)             QUIET=true ;;
       --dry-run)           DRY_RUN=true ;;
       --keep-going)        KEEP_GOING=true ;;
+      --disable=*)         DISABLE_PKGS="$DISABLE_PKGS $(echo "${1#--disable=}" | tr ',' ' ')" ;;
+      --disable)           shift; DISABLE_PKGS="$DISABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
+      --enable=*)          ENABLE_PKGS="$ENABLE_PKGS $(echo "${1#--enable=}" | tr ',' ' ')" ;;
+      --enable)            shift; ENABLE_PKGS="$ENABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
+      --list-pkgs)         list_pkgs; exit 0 ;;
+      --clean-choices)     rm -f "$PREFIX/.mediaforge-choices"; log "Cleared stored choices"; exit 0 ;;
+      --tls=*)             TLS_BACKEND="${1#--tls=}" ;;
+      --tls)               shift; TLS_BACKEND="$1" ;;
+      --aac=*)             AAC_IMPL="${1#--aac=}" ;;
+      --aac)               shift; AAC_IMPL="$1" ;;
+      --flac=*)            FLAC_IMPL="${1#--flac=}" ;;
+      --flac)              shift; FLAC_IMPL="$1" ;;
+      --h264=*)            H264_IMPL="${1#--h264=}" ;;
+      --h264)              shift; H264_IMPL="$1" ;;
+      --h265=*)            H265_IMPL="${1#--h265=}" ;;
+      --h265)              shift; H265_IMPL="$1" ;;
+      --av1-enc=*)         AV1_ENC_IMPL="${1#--av1-enc=}" ;;
+      --av1-enc)           shift; AV1_ENC_IMPL="$1" ;;
+      --menu)              USE_MENU=true ;;
       --)                  shift; break ;;
       -*)                  die "Unknown option: $1" ;;
       *)                   break ;;
     esac
     shift
   done
+
+  # Validate every name in DISABLE_PKGS / ENABLE_PKGS against the recipe registry
+  registry_init
+  for _p in $DISABLE_PKGS $ENABLE_PKGS; do
+    if ! is_known_pkg "$_p"; then
+      _hint=$(suggest_pkg "$_p")
+      if [ -n "$_hint" ]; then
+        die "Unknown package: $_p. Did you mean: $_hint ?"
+      else
+        die "Unknown package: $_p. Run '$PROGNAME build --list-pkgs' to see all."
+      fi
+    fi
+  done
+
+  if [ "$USE_MENU" = true ]; then
+    if [ "$AUTOINSTALL" = "yes" ]; then
+      die "--menu and --yes are mutually exclusive"
+    fi
+    run_menu
+  fi
+
+  # Load stored choices from previous run (CLI flags take precedence —
+  # load_stored_choices only sets values that are currently empty).
+  load_stored_choices
+
+  # Snapshot the user-provided disables before resolver augments them
+  DISABLE_PKGS_INPUT="$DISABLE_PKGS"
+
+  # Resolve per-group choices into DISABLE_PKGS
+  resolve_choices
+
+  # Persist the resolved matrix for next run
+  save_stored_choices
+
+  # Log final choice matrix
+  log "Choices: tls=$TLS_BACKEND aac=$AAC_IMPL flac=$FLAC_IMPL h264=$H264_IMPL h265=$H265_IMPL av1-enc=$AV1_ENC_IMPL"
 
   # Apply deferred flags
   if [ "$ENABLE_GPL" = true ]; then
@@ -166,18 +237,29 @@ cmd_build() {
   command_exists "cargo"   || warn "cargo not installed — rav1e will be skipped"
   command_exists "python3" || warn "python3 not installed — dav1d and lv2 will be skipped"
 
-  # Static build: check for required static system libraries
+  # Static build: warn about static system libs that are neither bundled by
+  # mediaforge's own recipes (recipes/syslib/) nor present in /usr/lib/.
+  # mediaforge bundles: expat, bz2 (via bzip2), lzma (via xz), unibreak, brotli.
+  # Anything else — bsd, md, deflate, jbig, jpeg, unwind, asound — must come
+  # from the system or be opted out (e.g. --disable=flite for asound).
   if [ -n "$LDEXEFLAGS" ]; then
+    _bundled="expat bz2 lzma unibreak brotlidec brotlicommon"
     _missing=""
-    for _slib in expat bz2 lzma unibreak bsd md deflate jbig jpeg unwind; do
-      if [ ! -f "/usr/lib/lib${_slib}.a" ]; then
+    for _slib in expat bz2 lzma unibreak bsd md deflate jbig jpeg unwind \
+                 brotlidec brotlicommon asound; do
+      case " $_bundled " in
+        *" $_slib "*) continue ;;  # mediaforge will produce $PREFIX/lib/lib<x>.a
+      esac
+      if [ ! -f "/usr/lib/lib${_slib}.a" ] && \
+         [ ! -f "/usr/lib/${MULTIARCH_TRIPLET:-}/lib${_slib}.a" ]; then
         _missing="$_missing $_slib"
       fi
     done
     if [ -n "$_missing" ]; then
       warn "Static build: missing system static libraries:$_missing"
-      warn "FFmpeg configure may fail. See BUILDING.md for details."
-      warn "On Arch Linux, rebuild these packages with staticlibs or use AUR static packages."
+      warn "FFmpeg's link step may fail with misleading messages (e.g. 'libass not found')."
+      warn "Workarounds: install AUR -static variants, or drop --enable-static, or"
+      warn "skip the recipes that need them (e.g. --disable=flite removes the asound dep)."
     fi
   fi
 

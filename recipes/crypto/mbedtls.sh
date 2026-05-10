@@ -1,0 +1,14 @@
+PKG_NAME="mbedtls"
+PKG_VERSION="${PKG_VERSION_MBEDTLS:-3.6.4}"
+PKG_GITHUB_REPO="Mbed-TLS/mbedtls"
+PKG_URL="https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-${PKG_VERSION}/mbedtls-${PKG_VERSION}.tar.bz2"
+PKG_FILENAME="mbedtls-${PKG_VERSION}.tar.bz2"
+PKG_FFMPEG_OPT="--enable-mbedtls"
+PKG_MUTEX_GROUP="tls"
+PKG_CMAKE=true
+PKG_CMAKE_FLAGS="\
+  -DUSE_SHARED_MBEDTLS_LIBRARY=Off \
+  -DUSE_STATIC_MBEDTLS_LIBRARY=On \
+  -DENABLE_PROGRAMS=Off \
+  -DENABLE_TESTING=Off \
+  -DMBEDTLS_FATAL_WARNINGS=Off"

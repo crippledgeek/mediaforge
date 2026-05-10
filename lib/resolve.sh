@@ -1,0 +1,251 @@
+# shellcheck disable=SC2154
+# Resolver — translate per-group flags + stored choices + profile defaults
+# into a final DISABLE_PKGS string. Idempotent.
+
+# Per-group user choices (set from CLI; empty means "not chosen").
+TLS_BACKEND=""
+AAC_IMPL=""
+FLAC_IMPL=""
+H264_IMPL=""
+H265_IMPL=""
+AV1_ENC_IMPL=""
+
+# Conservative defaults (used when non-interactive and nothing else resolves).
+TLS_BACKEND_DEFAULT_BUILTIN="gnutls"
+AAC_IMPL_DEFAULT_BUILTIN="native"
+FLAC_IMPL_DEFAULT_BUILTIN="native"
+H264_IMPL_DEFAULT_BUILTIN="x264"
+H265_IMPL_DEFAULT_BUILTIN="x265"
+AV1_ENC_IMPL_DEFAULT_BUILTIN="svtav1"
+
+# Members of each mutex group (excluding sentinels like "none" and "native").
+TLS_GROUP="openssl gnutls mbedtls libressl"
+AAC_GROUP="fdk_aac"
+FLAC_GROUP="flac"
+H264_GROUP="x264 openh264"
+H265_GROUP="x265 kvazaar"
+AV1_ENC_GROUP="svtav1 rav1e av1"   # av1 = libaom recipe filename
+
+# Given a chosen TLS backend, return the space-separated list of TLS-related
+# packages that must be disabled. gmp/nettle are gnutls build-deps.
+tls_disable_companions() {
+  case "$1" in
+    gnutls)   echo "openssl mbedtls libressl" ;;
+    openssl)  echo "gnutls gmp nettle mbedtls libressl" ;;
+    mbedtls)  echo "openssl gnutls gmp nettle libressl" ;;
+    libressl) echo "openssl gnutls gmp nettle mbedtls" ;;
+    none)     echo "openssl gnutls gmp nettle mbedtls libressl" ;;
+    *)        echo "" ;;
+  esac
+}
+
+# Validate a value against a "|"-separated enum. Aborts on mismatch.
+_validate_enum() {
+  _name=$1; _value=$2; _allowed=$3
+  case "|$_allowed|" in
+    *"|$_value|"*) return 0 ;;
+  esac
+  die "Invalid $_name: $_value. Allowed: $(printf '%s' "$_allowed" | tr '|' ',')"
+}
+
+# Top-level resolver. Mutates DISABLE_PKGS in place. Idempotent.
+resolve_choices() {
+  # Smart prompts: ask interactively when the user did not pick.
+  if is_interactive; then
+    [ -z "$TLS_BACKEND" ] && TLS_BACKEND=$(menu_radiolist \
+      "Pick a TLS backend" "$TLS_BACKEND_DEFAULT_BUILTIN" \
+      gnutls   "GnuTLS — free, default" \
+      openssl  "OpenSSL — Apache 2.0" \
+      mbedtls  "mbedTLS — small footprint" \
+      libressl "LibreSSL libtls" \
+      none     "No TLS support") || die "TLS prompt cancelled"
+    [ -z "$AAC_IMPL" ] && AAC_IMPL=$(menu_radiolist \
+      "Pick an AAC encoder" "$AAC_IMPL_DEFAULT_BUILTIN" \
+      native   "FFmpeg native AAC (always available)" \
+      fdk_aac  "Fraunhofer FDK-AAC (requires --enable-nonfree)") || die "AAC prompt cancelled"
+    [ -z "$FLAC_IMPL" ] && FLAC_IMPL=$(menu_radiolist \
+      "Pick a FLAC encoder" "$FLAC_IMPL_DEFAULT_BUILTIN" \
+      native  "FFmpeg native FLAC (fast, good quality)" \
+      libflac "Xiph reference libFLAC (canonical)") || die "FLAC prompt cancelled"
+    if [ "$ENABLE_GPL" = true ]; then
+      [ -z "$H264_IMPL" ] && H264_IMPL=$(menu_radiolist \
+        "Pick an H.264 encoder" "$H264_IMPL_DEFAULT_BUILTIN" \
+        x264     "x264 — GPL, de-facto standard" \
+        openh264 "OpenH264 — BSD source, MPEG-LA royalties apply") || die "H.264 prompt cancelled"
+      [ -z "$H265_IMPL" ] && H265_IMPL=$(menu_radiolist \
+        "Pick an H.265 encoder" "$H265_IMPL_DEFAULT_BUILTIN" \
+        x265    "x265 — GPL" \
+        kvazaar "Kvazaar — LGPL") || die "H.265 prompt cancelled"
+    fi
+    [ -z "$AV1_ENC_IMPL" ] && AV1_ENC_IMPL=$(menu_radiolist \
+      "Pick an AV1 encoder" "$AV1_ENC_IMPL_DEFAULT_BUILTIN" \
+      svtav1 "SVT-AV1 — fastest, recommended" \
+      rav1e  "rav1e — pure Rust" \
+      av1    "libaom — reference encoder, slow") || die "AV1 prompt cancelled"
+  fi
+
+  # When --enable-nonfree is on AND the user didn't explicitly pick an AAC
+  # encoder, default to fdk_aac. This preserves the historical mediaforge
+  # behaviour where `--enable-nonfree` implied fdk_aac (the main reason most
+  # users opt into nonfree). Native AAC is still the default for free builds.
+  if [ -z "$AAC_IMPL" ] && [ "$ENABLE_NONFREE" = true ]; then
+    AAC_IMPL="fdk_aac"
+  fi
+
+  # Apply profile *_DEFAULT then built-in defaults if nothing set them.
+  : "${TLS_BACKEND:=${TLS_BACKEND_DEFAULT:-$TLS_BACKEND_DEFAULT_BUILTIN}}"
+  : "${AAC_IMPL:=${AAC_IMPL_DEFAULT:-$AAC_IMPL_DEFAULT_BUILTIN}}"
+  : "${FLAC_IMPL:=${FLAC_IMPL_DEFAULT:-$FLAC_IMPL_DEFAULT_BUILTIN}}"
+  : "${H264_IMPL:=${H264_IMPL_DEFAULT:-$H264_IMPL_DEFAULT_BUILTIN}}"
+  : "${H265_IMPL:=${H265_IMPL_DEFAULT:-$H265_IMPL_DEFAULT_BUILTIN}}"
+  : "${AV1_ENC_IMPL:=${AV1_ENC_IMPL_DEFAULT:-$AV1_ENC_IMPL_DEFAULT_BUILTIN}}"
+
+  _validate_enum "--tls"     "$TLS_BACKEND"  "openssl|gnutls|mbedtls|libressl|none"
+  _validate_enum "--aac"     "$AAC_IMPL"     "fdk_aac|native"
+  _validate_enum "--flac"    "$FLAC_IMPL"    "libflac|native"
+  _validate_enum "--h264"    "$H264_IMPL"    "x264|openh264"
+  _validate_enum "--h265"    "$H265_IMPL"    "x265|kvazaar"
+  _validate_enum "--av1-enc" "$AV1_ENC_IMPL" "svtav1|rav1e|av1"
+
+  # TLS: disable companions of the chosen backend
+  for _p in $(tls_disable_companions "$TLS_BACKEND"); do
+    DISABLE_PKGS="$DISABLE_PKGS $_p"
+  done
+
+  # AAC: only fdk_aac is a mutex member; native means "skip fdk_aac"
+  case "$AAC_IMPL" in
+    native) DISABLE_PKGS="$DISABLE_PKGS fdk_aac" ;;
+  esac
+
+  # FLAC: only libflac is a mutex member; native means "skip libflac"
+  case "$FLAC_IMPL" in
+    native) DISABLE_PKGS="$DISABLE_PKGS flac" ;;
+  esac
+
+  # H264 / H265 / AV1-enc: disable every member of the group except the chosen one
+  for _g_var in H264_GROUP H265_GROUP AV1_ENC_GROUP; do
+    eval "_members=\$$_g_var"
+    eval "_chosen=\$${_g_var%_GROUP}_IMPL"
+    for _m in $_members; do
+      [ "$_m" = "$_chosen" ] && continue
+      DISABLE_PKGS="$DISABLE_PKGS $_m"
+    done
+  done
+
+  # Detect contradictions: --tls=X --disable=X
+  for _chosen in "$TLS_BACKEND" "$AAC_IMPL" "$FLAC_IMPL" "$H264_IMPL" "$H265_IMPL" "$AV1_ENC_IMPL"; do
+    case "$_chosen" in
+      none|native) continue ;;
+    esac
+    for _d in ${DISABLE_PKGS_INPUT:-}; do
+      if [ "$_d" = "$_chosen" ]; then
+        die "Contradiction: '$_chosen' is both selected via per-group flag and listed in --disable="
+      fi
+    done
+  done
+}
+
+# Load previously-stored choices, if present. Stored values are applied
+# *under* CLI flags (i.e. CLI overrides storage).
+load_stored_choices() {
+  [ "${USE_MENU:-false}" = true ] && return 0
+  [ "${DRY_RUN:-false}" = true ] && return 0
+  _file="$PREFIX/.mediaforge-choices"
+  [ -f "$_file" ] || return 0
+  if ! ( . "$_file" ) >/dev/null 2>&1; then
+    warn "$_file is malformed — ignoring"
+    return 0
+  fi
+  # shellcheck disable=SC1090
+  . "$_file"
+  : "${TLS_BACKEND:=${STORED_TLS_BACKEND:-}}"
+  : "${AAC_IMPL:=${STORED_AAC_IMPL:-}}"
+  : "${FLAC_IMPL:=${STORED_FLAC_IMPL:-}}"
+  : "${H264_IMPL:=${STORED_H264_IMPL:-}}"
+  : "${H265_IMPL:=${STORED_H265_IMPL:-}}"
+  : "${AV1_ENC_IMPL:=${STORED_AV1_ENC_IMPL:-}}"
+}
+
+# Save resolved choices for next run.
+save_stored_choices() {
+  [ "${DRY_RUN:-false}" = true ] && return 0
+  _file="$PREFIX/.mediaforge-choices"
+  mkdir -p "$PREFIX" 2>/dev/null || return 0
+  cat >"$_file" <<EOF
+# Generated by mediaforge — edit at your own risk; --clean-choices removes this file.
+STORED_TLS_BACKEND=$TLS_BACKEND
+STORED_AAC_IMPL=$AAC_IMPL
+STORED_FLAC_IMPL=$FLAC_IMPL
+STORED_H264_IMPL=$H264_IMPL
+STORED_H265_IMPL=$H265_IMPL
+STORED_AV1_ENC_IMPL=$AV1_ENC_IMPL
+EOF
+}
+
+# Four-screen interactive menu. Sets ENABLE_GPL, ENABLE_NONFREE,
+# the per-group choices, and adds to DISABLE_PKGS. Called from cmd_build
+# before resolve_choices when --menu is passed.
+run_menu() {
+  if ! is_interactive; then
+    die "--menu requires an interactive terminal"
+  fi
+  if [ "${AUTOINSTALL:-}" = "yes" ]; then
+    die "--menu and --yes are mutually exclusive"
+  fi
+
+  # Screen 1 — licence tier
+  _tier=$(menu_radiolist "Licence tier" "free" \
+    free    "Free codecs only" \
+    gpl     "GPL codecs (x264, x265, xvidcore, vid_stab)" \
+    nonfree "GPL + non-free (fdk_aac, srt over openssl)") || die "Menu cancelled"
+  case "$_tier" in
+    free)    ENABLE_GPL=false; ENABLE_NONFREE=false ;;
+    gpl)     ENABLE_GPL=true;  ENABLE_NONFREE=false ;;
+    nonfree) ENABLE_GPL=true;  ENABLE_NONFREE=true ;;
+  esac
+
+  # Screen 2 — build options
+  _opts=$(menu_checklist "Build options" \
+    static  "Full static binary (Linux only)" off \
+    small   "Minimal build" off \
+    lv2     "LV2 audio plugin chain" on \
+    rebuild "Rebuild outdated dependencies" off) || die "Menu cancelled"
+  for _o in $_opts; do
+    case "$_o" in
+      static)  _enable_static=true ;;
+      small)   _enable_small=true ;;
+      lv2)     ;;
+      rebuild) REBUILD_OUTDATED=true ;;
+    esac
+  done
+  case " $_opts " in
+    *" lv2 "*) ;;
+    *) DISABLE_PKGS="$DISABLE_PKGS lv2" ;;
+  esac
+
+  # Screen 3 — mutex group picks
+  TLS_BACKEND=$(menu_radiolist "TLS backend" "${TLS_BACKEND:-gnutls}" \
+    gnutls   "GnuTLS"   \
+    openssl  "OpenSSL"  \
+    mbedtls  "mbedTLS"  \
+    libressl "LibreSSL" \
+    none     "No TLS")  || die "Menu cancelled"
+  AAC_IMPL=$(menu_radiolist "AAC encoder" "${AAC_IMPL:-native}" \
+    native   "FFmpeg native"      \
+    fdk_aac  "FDK-AAC (nonfree)") || die "Menu cancelled"
+  FLAC_IMPL=$(menu_radiolist "FLAC encoder" "${FLAC_IMPL:-native}" \
+    native  "FFmpeg native"          \
+    libflac "Xiph reference libFLAC") || die "Menu cancelled"
+  if [ "$ENABLE_GPL" = true ]; then
+    H264_IMPL=$(menu_radiolist "H.264 encoder" "${H264_IMPL:-x264}" \
+      x264     "x264 (GPL)" \
+      openh264 "OpenH264 (BSD source)") || die "Menu cancelled"
+    H265_IMPL=$(menu_radiolist "H.265 encoder" "${H265_IMPL:-x265}" \
+      x265    "x265 (GPL)" \
+      kvazaar "Kvazaar (LGPL)") || die "Menu cancelled"
+  fi
+  AV1_ENC_IMPL=$(menu_radiolist "AV1 encoder" "${AV1_ENC_IMPL:-svtav1}" \
+    svtav1 "SVT-AV1" \
+    rav1e  "rav1e"   \
+    av1    "libaom (slow reference)") || die "Menu cancelled"
+}

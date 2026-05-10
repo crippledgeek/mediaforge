@@ -3,6 +3,7 @@ PKG_VERSION="${PKG_VERSION_SVTAV1:-3.1.2}"
 PKG_URL="https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v${PKG_VERSION}/SVT-AV1-v${PKG_VERSION}.tar.gz"
 PKG_FILENAME="svtav1-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libsvtav1"
+PKG_MUTEX_GROUP="av1-enc"
 
 pkg_configure() {
   cd "$DISTDIR/svtav1-${PKG_VERSION}/Build/linux" || die "Failed to cd to SVT-AV1 build dir"
