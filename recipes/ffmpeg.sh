@@ -88,11 +88,17 @@ if [ -f "$PREFIX/.pc-skip-queue" ]; then
   # the libpng recipe): [ -f symlink ] follows the link and reports false when
   # the target is gone, leaving a dangling symlink behind. Unconditional
   # rm -f removes the symlink itself.
-  sort -u "$PREFIX/.pc-skip-queue" | while IFS= read -r _pc; do
+  _pcs=$(sort -u "$PREFIX/.pc-skip-queue")
+  printf '%s\n' "$_pcs" | while IFS= read -r _pc; do
     [ -z "$_pc" ] && continue
+    # Path-traversal guard: queue entries are recipe-supplied constants but
+    # a typo like `PKG_PC_FILES="../../something"` would silently rm outside
+    # the pkgconfig dir. Reject any entry containing a slash or starting
+    # with a dot-segment.
+    case "$_pc" in */*|.*) warn "Skipping suspicious queue entry: $_pc"; continue ;; esac
     rm -f "$PREFIX/lib/pkgconfig/$_pc"
   done
-  _pc_skip_count=$(sort -u "$PREFIX/.pc-skip-queue" | wc -l)
+  _pc_skip_count=$(printf '%s\n' "$_pcs" | grep -c .)
   log "  removed $_pc_skip_count transitive-util .pc file(s) declared by recipes"
   rm -f "$PREFIX/.pc-skip-queue"
 fi
