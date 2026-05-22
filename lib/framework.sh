@@ -52,6 +52,15 @@ reset_recipe() {
   PKG_CMAKE=false
   PKG_CMAKE_FLAGS=""
   PKG_GITHUB_REPO=""
+  # Recipe-declared install intent. If true, the recipe's pkgconfig files
+  # listed in PKG_PC_FILES (space-separated, without .pc suffix) are queued
+  # for removal AFTER FFmpeg's configure has consumed them but BEFORE
+  # do_install copies the workspace to the install prefix. Used for
+  # transitive utility deps (fontconfig, harfbuzz, freetype, ...) that
+  # FFmpeg needs at build time but downstream consumers should resolve
+  # against system pkgconfig. PKG_PC_FILES defaults to "$PKG_NAME".
+  PKG_TRANSITIVE_UTIL=false
+  PKG_PC_FILES=""
 
   # Reset phase functions to defaults
   pkg_prepare()      { default_noop; }
@@ -150,6 +159,16 @@ run_recipe() {
   fi
   if [ -z "$PKG_URL" ] && [ "$PKG_SKIP_EXTRACT" != true ]; then
     die "Recipe $_recipe_path missing PKG_URL (set PKG_SKIP_EXTRACT=true for header-only packages)"
+  fi
+
+  # Queue this recipe's .pc files for removal if it's a transitive utility.
+  # We do this BEFORE check_guards / stamp_check so the queue is populated
+  # even when the recipe is already-built or skipped. Default PKG_PC_FILES
+  # to "$PKG_NAME" when the recipe didn't override.
+  if [ "$PKG_TRANSITIVE_UTIL" = true ]; then
+    for _pc in ${PKG_PC_FILES:-$PKG_NAME}; do
+      printf '%s.pc\n' "$_pc" >> "$PREFIX/.pc-skip-queue"
+    done
   fi
 
   # Check guards

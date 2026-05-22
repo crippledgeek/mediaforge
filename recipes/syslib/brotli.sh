@@ -10,6 +10,9 @@ PKG_CMAKE_FLAGS="\
   -DBROTLI_DISABLE_TESTS=On \
   -DBROTLI_BUNDLED_MODE=Off \
   -DCMAKE_POSITION_INDEPENDENT_CODE=On"
+# Transitive utility — drops all three brotli .pc files.
+PKG_TRANSITIVE_UTIL=true
+PKG_PC_FILES="libbrotlicommon libbrotlidec libbrotlienc"
 
 # brotli's cmake config builds both shared and static. We only want static —
 # remove the .so files post-install so consumers' static probes pick the .a.

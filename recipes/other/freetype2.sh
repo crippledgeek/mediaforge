@@ -5,3 +5,8 @@ PKG_VERSION="${PKG_VERSION_FREETYPE2:-2.14.1}"
 PKG_URL="https://downloads.sourceforge.net/freetype/freetype-${PKG_VERSION}.tar.xz"
 PKG_FFMPEG_OPT="--enable-libfreetype"
 PKG_CONFIGURE_FLAGS="--without-harfbuzz"
+# Transitive utility — freetype2.pc not installed (system has it). PKG_NAME
+# is mixed-case for legibility; override PKG_PC_FILES to the lowercase
+# upstream .pc basename.
+PKG_TRANSITIVE_UTIL=true
+PKG_PC_FILES="freetype2"

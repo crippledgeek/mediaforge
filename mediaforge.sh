@@ -317,6 +317,11 @@ cmd_build() {
   mkdir -p "$PREFIX/.stamps" 2>/dev/null
   mkdir -p "$PREFIX/.logs" 2>/dev/null
 
+  # Reset the pc-skip queue at the start of every build. Recipes with
+  # PKG_TRANSITIVE_UTIL=true append their .pc filenames; recipes/ffmpeg.sh
+  # processes the queue after FFmpeg's configure has consumed the .pc files.
+  rm -f "$PREFIX/.pc-skip-queue" 2>/dev/null
+
   # Add CUDA to PATH if installed (common locations)
   for _cuda_dir in /opt/cuda /usr/local/cuda; do
     if [ -d "$_cuda_dir/bin" ]; then
@@ -485,8 +490,10 @@ cmd_check_shadowers() {
       -h|--help)
         printf 'Usage: %s check-shadowers [--strict]\n\n' "$PROGNAME"
         printf 'Audit workspace .pc files against the system pkgconfig path.\n'
-        printf 'Prints [expected] for names in the install-time stop-list and\n'
-        printf '[NEW SHADOW] for names that would silently shadow a system version.\n\n'
+        printf 'Reports each system overlap as either:\n'
+        printf '  [expected]   — recipe declared PKG_TRANSITIVE_UTIL=true; .pc dropped at build end\n'
+        printf '  [NEW SHADOW] — would be installed AND system has it; review whether the recipe\n'
+        printf '                 should set PKG_TRANSITIVE_UTIL=true\n\n'
         printf '  --strict   exit 1 when new shadowers are found (default: warn only)\n'
         exit 0 ;;
       *) die "Unknown option for check-shadowers: $1" ;;
@@ -498,56 +505,80 @@ cmd_check_shadowers() {
     die "pkg-config not found — install pkgconf or pkg-config first"
   fi
 
-  # Source install.sh so _PKGCONFIG_SHADOWERS is in scope. install.sh defines
-  # the stop-list at top level; sourcing has no side effect beyond exposing it.
-  . "$SCRIPT_DIR/lib/install.sh"
-
   _pc_dir="$PREFIX/lib/pkgconfig"
   if [ ! -d "$_pc_dir" ]; then
     die "No pkgconfig dir at $_pc_dir — run '$PROGNAME build' first"
   fi
+
+  # Collect the .pc files that recipes have declared as transitive utils.
+  # Each line of _order.conf is a recipe path. Source each in a subshell to
+  # extract PKG_TRANSITIVE_UTIL and PKG_PC_FILES without polluting our scope.
+  _expected_set=""
+  while IFS= read -r _recipe_line; do
+    [ -z "$_recipe_line" ] && continue
+    case "$_recipe_line" in '#'*) continue ;; esac
+    _recipe_path="$SCRIPT_DIR/$_recipe_line"
+    [ -f "$_recipe_path" ] || continue
+    _recipe_pcs=$(sh -c '. "$1" 2>/dev/null; [ "$PKG_TRANSITIVE_UTIL" = true ] && printf "%s\n" ${PKG_PC_FILES:-$PKG_NAME}' -- "$_recipe_path")
+    [ -n "$_recipe_pcs" ] && _expected_set="$_expected_set $_recipe_pcs"
+  done < "$SCRIPT_DIR/recipes/_order.conf"
 
   log "Auditing $_pc_dir against system pkgconfig path..."
   log ""
 
   _new=0
   _known=0
+
+  # First pass: recipe-declared transitive utils. These were removed from the
+  # workspace by recipes/ffmpeg.sh's queue-processing step, so they won't be
+  # in the dir listing — but they're still valid audit subjects. Probe the
+  # system for each and report it as [expected dropped] (recipe intent +
+  # system has it, doctrine working as designed) or [expected NO SYSTEM]
+  # (recipe dropped but system doesn't have it — falls through to nothing).
+  for _e in $_expected_set; do
+    if PKG_CONFIG_PATH="" pkg-config --exists "$_e" 2>/dev/null; then
+      _sys_ver=$(PKG_CONFIG_PATH="" pkg-config --modversion "$_e" 2>/dev/null)
+      log "  [expected dropped]   $_e  (system=$_sys_ver) — recipe intent + system fallback ✓"
+      _known=$((_known + 1))
+    else
+      warn "  [expected NO SYSTEM] $_e — recipe dropped but system doesn't provide it; downstream consumers asking for $_e will fail"
+      _known=$((_known + 1))
+    fi
+  done
+
+  # Second pass: workspace .pc files that overlap with system. These ARE
+  # being installed (not in the recipe-intent skip-queue) and might be a
+  # missed transitive-util declaration. Codec libs (x264, vpx, x265, ...)
+  # legitimately appear here because they're intentionally installed for
+  # downstream static link.
   for _pc in "$_pc_dir"/*.pc; do
     [ -f "$_pc" ] || continue
     _name=$(basename "$_pc" .pc)
     _name_lc=$(printf '%s' "$_name" | tr '[:upper:]' '[:lower:]')
-    # Pristine-system probe: empty PKG_CONFIG_PATH falls through to pkg-config's
-    # compiled-in default search dirs (typically /usr/lib/pkgconfig +
-    # /usr/share/pkgconfig on Linux, /opt/homebrew/... on macOS).
+    # Skip names already covered by the expected-set pass.
+    _in_expected=false
+    for _e in $_expected_set; do
+      if [ "$_e" = "$_name_lc" ] || [ "$_e" = "$_name" ]; then
+        _in_expected=true
+        break
+      fi
+    done
+    [ "$_in_expected" = true ] && continue
+
     if PKG_CONFIG_PATH="" pkg-config --exists "$_name" 2>/dev/null; then
       _sys_ver=$(PKG_CONFIG_PATH="" pkg-config --modversion "$_name" 2>/dev/null)
       _prv_ver=$(awk -F': ' '/^Version:/ {print $2; exit}' "$_pc")
-      # Compare via explicit string equality, NOT case-glob: a .pc filename
-      # containing pattern metachars (*, ?, [) would be interpreted as a glob
-      # under `case` and cause misclassification.
-      _in_stoplist=false
-      for _s in $_PKGCONFIG_SHADOWERS; do
-        if [ "$_s" = "$_name_lc" ]; then
-          _in_stoplist=true
-          break
-        fi
-      done
-      if [ "$_in_stoplist" = true ]; then
-        log "  [expected]   $_name  (private=$_prv_ver  system=$_sys_ver)"
-        _known=$((_known + 1))
-      else
-        warn "  [NEW SHADOW] $_name  (private=$_prv_ver  system=$_sys_ver)  — consider adding to _PKGCONFIG_SHADOWERS"
-        _new=$((_new + 1))
-      fi
+      warn "  [NEW SHADOW]         $_name  (private=$_prv_ver  system=$_sys_ver) — set PKG_TRANSITIVE_UTIL=true on the owning recipe if this should be dropped"
+      _new=$((_new + 1))
     fi
   done
 
   log ""
-  log "Expected shadows (in stop-list): $_known"
-  log "New shadows (not in stop-list):  $_new"
+  log "Expected drops (recipe-declared transitive utils): $_known"
+  log "New shadows (recipe didn't declare):               $_new"
 
   if [ "$_new" -gt 0 ]; then
-    warn "$_new new shadowing .pc file(s) found — review _PKGCONFIG_SHADOWERS in lib/install.sh"
+    warn "$_new new shadowing .pc file(s) found — review whether the owning recipe should set PKG_TRANSITIVE_UTIL=true"
     [ "$_strict" = true ] && exit 1
   fi
   exit 0
