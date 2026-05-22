@@ -96,7 +96,7 @@ cmd_help() {
   printf '      --enable=PKG          Force-enable a recipe that defaults to off\n'
   printf '      --list-pkgs           Print every recipe with category and mutex group\n'
   printf '      --clean-choices       Delete the stored choice matrix and exit\n'
-  printf '\nInstall / uninstall options (for `install` and `uninstall` subcommands):\n'
+  printf '\nInstall / uninstall options (used by the install and uninstall subcommands):\n'
   printf '      --prefix=PATH         Install/uninstall location (default: interactive prompt)\n'
   printf '  -y, --yes                 Non-interactive mode\n'
   printf '\n'
