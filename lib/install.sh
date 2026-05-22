@@ -21,6 +21,12 @@ _needs_priv() {
     /*) ;;
     *) die "Install prefix must be an absolute path: $_np_target" ;;
   esac
+  # Reject '..' segments: they let an attacker-supplied prefix bypass the
+  # ancestor-walk privilege decision by resolving to a different filesystem
+  # location than the lexical path suggests.
+  case "$_np_target" in
+    */../*|*/..) die "Install prefix must not contain '..': $_np_target" ;;
+  esac
 
   # Already root: sudo would reset env for no benefit.
   [ "$(id -u)" = "0" ] && return 1
@@ -123,9 +129,11 @@ do_install() {
 
   _manifest="$_install_prefix/.mediaforge-manifest"
   # Manifest accumulator lives in /tmp so unprivileged appends always work,
-  # even when $_install_prefix is root-owned. Finalised via $_priv cp at end.
-  _manifest_tmp="/tmp/mediaforge-manifest.$$"
-  rm -f "$_manifest_tmp" 2>/dev/null
+  # even when $_install_prefix is root-owned. mktemp uses O_EXCL — closes the
+  # PID-predictable symlink-race window of a bare `/tmp/<name>.$$`.
+  # Finalised via $_priv cp at end.
+  _manifest_tmp=$(mktemp /tmp/mediaforge-manifest.XXXXXX) \
+    || die "Cannot create manifest tmp file in /tmp"
 
   # Binaries
   for _bin in ffmpeg ffprobe ffplay; do
@@ -281,6 +289,14 @@ do_uninstall() {
     _removed=0
     while IFS= read -r _rel; do
       [ -z "$_rel" ] && continue
+      # Reject manifest entries that could traverse out of $_target. A
+      # tampered manifest (or compromised install) could otherwise drive
+      # `$_priv rm -f` against arbitrary paths under sudo.
+      case "$_rel" in
+        /*|*/../*|../*|..)
+          warn "Suspicious manifest entry skipped: $_rel"
+          continue ;;
+      esac
       _file="$_target/$_rel"
       if [ -f "$_file" ]; then
         $_priv rm -f "$_file"
