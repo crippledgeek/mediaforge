@@ -62,6 +62,7 @@ cmd_help() {
   printf '  install            Install built binaries and libraries\n'
   printf '  uninstall          Remove installed files\n'
   printf '  check-updates      Check for newer dependency versions\n'
+  printf '  check-shadowers    Audit workspace .pc files for system-version shadowing\n'
   printf '  list-profiles      List available version profiles\n'
   printf '  help               Show this help\n'
   printf '  version            Show version\n'
@@ -462,6 +463,96 @@ cmd_list_profiles() {
   done
 }
 
+# ─── Check Shadowers ─────────────────────────────────────────────────
+#
+# Audit the workspace pkgconfig dir against the system: for each .pc the build
+# produced, probe `pkg-config --exists` with the system path only and report
+# any name that the system ALSO provides. Names already in
+# _PKGCONFIG_SHADOWERS (lib/install.sh) print as `[expected]`; new names
+# print as `[NEW SHADOW]` and the command exits 1 under `--strict`.
+#
+# No build tool we surveyed (pkg-config, pkgconf, rpmlint, lintian, brew
+# audit, vcpkg) exposes a built-in shadow-detection mode. The pristine-system
+# probe below is the documented workaround; distro convention is to warn
+# (not fail) so this command exits 0 by default — pair with `--strict` in CI
+# if you want gating.
+
+cmd_check_shadowers() {
+  _strict=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --strict) _strict=true ;;
+      -h|--help)
+        printf 'Usage: %s check-shadowers [--strict]\n\n' "$PROGNAME"
+        printf 'Audit workspace .pc files against the system pkgconfig path.\n'
+        printf 'Prints [expected] for names in the install-time stop-list and\n'
+        printf '[NEW SHADOW] for names that would silently shadow a system version.\n\n'
+        printf '  --strict   exit 1 when new shadowers are found (default: warn only)\n'
+        exit 0 ;;
+      *) die "Unknown option for check-shadowers: $1" ;;
+    esac
+    shift
+  done
+
+  if ! command_exists pkg-config; then
+    die "pkg-config not found — install pkgconf or pkg-config first"
+  fi
+
+  # Source install.sh so _PKGCONFIG_SHADOWERS is in scope. install.sh defines
+  # the stop-list at top level; sourcing has no side effect beyond exposing it.
+  . "$SCRIPT_DIR/lib/install.sh"
+
+  _pc_dir="$PREFIX/lib/pkgconfig"
+  if [ ! -d "$_pc_dir" ]; then
+    die "No pkgconfig dir at $_pc_dir — run '$PROGNAME build' first"
+  fi
+
+  log "Auditing $_pc_dir against system pkgconfig path..."
+  log ""
+
+  _new=0
+  _known=0
+  for _pc in "$_pc_dir"/*.pc; do
+    [ -f "$_pc" ] || continue
+    _name=$(basename "$_pc" .pc)
+    _name_lc=$(printf '%s' "$_name" | tr '[:upper:]' '[:lower:]')
+    # Pristine-system probe: empty PKG_CONFIG_PATH falls through to pkg-config's
+    # compiled-in default search dirs (typically /usr/lib/pkgconfig +
+    # /usr/share/pkgconfig on Linux, /opt/homebrew/... on macOS).
+    if PKG_CONFIG_PATH="" pkg-config --exists "$_name" 2>/dev/null; then
+      _sys_ver=$(PKG_CONFIG_PATH="" pkg-config --modversion "$_name" 2>/dev/null)
+      _prv_ver=$(awk -F': ' '/^Version:/ {print $2; exit}' "$_pc")
+      # Compare via explicit string equality, NOT case-glob: a .pc filename
+      # containing pattern metachars (*, ?, [) would be interpreted as a glob
+      # under `case` and cause misclassification.
+      _in_stoplist=false
+      for _s in $_PKGCONFIG_SHADOWERS; do
+        if [ "$_s" = "$_name_lc" ]; then
+          _in_stoplist=true
+          break
+        fi
+      done
+      if [ "$_in_stoplist" = true ]; then
+        log "  [expected]   $_name  (private=$_prv_ver  system=$_sys_ver)"
+        _known=$((_known + 1))
+      else
+        warn "  [NEW SHADOW] $_name  (private=$_prv_ver  system=$_sys_ver)  — consider adding to _PKGCONFIG_SHADOWERS"
+        _new=$((_new + 1))
+      fi
+    fi
+  done
+
+  log ""
+  log "Expected shadows (in stop-list): $_known"
+  log "New shadows (not in stop-list):  $_new"
+
+  if [ "$_new" -gt 0 ]; then
+    warn "$_new new shadowing .pc file(s) found — review _PKGCONFIG_SHADOWERS in lib/install.sh"
+    [ "$_strict" = true ] && exit 1
+  fi
+  exit 0
+}
+
 # ─── Subcommand Dispatch ─────────────────────────────────────────────
 
 log "mediaforge v$SCRIPT_VERSION"
@@ -478,6 +569,7 @@ case "$_cmd" in
   install)        cmd_install "$@" ;;
   uninstall)      cmd_uninstall "$@" ;;
   check-updates)  cmd_check_updates "$@" ;;
+  check-shadowers) cmd_check_shadowers "$@" ;;
   list-profiles)  cmd_list_profiles "$@" ;;
   help|-h|--help) cmd_help ;;
   version|--version) cmd_version ;;
