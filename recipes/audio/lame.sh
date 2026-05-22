@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="lame"
 PKG_VERSION="${PKG_VERSION_LAME:-3.100}"
 PKG_URL="https://sourceforge.net/projects/lame/files/lame/${PKG_VERSION}/lame-${PKG_VERSION}.tar.gz/download?use_mirror=gigenet"

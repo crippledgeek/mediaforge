@@ -37,6 +37,9 @@ is_known_pkg() {
 # Print substring-matching recipe names, comma-separated, max 3.
 suggest_pkg() {
   registry_init
+  # SC2086: intentional word-split. $_REGISTRY_NAMES is a whitespace-separated
+  # name list used as a POSIX faux-array; printf '%s\n' splits it into rows.
+  # shellcheck disable=SC2086
   printf '%s\n' $_REGISTRY_NAMES | grep -i "$1" 2>/dev/null | head -3 | paste -sd, -
 }
 

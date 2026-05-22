@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="yasm"
 PKG_VERSION="${PKG_VERSION_YASM:-1.3.0}"
 PKG_GITHUB_REPO="yasm/yasm"

@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="libgme"
 PKG_VERSION="${PKG_VERSION_LIBGME:-0.6.3}"
 PKG_GITHUB_REPO="libgme/game-music-emu"

@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="libvorbis"
 PKG_VERSION="${PKG_VERSION_LIBVORBIS:-1.3.7}"
 PKG_URL="https://downloads.xiph.org/releases/vorbis/libvorbis-${PKG_VERSION}.tar.gz"

@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="libopenmpt"
 PKG_VERSION="${PKG_VERSION_LIBOPENMPT:-0.7.14}"
 PKG_URL="https://lib.openmpt.org/files/libopenmpt/src/libopenmpt-${PKG_VERSION}+release.autotools.tar.gz"

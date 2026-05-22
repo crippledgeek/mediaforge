@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="mbedtls"
 PKG_VERSION="${PKG_VERSION_MBEDTLS:-3.6.4}"
 PKG_GITHUB_REPO="Mbed-TLS/mbedtls"

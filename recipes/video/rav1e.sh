@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="rav1e"
 PKG_VERSION="${PKG_VERSION_RAV1E:-0.8.1}"
 PKG_GITHUB_REPO="xiph/rav1e"

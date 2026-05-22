@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="nv-codec"
 PKG_VERSION="${PKG_VERSION_NV_CODEC:-11.1.5.3}"
 PKG_GITHUB_REPO="FFmpeg/nv-codec-headers"

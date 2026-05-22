@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="librtmp"
 PKG_VERSION="${PKG_VERSION_LIBRTMP:-2.6}"
 PKG_URL=""

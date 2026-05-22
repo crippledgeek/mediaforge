@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="libzmq"
 PKG_VERSION="${PKG_VERSION_LIBZMQ:-4.3.5}"
 PKG_GITHUB_REPO="zeromq/libzmq"

@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="vo_amrwbenc"
 PKG_VERSION="${PKG_VERSION_VO_AMRWBENC:-0.1.3}"
 PKG_URL="https://sourceforge.net/projects/opencore-amr/files/vo-amrwbenc/vo-amrwbenc-${PKG_VERSION}.tar.gz/download?use_mirror=gigenet"

@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="libressl"
 PKG_VERSION="${PKG_VERSION_LIBRESSL:-4.0.0}"
 PKG_URL="https://cdn.openbsd.org/pub/OpenBSD/LibreSSL/libressl-${PKG_VERSION}.tar.gz"

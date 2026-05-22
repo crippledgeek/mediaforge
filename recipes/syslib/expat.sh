@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="expat"
 PKG_VERSION="${PKG_VERSION_EXPAT:-2.8.0}"
 PKG_GITHUB_REPO="libexpat/libexpat"

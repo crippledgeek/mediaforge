@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="opencl"
 PKG_VERSION="${PKG_VERSION_OPENCL:-2025.07.22}"
 PKG_GITHUB_REPO="KhronosGroup/OpenCL-Headers"

@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="x265"
 PKG_VERSION="${PKG_VERSION_X265:-4.1}"
 PKG_URL="https://download.videolan.org/pub/videolan/x265/x265_${PKG_VERSION}.tar.gz"

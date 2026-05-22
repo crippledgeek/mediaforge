@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="giflib"
 PKG_VERSION="${PKG_VERSION_GIFLIB:-5.2.2}"
 PKG_URL="https://sourceforge.net/projects/giflib/files/giflib-${PKG_VERSION}.tar.gz/download"

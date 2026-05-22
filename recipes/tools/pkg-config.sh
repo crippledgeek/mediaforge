@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="pkg-config"
 PKG_VERSION="${PKG_VERSION_PKG_CONFIG:-0.29.2}"
 PKG_URL="https://pkgconfig.freedesktop.org/releases/pkg-config-${PKG_VERSION}.tar.gz"

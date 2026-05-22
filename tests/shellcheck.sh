@@ -19,7 +19,13 @@ done
 
 if command -v shellcheck >/dev/null 2>&1; then
   for f in $_files; do
-    if ! shellcheck -s sh -S warning -e SC1090,SC1091,SC2034 "$f"; then
+    # `shell=sh` is set in .shellcheckrc so -s sh is implicit.
+    # SC1090/SC1091 are info-level findings about non-constant / not-followed
+    # `.` sources — unavoidable in mediaforge's dynamic recipe-sourcing model.
+    # SC2034 is suppressed per-file in each recipe (PKG_* vars consumed by
+    # lib/framework.sh after sourcing) so we do NOT exclude it globally here.
+    # Severity -S info enforces every category project-wide.
+    if ! shellcheck -S info -e SC1090,SC1091 "$f"; then
       printf 'shellcheck FAILED: %s\n' "$f" >&2
       _fail=1
       [ "${KEEP_GOING:-0}" = "1" ] || exit 1
