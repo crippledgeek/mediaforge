@@ -99,6 +99,15 @@ cmd_help() {
   printf '\nInstall / uninstall options (used by the install and uninstall subcommands):\n'
   printf '      --prefix=PATH         Install/uninstall location (default: interactive prompt)\n'
   printf '  -y, --yes                 Non-interactive mode\n'
+  printf '\nInstall doctrine:\n'
+  printf '  Do NOT run install with sudo against a user-owned prefix. The installer\n'
+  printf '  auto-elevates only when the prefix requires it (/usr/local, /opt/...).\n'
+  printf '  For downstream pkg-config consumers, prefer an isolated prefix:\n'
+  # SC2016 false positive: $HOME is shown to the user literally, not expanded.
+  # shellcheck disable=SC2016
+  printf '    ./mediaforge.sh install --prefix=$HOME/.local/mediaforge\n'
+  printf '  This keeps mediaforge'\''s 94 transitive .pc files out of the shared\n'
+  printf '  ~/.local/lib/pkgconfig and avoids shadowing system fontconfig/harfbuzz.\n'
   printf '\n'
 }
 

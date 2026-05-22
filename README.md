@@ -139,6 +139,7 @@ Install/uninstall options:
 # Install/uninstall
 ./mediaforge.sh install                   # interactive menu
 ./mediaforge.sh install --prefix=/opt/ffmpeg
+./mediaforge.sh install --prefix=$HOME/.local/mediaforge  # isolated user prefix
 ./mediaforge.sh uninstall                 # discovers installs via manifest
 ./mediaforge.sh uninstall --prefix=/opt/ffmpeg
 
@@ -150,6 +151,42 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 # Clean
 ./mediaforge.sh clean
 ```
+
+### Install doctrine: don't sudo into your own home
+
+The installer elevates with `sudo` automatically when the target prefix
+requires it (e.g. `/usr/local`). **Do not** wrap `./mediaforge.sh install`
+with `sudo` yourself when targeting a user-owned prefix
+(`~/.local/mediaforge`, `~/opt/...`). Files inherit the running process's
+UID — running as root leaves root-owned files in your home that you
+can't modify or delete without sudo on every operation.
+
+| You are | Targeting | Run install as | Resulting ownership |
+|---|---|---|---|
+| user | `~/.local/mediaforge` | yourself (no sudo) | `you:you` ✓ |
+| user | `/usr/local` | yourself (installer wraps `sudo`) | `root:root` ✓ |
+| root | `/usr/local` | yourself | `root:root` ✓ |
+| root | `/home/<user>/.local/...` | DON'T | `root:root` ✗ |
+
+Same rule for uninstall.
+
+### Recommended prefix for downstream-link use cases
+
+If anything else on your system links against mediaforge (e.g. a Rust
+crate consuming FFmpeg via `pkg-config`), install to an **isolated
+subdirectory** rather than over the shared user/system prefix:
+
+```sh
+./mediaforge.sh install --prefix=$HOME/.local/mediaforge
+```
+
+The isolated dir keeps mediaforge's 94 transitive `.pc` files
+(`fontconfig.pc`, `harfbuzz.pc`, `freetype2.pc`, etc.) out of the shared
+`~/.local/lib/pkgconfig/`. Downstream consumers point
+`PKG_CONFIG_PATH` only at mediaforge's prefix dir for FFmpeg work, and
+unrelated tooling resolves through `/usr/lib/pkgconfig` unshadowed.
+This is the canonical Linux side-install pattern (Homebrew's
+`/opt/homebrew/`, MacPorts' `/opt/local/`, GNU stow, NixOS profiles).
 
 ## Version Profiles
 
