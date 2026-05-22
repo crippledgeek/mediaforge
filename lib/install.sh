@@ -179,7 +179,10 @@ do_install() {
   for _pc in "$PREFIX/lib/pkgconfig/"*.pc; do
     [ -f "$_pc" ] || continue
     _name=$(basename "$_pc")
-    _stem=${_name%.pc}
+    # Lowercase the stem so e.g. an upstream "Fontconfig.pc" still matches
+    # the lowercase stop-list (cmake installs on case-insensitive FS may
+    # produce mixed case). POSIX `tr` is portable; no Bashism.
+    _stem=$(printf '%s' "${_name%.pc}" | tr '[:upper:]' '[:lower:]')
     case " $_PKGCONFIG_SHADOWERS " in
       *" $_stem "*)
         _pc_skipped=$((_pc_skipped + 1))
