@@ -49,6 +49,8 @@ KEEP_GOING=false
 DISABLE_PKGS=""
 ENABLE_PKGS=""
 USE_MENU=false
+ENABLE_LTO=false
+FLITE_AUDIO="none"
 
 # ─── Help ────────────────────────────────────────────────────────────
 
@@ -69,6 +71,8 @@ cmd_help() {
   printf '  -L, --disable-lv2         Skip LV2 plugin chain\n'
   printf '  -s, --enable-static       Full static binary (Linux only)\n'
   printf '  -m, --enable-small        Minimal build\n'
+  printf '      --enable-lto          Enable LTO in recipes that support it (default: off; archives may break on GCC major bumps)\n'
+  printf '      --disable-lto         Force LTO off (default)\n'
   printf '  -p, --profile=X.Y         Use version profile\n'
   printf '  -j, --jobs=N              Parallel job count (default: auto)\n'
   printf '  -u, --rebuild-outdated    Rebuild stale dependencies\n'
@@ -79,21 +83,34 @@ cmd_help() {
   printf '  -q, --quiet               Errors only\n'
   printf '  -n, --dry-run             Show what would build\n'
   printf '  -k, --keep-going          Continue on recipe failure\n'
+  printf '\nCodec / backend selectors (mutually exclusive within each group):\n'
   printf '      --tls=BACKEND         TLS backend: openssl|gnutls|mbedtls|libressl|none (default: gnutls)\n'
   printf '      --aac=IMPL            AAC encoder: fdk_aac|native (default: native; nonfree -> fdk_aac)\n'
   printf '      --flac=IMPL           FLAC encoder: libflac|native (default: native)\n'
   printf '      --h264=IMPL           H.264 encoder: x264|openh264 (default: x264)\n'
   printf '      --h265=IMPL           H.265 encoder: x265|kvazaar (default: x265)\n'
   printf '      --av1-enc=IMPL        AV1 encoder: svtav1|rav1e|av1 (default: svtav1)\n'
+  printf '      --flite-audio=BACKEND flite audio output: none|alsa|pulseaudio|oss|sun (default: none; FFmpeg filter does not invoke it)\n'
+  printf '\nRecipe overrides:\n'
   printf '      --disable=PKG         Disable a recipe by name (repeatable, comma-separated ok)\n'
   printf '      --enable=PKG          Force-enable a recipe that defaults to off\n'
   printf '      --list-pkgs           Print every recipe with category and mutex group\n'
   printf '      --clean-choices       Delete the stored choice matrix and exit\n'
+  printf '\nInstall / uninstall options (used by the install and uninstall subcommands):\n'
+  printf '      --prefix=PATH         Install/uninstall location (default: interactive prompt)\n'
+  printf '  -y, --yes                 Non-interactive mode\n'
   printf '\n'
 }
 
 cmd_version() {
   printf 'mediaforge %s\n' "$SCRIPT_VERSION"
+}
+
+# Guard for space-form CLI flags. Call AFTER `shift` with the remaining
+# arg count and the flag name; aborts with a clear message when the
+# value is missing instead of consuming the next flag as the value.
+_need_arg() {
+  [ "$1" -gt 0 ] || die "$2 requires an argument"
 }
 
 # ─── Build ───────────────────────────────────────────────────────────
@@ -108,8 +125,8 @@ cmd_build() {
       -L)  DISABLE_PKGS="$DISABLE_PKGS lv2" ;;
       -s)  _enable_static=true ;;
       -m)  _enable_small=true ;;
-      -p)  shift; PROFILE_NAME="$1" ;;
-      -j)  shift; MJOBS="$1" ;;
+      -p)  shift; _need_arg "$#" -p; PROFILE_NAME="$1" ;;
+      -j)  shift; _need_arg "$#" -j; MJOBS="$1" ;;
       -I)  SKIP_INSTALL=yes ;;
       -y)  AUTOINSTALL=yes ;;
       -v)  VERBOSE=$((VERBOSE + 1)) ;;
@@ -123,10 +140,14 @@ cmd_build() {
       --disable-lv2)       DISABLE_PKGS="$DISABLE_PKGS lv2" ;;
       --enable-static)     _enable_static=true ;;
       --enable-small)      _enable_small=true ;;
+      --enable-lto)        ENABLE_LTO=true ;;
+      --disable-lto)       ENABLE_LTO=false ;;
+      --flite-audio=*)     FLITE_AUDIO="${1#--flite-audio=}" ;;
+      --flite-audio)       shift; _need_arg "$#" --flite-audio; FLITE_AUDIO="$1" ;;
       --profile=*)         PROFILE_NAME="${1#--profile=}" ;;
-      --profile)           shift; PROFILE_NAME="$1" ;;
+      --profile)           shift; _need_arg "$#" --profile; PROFILE_NAME="$1" ;;
       --jobs=*)            MJOBS="${1#--jobs=}" ;;
-      --jobs)              shift; MJOBS="$1" ;;
+      --jobs)              shift; _need_arg "$#" --jobs; MJOBS="$1" ;;
       --rebuild-outdated)  REBUILD_OUTDATED=true ;;
       --no-install)        SKIP_INSTALL=yes ;;
       --yes)               AUTOINSTALL=yes ;;
@@ -135,23 +156,23 @@ cmd_build() {
       --dry-run)           DRY_RUN=true ;;
       --keep-going)        KEEP_GOING=true ;;
       --disable=*)         DISABLE_PKGS="$DISABLE_PKGS $(echo "${1#--disable=}" | tr ',' ' ')" ;;
-      --disable)           shift; DISABLE_PKGS="$DISABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
+      --disable)           shift; _need_arg "$#" --disable; DISABLE_PKGS="$DISABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
       --enable=*)          ENABLE_PKGS="$ENABLE_PKGS $(echo "${1#--enable=}" | tr ',' ' ')" ;;
-      --enable)            shift; ENABLE_PKGS="$ENABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
+      --enable)            shift; _need_arg "$#" --enable; ENABLE_PKGS="$ENABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
       --list-pkgs)         list_pkgs; exit 0 ;;
       --clean-choices)     rm -f "$PREFIX/.mediaforge-choices"; log "Cleared stored choices"; exit 0 ;;
       --tls=*)             TLS_BACKEND="${1#--tls=}" ;;
-      --tls)               shift; TLS_BACKEND="$1" ;;
+      --tls)               shift; _need_arg "$#" --tls; TLS_BACKEND="$1" ;;
       --aac=*)             AAC_IMPL="${1#--aac=}" ;;
-      --aac)               shift; AAC_IMPL="$1" ;;
+      --aac)               shift; _need_arg "$#" --aac; AAC_IMPL="$1" ;;
       --flac=*)            FLAC_IMPL="${1#--flac=}" ;;
-      --flac)              shift; FLAC_IMPL="$1" ;;
+      --flac)              shift; _need_arg "$#" --flac; FLAC_IMPL="$1" ;;
       --h264=*)            H264_IMPL="${1#--h264=}" ;;
-      --h264)              shift; H264_IMPL="$1" ;;
+      --h264)              shift; _need_arg "$#" --h264; H264_IMPL="$1" ;;
       --h265=*)            H265_IMPL="${1#--h265=}" ;;
-      --h265)              shift; H265_IMPL="$1" ;;
+      --h265)              shift; _need_arg "$#" --h265; H265_IMPL="$1" ;;
       --av1-enc=*)         AV1_ENC_IMPL="${1#--av1-enc=}" ;;
-      --av1-enc)           shift; AV1_ENC_IMPL="$1" ;;
+      --av1-enc)           shift; _need_arg "$#" --av1-enc; AV1_ENC_IMPL="$1" ;;
       --menu)              USE_MENU=true ;;
       --)                  shift; break ;;
       -*)                  die "Unknown option: $1" ;;
@@ -365,7 +386,7 @@ cmd_install() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --prefix=*) _prefix="${1#--prefix=}" ;;
-      --prefix)   shift; _prefix="$1" ;;
+      --prefix)   shift; _need_arg "$#" --prefix; _prefix="$1" ;;
       --yes|-y)   AUTOINSTALL=yes ;;
       --)         shift; break ;;
       -*)         die "Unknown option for install: $1" ;;
@@ -384,7 +405,7 @@ cmd_uninstall() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --prefix=*) _prefix="${1#--prefix=}" ;;
-      --prefix)   shift; _prefix="$1" ;;
+      --prefix)   shift; _need_arg "$#" --prefix; _prefix="$1" ;;
       --yes|-y)   AUTOINSTALL=yes ;;
       --)         shift; break ;;
       -*)         die "Unknown option for uninstall: $1" ;;
@@ -402,8 +423,8 @@ cmd_check_updates() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --profile=*) PROFILE_NAME="${1#--profile=}" ;;
-      --profile)   shift; PROFILE_NAME="$1" ;;
-      -p)          shift; PROFILE_NAME="$1" ;;
+      --profile)   shift; _need_arg "$#" --profile; PROFILE_NAME="$1" ;;
+      -p)          shift; _need_arg "$#" -p; PROFILE_NAME="$1" ;;
       *)           die "Unknown option for check-updates: $1" ;;
     esac
     shift

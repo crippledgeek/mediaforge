@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="srt"
 PKG_VERSION="${PKG_VERSION_SRT:-1.5.4}"
 PKG_GITHUB_REPO="Haivision/srt"

@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="bzip2"
 PKG_VERSION="${PKG_VERSION_BZIP2:-1.0.8}"
 PKG_URL="https://sourceware.org/pub/bzip2/bzip2-${PKG_VERSION}.tar.gz"

@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="kvazaar"
 PKG_VERSION="${PKG_VERSION_KVAZAAR:-2.3.1}"
 PKG_GITHUB_REPO="ultravideo/kvazaar"

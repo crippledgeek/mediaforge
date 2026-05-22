@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="lv2"
 PKG_VERSION="${PKG_VERSION_LV2:-1.18.10}"
 PKG_URL="https://lv2plug.in/spec/lv2-${PKG_VERSION}.tar.xz"

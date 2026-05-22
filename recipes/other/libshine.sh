@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="libshine"
 PKG_VERSION="${PKG_VERSION_LIBSHINE:-3.1.1}"
 PKG_URL="https://github.com/toots/shine/releases/download/${PKG_VERSION}/shine-${PKG_VERSION}.tar.gz"

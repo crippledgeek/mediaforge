@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="cmake"
 PKG_VERSION="${PKG_VERSION_CMAKE:-3.31.7}"
 PKG_GITHUB_REPO="Kitware/CMake"

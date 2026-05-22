@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="libtheora"
 PKG_VERSION="${PKG_VERSION_LIBTHEORA:-1.2.0}"
 PKG_URL="https://downloads.xiph.org/releases/theora/libtheora-${PKG_VERSION}.tar.gz"

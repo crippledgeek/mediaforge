@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="av1"
 PKG_VERSION="${PKG_VERSION_AV1:-d772e334cc724105040382a977ebb10dfd393293}"
 PKG_URL="https://aomedia.googlesource.com/aom/+archive/${PKG_VERSION}.tar.gz"

@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="ladspa"
 PKG_VERSION="${PKG_VERSION_LADSPA:-1.17}"
 PKG_URL="https://www.ladspa.org/download/ladspa_sdk_${PKG_VERSION}.tgz"

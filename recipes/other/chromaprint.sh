@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="chromaprint"
 PKG_VERSION="${PKG_VERSION_CHROMAPRINT:-1.5.1}"
 PKG_GITHUB_REPO="acoustid/chromaprint"

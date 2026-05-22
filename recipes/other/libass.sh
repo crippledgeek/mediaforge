@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="libass"
 PKG_VERSION="${PKG_VERSION_LIBASS:-0.17.3}"
 PKG_GITHUB_REPO="libass/libass"

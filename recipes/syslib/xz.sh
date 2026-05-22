@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="xz"
 PKG_VERSION="${PKG_VERSION_XZ:-5.8.3}"
 PKG_GITHUB_REPO="tukaani-project/xz"

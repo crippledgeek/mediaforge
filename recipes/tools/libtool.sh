@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="libtool"
 PKG_VERSION="${PKG_VERSION_LIBTOOL:-2.4.7}"
 PKG_URL="https://ftpmirror.gnu.org/libtool/libtool-${PKG_VERSION}.tar.gz"

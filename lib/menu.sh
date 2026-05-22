@@ -17,6 +17,10 @@ menu_radiolist() {
       [ "$_tag" = "$_default" ] && _on=on
       _args="$_args $_tag \"$_desc\" $_on"
     done
+    # SC2086: intentional word-split. $_args is a pre-quoted whiptail arg list
+    # (each $_desc is embedded with literal "...") that eval re-parses so
+    # whiptail receives one positional per token.
+    # shellcheck disable=SC2086
     eval whiptail --title "\"$_title\"" --radiolist "\"Select one\"" 20 70 12 $_args 3>&1 1>&2 2>&3
     return $?
   fi
@@ -66,6 +70,9 @@ menu_checklist() {
       _tag=$1; _desc=$2; _state=$3; shift 3
       _args="$_args $_tag \"$_desc\" $_state"
     done
+    # SC2086: intentional word-split. $_args is a pre-quoted whiptail arg list
+    # that eval re-parses so whiptail receives one positional per token.
+    # shellcheck disable=SC2086
     eval whiptail --title "\"$_title\"" --separate-output --checklist "\"Toggle items\"" 20 70 12 $_args 3>&1 1>&2 2>&3
     return $?
   fi

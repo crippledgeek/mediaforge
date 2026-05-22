@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="zimg"
 PKG_VERSION="${PKG_VERSION_ZIMG:-3.0.6}"
 PKG_GITHUB_REPO="sekrit-twc/zimg"

@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="frei0r"
 PKG_VERSION="${PKG_VERSION_FREI0R:-2.3.3}"
 PKG_GITHUB_REPO="dyne/frei0r"

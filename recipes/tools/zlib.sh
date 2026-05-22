@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="zlib"
 PKG_VERSION="${PKG_VERSION_ZLIB:-1.3.1}"
 PKG_GITHUB_REPO="madler/zlib"

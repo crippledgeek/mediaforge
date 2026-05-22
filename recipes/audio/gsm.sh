@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="gsm"
 PKG_VERSION="${PKG_VERSION_GSM:-1.0.22}"
 PKG_URL="https://www.quut.com/gsm/gsm-${PKG_VERSION}.tar.gz"

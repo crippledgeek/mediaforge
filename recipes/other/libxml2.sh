@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="libxml2"
 PKG_VERSION="${PKG_VERSION_LIBXML2:-2.13.6}"
 PKG_GITHUB_REPO="GNOME/libxml2"

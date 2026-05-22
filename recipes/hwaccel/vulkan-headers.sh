@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="vulkan-headers"
 PKG_VERSION="${PKG_VERSION_VULKAN_HEADERS:-1.4.338}"
 PKG_GITHUB_REPO="KhronosGroup/Vulkan-Headers"

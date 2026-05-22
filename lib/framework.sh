@@ -1,6 +1,8 @@
 #!/bin/sh
-# shellcheck disable=SC1090
-# Build engine — recipe loading and phase execution
+# shellcheck disable=SC1090,SC2034
+# Build engine — recipe loading and phase execution.
+# SC2034: PKG_* defaults below are read by recipe pkg_* functions after this
+# file is sourced; shellcheck can't see the cross-file consumer.
 
 # Default phase functions
 default_configure() {
@@ -49,7 +51,6 @@ reset_recipe() {
   PKG_CONFIGURE_FLAGS=""
   PKG_CMAKE=false
   PKG_CMAKE_FLAGS=""
-  # shellcheck disable=SC2034
   PKG_GITHUB_REPO=""
 
   # Reset phase functions to defaults

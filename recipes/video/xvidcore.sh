@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="xvidcore"
 PKG_VERSION="${PKG_VERSION_XVIDCORE:-1.3.7}"
 PKG_URL="https://downloads.xvid.com/downloads/xvidcore-${PKG_VERSION}.tar.gz"

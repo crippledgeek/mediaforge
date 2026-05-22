@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="nettle"
 PKG_VERSION="${PKG_VERSION_NETTLE:-3.10.2}"
 PKG_URL="https://ftpmirror.gnu.org/gnu/nettle/nettle-${PKG_VERSION}.tar.gz"

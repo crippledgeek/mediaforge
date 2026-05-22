@@ -1,3 +1,5 @@
+# shellcheck disable=SC2034
+# PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="openssl"
 PKG_VERSION="${PKG_VERSION_OPENSSL:-3.5.4}"
 PKG_GITHUB_REPO="openssl/openssl"
