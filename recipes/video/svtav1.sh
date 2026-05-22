@@ -7,8 +7,14 @@ PKG_MUTEX_GROUP="av1-enc"
 
 pkg_configure() {
   cd "$DISTDIR/svtav1-${PKG_VERSION}/Build/linux" || die "Failed to cd to SVT-AV1 build dir"
+  # LTO bakes GCC-version-specific GIMPLE bytecode into libSvtAv1Enc.a, which
+  # breaks downstream links after any GCC major bump. Default off; opt in via
+  # --enable-lto when the binary won't outlive the toolchain.
+  _lto_flag=OFF
+  [ "$ENABLE_LTO" = true ] && _lto_flag=ON
   run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" -DENABLE_SHARED=off \
-    -DBUILD_SHARED_LIBS=OFF ../.. -G"Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+    -DBUILD_SHARED_LIBS=OFF -DSVT_AV1_LTO=$_lto_flag \
+    ../.. -G"Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
 }
 
 pkg_post_install() {

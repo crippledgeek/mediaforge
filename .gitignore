@@ -1,4 +1,18 @@
+# Agent / AI tool files (per-developer, not source of truth)
 CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+GEMINI.md
+.claude/
+.cursor/
+.cursorrules
+.cursorignore
+.windsurf/
+.windsurfrules
+.aider*
+.continue/
+
+# Build artifacts
 docs/
 packages/
 workspace/

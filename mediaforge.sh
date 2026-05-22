@@ -49,6 +49,8 @@ KEEP_GOING=false
 DISABLE_PKGS=""
 ENABLE_PKGS=""
 USE_MENU=false
+ENABLE_LTO=false
+FLITE_AUDIO="none"
 
 # ─── Help ────────────────────────────────────────────────────────────
 
@@ -69,6 +71,8 @@ cmd_help() {
   printf '  -L, --disable-lv2         Skip LV2 plugin chain\n'
   printf '  -s, --enable-static       Full static binary (Linux only)\n'
   printf '  -m, --enable-small        Minimal build\n'
+  printf '      --enable-lto          Enable LTO in recipes that support it (default: off; archives may break on GCC major bumps)\n'
+  printf '      --disable-lto         Force LTO off (default)\n'
   printf '  -p, --profile=X.Y         Use version profile\n'
   printf '  -j, --jobs=N              Parallel job count (default: auto)\n'
   printf '  -u, --rebuild-outdated    Rebuild stale dependencies\n'
@@ -79,16 +83,22 @@ cmd_help() {
   printf '  -q, --quiet               Errors only\n'
   printf '  -n, --dry-run             Show what would build\n'
   printf '  -k, --keep-going          Continue on recipe failure\n'
+  printf '\nCodec / backend selectors (mutually exclusive within each group):\n'
   printf '      --tls=BACKEND         TLS backend: openssl|gnutls|mbedtls|libressl|none (default: gnutls)\n'
   printf '      --aac=IMPL            AAC encoder: fdk_aac|native (default: native; nonfree -> fdk_aac)\n'
   printf '      --flac=IMPL           FLAC encoder: libflac|native (default: native)\n'
   printf '      --h264=IMPL           H.264 encoder: x264|openh264 (default: x264)\n'
   printf '      --h265=IMPL           H.265 encoder: x265|kvazaar (default: x265)\n'
   printf '      --av1-enc=IMPL        AV1 encoder: svtav1|rav1e|av1 (default: svtav1)\n'
+  printf '      --flite-audio=BACKEND flite audio output: none|alsa|pulseaudio|oss|sun (default: none; FFmpeg filter does not invoke it)\n'
+  printf '\nRecipe overrides:\n'
   printf '      --disable=PKG         Disable a recipe by name (repeatable, comma-separated ok)\n'
   printf '      --enable=PKG          Force-enable a recipe that defaults to off\n'
   printf '      --list-pkgs           Print every recipe with category and mutex group\n'
   printf '      --clean-choices       Delete the stored choice matrix and exit\n'
+  printf '\nInstall / uninstall options (for `install` and `uninstall` subcommands):\n'
+  printf '      --prefix=PATH         Install/uninstall location (default: interactive prompt)\n'
+  printf '  -y, --yes                 Non-interactive mode\n'
   printf '\n'
 }
 
@@ -123,6 +133,10 @@ cmd_build() {
       --disable-lv2)       DISABLE_PKGS="$DISABLE_PKGS lv2" ;;
       --enable-static)     _enable_static=true ;;
       --enable-small)      _enable_small=true ;;
+      --enable-lto)        ENABLE_LTO=true ;;
+      --disable-lto)       ENABLE_LTO=false ;;
+      --flite-audio=*)     FLITE_AUDIO="${1#--flite-audio=}" ;;
+      --flite-audio)       shift; FLITE_AUDIO="$1" ;;
       --profile=*)         PROFILE_NAME="${1#--profile=}" ;;
       --profile)           shift; PROFILE_NAME="$1" ;;
       --jobs=*)            MJOBS="${1#--jobs=}" ;;

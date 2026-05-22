@@ -86,18 +86,40 @@ Build options:
   -L, --disable-lv2         Skip LV2 plugin chain
   -s, --enable-static       Full static binary (Linux only)
   -m, --enable-small        Minimal build
+      --enable-lto          Enable LTO in recipes that support it
+                            (default: off; archives may break on GCC major bumps)
+      --disable-lto         Force LTO off (default)
   -p, --profile=X.Y         Use version profile
   -j, --jobs=N              Parallel job count (default: auto)
   -u, --rebuild-outdated    Rebuild stale dependencies
   -I, --no-install          Skip post-build install
   -y, --yes                 Non-interactive mode
+      --menu                Interactive selector (whiptail or POSIX fallback)
   -v, --verbose             Show build commands (-vv for more)
   -q, --quiet               Errors only
   -n, --dry-run             Show what would build
   -k, --keep-going          Continue on recipe failure
 
+Codec / backend selectors (mutually exclusive within each group):
+  --tls=BACKEND             TLS backend: openssl|gnutls|mbedtls|libressl|none
+                            (default: gnutls)
+  --aac=IMPL                AAC encoder: fdk_aac|native
+                            (default: native; nonfree -> fdk_aac)
+  --flac=IMPL               FLAC encoder: libflac|native (default: native)
+  --h264=IMPL               H.264 encoder: x264|openh264 (default: x264)
+  --h265=IMPL               H.265 encoder: x265|kvazaar (default: x265)
+  --av1-enc=IMPL            AV1 encoder: svtav1|rav1e|av1 (default: svtav1)
+  --flite-audio=BACKEND     flite audio output: none|alsa|pulseaudio|oss|sun
+                            (default: none; FFmpeg filter does not invoke it)
+
+Recipe overrides:
+  --disable=PKG             Disable a recipe by name (repeatable, comma-separated ok)
+  --enable=PKG              Force-enable a recipe that defaults to off
+  --list-pkgs               Print every recipe with category and mutex group
+  --clean-choices           Delete the stored choice matrix and exit
+
 Install/uninstall options:
-  --prefix=DIR              Install to specific directory
+  --prefix=PATH             Install/uninstall location (default: interactive prompt)
   -y, --yes                 Non-interactive mode
 ```
 
