@@ -1,5 +1,7 @@
 # shellcheck disable=SC2034
 # PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
+# Transitive utility — gnutls.pc not installed (system has it).
+PKG_TRANSITIVE_UTIL=true
 PKG_NAME="gnutls"
 PKG_VERSION="${PKG_VERSION_GNUTLS:-3.8.11}"
 PKG_URL="https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-${PKG_VERSION}.tar.xz"

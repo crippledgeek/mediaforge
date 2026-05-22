@@ -4,6 +4,9 @@ PKG_NAME="libpng"
 PKG_VERSION="${PKG_VERSION_LIBPNG:-1.6.53}"
 PKG_URL="https://sourceforge.net/projects/libpng/files/libpng16/${PKG_VERSION}/libpng-${PKG_VERSION}.tar.gz"
 PKG_FILENAME="libpng-${PKG_VERSION}.tar.gz"
+# Transitive utility — drops both libpng.pc and libpng16.pc.
+PKG_TRANSITIVE_UTIL=true
+PKG_PC_FILES="libpng libpng16"
 
 pkg_configure() {
   export LDFLAGS="$LDFLAGS"

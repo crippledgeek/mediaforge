@@ -5,6 +5,9 @@ PKG_VERSION="${PKG_VERSION_XZ:-5.8.3}"
 PKG_GITHUB_REPO="tukaani-project/xz"
 PKG_URL="https://github.com/tukaani-project/xz/releases/download/v${PKG_VERSION}/xz-${PKG_VERSION}.tar.xz"
 PKG_FILENAME="xz-${PKG_VERSION}.tar.xz"
+# Transitive utility — xz ships liblzma.pc (not xz.pc), override PKG_PC_FILES.
+PKG_TRANSITIVE_UTIL=true
+PKG_PC_FILES="liblzma"
 
 pkg_configure() {
   run ./configure --prefix="$PREFIX" \
