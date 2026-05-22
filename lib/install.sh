@@ -1,6 +1,28 @@
 #!/bin/sh
 # Install/uninstall mediaforge-built FFmpeg binaries and libraries
 
+# Transitive-dep .pc files we DO NOT install. These are FFmpeg build-deps
+# whose `.pc` files in mediaforge's prefix would shadow newer system
+# versions for any downstream pkg-config consumer that puts mediaforge's
+# pkgconfig dir on PKG_CONFIG_PATH. cargo (and similar tools) can't scope
+# pkg-config search paths per-crate, so a single `gdk-sys` walk that asks
+# for `fontconfig` will find mediaforge's older copy first and refuse the
+# version check ("Package fontconfig has version '2.15.0', required '>= 2.17.0'").
+#
+# The .a archives still get installed — FFmpeg's static link depends on
+# them. Only the .pc files are dropped. FFmpeg's own ./configure consumed
+# them during the workspace build, so the workspace pkgconfig dir remains
+# complete; the curation happens only at install time.
+#
+# The cost: any downstream consumer that genuinely wants e.g. mediaforge's
+# specific fontconfig version via pkg-config has to point at the workspace
+# (~/dev/bash/mediaforge/workspace/lib/pkgconfig) instead of the install
+# prefix. That's a deliberate trade — operability for downstream link
+# correctness over rare bundled-dep version pinning.
+_PKGCONFIG_SHADOWERS="fontconfig freetype2 harfbuzz harfbuzz-subset \
+  libpng libpng16 expat fribidi gnutls gmp nettle hogweed \
+  libbrotlicommon libbrotlidec libbrotlienc bzip2 liblzma zlib libxml-2.0"
+
 # ─── Helpers ──────────────────────────────────────────────────────────
 
 # Detect if we need privilege escalation to install into $1.
@@ -152,16 +174,26 @@ do_install() {
     log "  lib/$_name"
   done
 
-  # pkgconfig files (rewrite prefix)
+  # pkgconfig files (rewrite prefix, skip system-shadowers per _PKGCONFIG_SHADOWERS).
+  _pc_skipped=0
   for _pc in "$PREFIX/lib/pkgconfig/"*.pc; do
     [ -f "$_pc" ] || continue
     _name=$(basename "$_pc")
+    _stem=${_name%.pc}
+    case " $_PKGCONFIG_SHADOWERS " in
+      *" $_stem "*)
+        _pc_skipped=$((_pc_skipped + 1))
+        continue ;;
+    esac
     _tmppc="$PREFIX/.logs/_pc_rewrite_$$"
     awk -v old="$PREFIX" -v new="$_install_prefix" '{gsub(old, new)} {print}' "$_pc" > "$_tmppc"
     _install_file "$_tmppc" "$_install_prefix/lib/pkgconfig/$_name" "$_manifest_tmp" "$_priv"
     rm -f "$_tmppc"
     log "  lib/pkgconfig/$_name"
   done
+  if [ "$_pc_skipped" -gt 0 ]; then
+    log "  (skipped $_pc_skipped transitive-dep .pc files that would shadow system versions)"
+  fi
 
   # Headers
   if [ -d "$PREFIX/include" ]; then
