@@ -76,6 +76,7 @@ Commands:
   install            Install built binaries and libraries
   uninstall          Remove installed files
   check-updates      Check for newer dependency versions
+  check-shadowers    Audit workspace .pc files for system-version shadowing
   list-profiles      List available version profiles
   help               Show help
   version            Show version
@@ -148,6 +149,10 @@ Install/uninstall options:
 ./mediaforge.sh check-updates --profile=7.1
 GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 
+# Audit pkgconfig drift (after build, before release)
+./mediaforge.sh check-shadowers              # warn-only, exit 0
+./mediaforge.sh check-shadowers --strict     # exit 1 on new shadowers (CI)
+
 # Clean
 ./mediaforge.sh clean
 ```
@@ -180,13 +185,36 @@ subdirectory** rather than over the shared user/system prefix:
 ./mediaforge.sh install --prefix=$HOME/.local/mediaforge
 ```
 
-The isolated dir keeps mediaforge's 94 transitive `.pc` files
-(`fontconfig.pc`, `harfbuzz.pc`, `freetype2.pc`, etc.) out of the shared
-`~/.local/lib/pkgconfig/`. Downstream consumers point
-`PKG_CONFIG_PATH` only at mediaforge's prefix dir for FFmpeg work, and
-unrelated tooling resolves through `/usr/lib/pkgconfig` unshadowed.
-This is the canonical Linux side-install pattern (Homebrew's
-`/opt/homebrew/`, MacPorts' `/opt/local/`, GNU stow, NixOS profiles).
+The isolated dir keeps mediaforge's 94 workspace `.pc` files out of the shared
+`~/.local/lib/pkgconfig/`. The install layer also **drops 19 specific
+transitive-dep `.pc` files** that would shadow newer system versions
+(`fontconfig`, `freetype2`, `harfbuzz`, `expat`, `gnutls`, `libpng`,
+`bzip2`, `libxml-2.0`, `fribidi`, `gmp`, `nettle`, `hogweed`, `brotli*`,
+`lzma`, `zlib`). The `.a` archives still install — FFmpeg's static link
+still references their symbols — but their `.pc` files are absent from
+the install prefix, so a downstream consumer's `pkg-config fontconfig`
+falls through to the system's newer version.
+
+Downstream consumers point `PKG_CONFIG_PATH` at mediaforge's prefix
+first, then the system path. This is the canonical Linux side-install
+pattern (Homebrew's `/opt/homebrew/`, MacPorts' `/opt/local/`, GNU stow,
+NixOS profiles).
+
+### Auditing pkgconfig drift
+
+When you add a new recipe or want to verify the workspace doesn't ship
+a new shadowing `.pc` file:
+
+```sh
+./mediaforge.sh check-shadowers
+```
+
+The command probes every `.pc` in the workspace against the system
+pkgconfig path and classifies each match as `[expected]` (already in
+the install-time stop-list) or `[NEW SHADOW]` (not in the stop-list —
+review whether to add it). Exits 0 by default (warn-only, matches
+`rpmlint`/`lintian`/`brew audit` convention); `--strict` exits 1 for
+CI gating. The stop-list lives in `lib/install.sh:_PKGCONFIG_SHADOWERS`.
 
 ## Version Profiles
 
