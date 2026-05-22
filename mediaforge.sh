@@ -522,14 +522,23 @@ cmd_check_shadowers() {
     if PKG_CONFIG_PATH="" pkg-config --exists "$_name" 2>/dev/null; then
       _sys_ver=$(PKG_CONFIG_PATH="" pkg-config --modversion "$_name" 2>/dev/null)
       _prv_ver=$(awk -F': ' '/^Version:/ {print $2; exit}' "$_pc")
-      case " $_PKGCONFIG_SHADOWERS " in
-        *" $_name_lc "*)
-          log "  [expected]   $_name  (private=$_prv_ver  system=$_sys_ver)"
-          _known=$((_known + 1)) ;;
-        *)
-          warn "  [NEW SHADOW] $_name  (private=$_prv_ver  system=$_sys_ver)  — consider adding to _PKGCONFIG_SHADOWERS"
-          _new=$((_new + 1)) ;;
-      esac
+      # Compare via explicit string equality, NOT case-glob: a .pc filename
+      # containing pattern metachars (*, ?, [) would be interpreted as a glob
+      # under `case` and cause misclassification.
+      _in_stoplist=false
+      for _s in $_PKGCONFIG_SHADOWERS; do
+        if [ "$_s" = "$_name_lc" ]; then
+          _in_stoplist=true
+          break
+        fi
+      done
+      if [ "$_in_stoplist" = true ]; then
+        log "  [expected]   $_name  (private=$_prv_ver  system=$_sys_ver)"
+        _known=$((_known + 1))
+      else
+        warn "  [NEW SHADOW] $_name  (private=$_prv_ver  system=$_sys_ver)  — consider adding to _PKGCONFIG_SHADOWERS"
+        _new=$((_new + 1))
+      fi
     fi
   done
 

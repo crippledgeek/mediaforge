@@ -183,11 +183,22 @@ do_install() {
     # the lowercase stop-list (cmake installs on case-insensitive FS may
     # produce mixed case). POSIX `tr` is portable; no Bashism.
     _stem=$(printf '%s' "${_name%.pc}" | tr '[:upper:]' '[:lower:]')
-    case " $_PKGCONFIG_SHADOWERS " in
-      *" $_stem "*)
-        _pc_skipped=$((_pc_skipped + 1))
-        continue ;;
-    esac
+    # Compare via explicit string equality, NOT case-glob: a .pc filename
+    # containing pattern metachars (*, ?, [) would be interpreted as a glob
+    # under `case` and could either skip a non-shadower or fail to skip a
+    # real one. The diagnostic counterpart in cmd_check_shadowers uses the
+    # same idiom.
+    _skip_pc=false
+    for _shadow in $_PKGCONFIG_SHADOWERS; do
+      if [ "$_shadow" = "$_stem" ]; then
+        _skip_pc=true
+        break
+      fi
+    done
+    if [ "$_skip_pc" = true ]; then
+      _pc_skipped=$((_pc_skipped + 1))
+      continue
+    fi
     _tmppc="$PREFIX/.logs/_pc_rewrite_$$"
     awk -v old="$PREFIX" -v new="$_install_prefix" '{gsub(old, new)} {print}' "$_pc" > "$_tmppc"
     _install_file "$_tmppc" "$_install_prefix/lib/pkgconfig/$_name" "$_manifest_tmp" "$_priv"
