@@ -136,7 +136,7 @@ cmd_build() {
       --enable-lto)        ENABLE_LTO=true ;;
       --disable-lto)       ENABLE_LTO=false ;;
       --flite-audio=*)     FLITE_AUDIO="${1#--flite-audio=}" ;;
-      --flite-audio)       shift; FLITE_AUDIO="$1" ;;
+      --flite-audio)       shift; [ $# -eq 0 ] && die "--flite-audio requires an argument"; FLITE_AUDIO="$1" ;;
       --profile=*)         PROFILE_NAME="${1#--profile=}" ;;
       --profile)           shift; PROFILE_NAME="$1" ;;
       --jobs=*)            MJOBS="${1#--jobs=}" ;;
