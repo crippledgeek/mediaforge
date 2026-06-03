@@ -103,6 +103,12 @@ _run "spirv=glslang disables shaderc"   "Skipping shaderc (disabled via CLI)"  .
 _run_no "spirv=shaderc no libglslang flag" "enable-libglslang"                 ./mediaforge.sh build --spirv=shaderc
 _run_no "spirv=glslang no libshaderc flag" "enable-libshaderc"                 ./mediaforge.sh build
 
+# libplacebo (Vulkan GPU post-processing). On by default; follows --spirv=;
+# skipped under --enable-static (LDEXEFLAGS → no static libvulkan on Arch).
+_run "libplacebo default on"            "--enable-libplacebo" ./mediaforge.sh build
+_run_no "libplacebo off on static"      "--enable-libplacebo" ./mediaforge.sh build --enable-static
+_run "libplacebo follows spirv=shaderc" "--enable-libplacebo" ./mediaforge.sh build --spirv=shaderc
+
 # Additional video codecs — version-gated. Default no-profile build == 8.0.1,
 # so all five flags appear; older profiles gate some out.
 _run "uavs3d default on"        "--enable-libuavs3d" ./mediaforge.sh build
