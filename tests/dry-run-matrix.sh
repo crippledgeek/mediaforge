@@ -120,4 +120,13 @@ _run "harfbuzz flag on"     "--enable-libharfbuzz" ./mediaforge.sh build
 _run "quirc on (8.x)"       "--enable-libquirc"    ./mediaforge.sh build
 _run_no "quirc OFF on 6.1"  "--enable-libquirc"    ./mediaforge.sh build --profile=6.1
 
+# GPL codec coverage — xavs2/davs2/libcdio are GPL (only with --enable-gpl);
+# lcevc is free but FFmpeg-version-gated (>=7.1, so default 8.x build has it).
+_run "xavs2 on (gpl)"       "--enable-libxavs2"     ./mediaforge.sh build --enable-gpl
+_run "davs2 on (gpl)"       "--enable-libdavs2"     ./mediaforge.sh build --enable-gpl
+_run_no "xavs2 off (free)"  "--enable-libxavs2"     ./mediaforge.sh build
+_run "libcdio on (gpl)"     "--enable-libcdio"      ./mediaforge.sh build --enable-gpl
+_run "lcevc on (8.x)"       "--enable-liblcevc-dec" ./mediaforge.sh build
+_run_no "lcevc OFF on 7.0"  "--enable-liblcevc-dec" ./mediaforge.sh build --profile=7.0
+
 exit "$_fail"
