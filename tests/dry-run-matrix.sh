@@ -129,4 +129,10 @@ _run "libcdio on (gpl)"     "--enable-libcdio"      ./mediaforge.sh build --enab
 _run "lcevc on (8.x)"       "--enable-liblcevc-dec" ./mediaforge.sh build
 _run_no "lcevc OFF on 7.0"  "--enable-liblcevc-dec" ./mediaforge.sh build --profile=7.0
 
+# DVD inputs — libdvdread/libdvdnav are GPL and FFmpeg-version-gated (>=7.0).
+_run "dvdread on (gpl)"      "--enable-libdvdread" ./mediaforge.sh build --enable-gpl
+_run "dvdnav on (gpl)"       "--enable-libdvdnav"  ./mediaforge.sh build --enable-gpl
+_run_no "dvdnav off (free)"  "--enable-libdvdnav"  ./mediaforge.sh build
+_run_no "dvdnav OFF on 6.1"  "--enable-libdvdnav"  ./mediaforge.sh build --enable-gpl --profile=6.1
+
 exit "$_fail"
