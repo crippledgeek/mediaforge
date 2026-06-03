@@ -106,4 +106,13 @@ _run_no "oapv OFF on 7.1"       "--enable-liboapv"   ./mediaforge.sh build --pro
 _run_no "vvenc OFF on 7.0"      "--enable-libvvenc"  ./mediaforge.sh build --profile=7.0
 _run_no "xeve OFF on 6.1"       "--enable-libxeve"   ./mediaforge.sh build --profile=6.1
 
+# Free codec coverage — lcms2/aribcaption/vmaf ungated; qrencode >=7.0; lc3 >=7.1.
+_run "lcms2 default on"        "--enable-lcms2"          ./mediaforge.sh build
+_run "aribcaption default on"  "--enable-libaribcaption" ./mediaforge.sh build
+_run "vmaf default on"         "--enable-libvmaf"        ./mediaforge.sh build
+_run "qrencode on (8.x)"       "--enable-libqrencode"    ./mediaforge.sh build
+_run "lc3 on (8.x)"            "--enable-liblc3"         ./mediaforge.sh build
+_run_no "lc3 OFF on 7.0"       "--enable-liblc3"         ./mediaforge.sh build --profile=7.0
+_run_no "qrencode OFF on 6.1"  "--enable-libqrencode"    ./mediaforge.sh build --profile=6.1
+
 exit "$_fail"
