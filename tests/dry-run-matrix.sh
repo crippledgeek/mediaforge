@@ -115,4 +115,9 @@ _run "lc3 on (8.x)"            "--enable-liblc3"         ./mediaforge.sh build
 _run_no "lc3 OFF on 7.0"       "--enable-liblc3"         ./mediaforge.sh build --profile=7.0
 _run_no "qrencode OFF on 6.1"  "--enable-libqrencode"    ./mediaforge.sh build --profile=6.1
 
+# harfbuzz drawtext shaping (ungated, all profiles) + quirc QR decode (>=7.0).
+_run "harfbuzz flag on"     "--enable-libharfbuzz" ./mediaforge.sh build
+_run "quirc on (8.x)"       "--enable-libquirc"    ./mediaforge.sh build
+_run_no "quirc OFF on 6.1"  "--enable-libquirc"    ./mediaforge.sh build --profile=6.1
+
 exit "$_fail"
