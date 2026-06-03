@@ -10,7 +10,7 @@ _run() {
   _desc=$1; shift
   _expect=$1; shift
   _output=$("$@" --dry-run --yes 2>&1) || true
-  if ! printf '%s' "$_output" | grep -q "$_expect"; then
+  if ! printf '%s' "$_output" | grep -qF -- "$_expect"; then
     printf 'FAIL [%s]: missing "%s"\n' "$_desc" "$_expect" >&2
     _fail=1
     return
@@ -22,7 +22,7 @@ _run_no() {
   _desc=$1; shift
   _forbidden=$1; shift
   _output=$("$@" --dry-run --yes 2>&1) || true
-  if printf '%s' "$_output" | grep -q "$_forbidden"; then
+  if printf '%s' "$_output" | grep -qF -- "$_forbidden"; then
     printf 'FAIL [%s]: contained forbidden "%s"\n' "$_desc" "$_forbidden" >&2
     _fail=1
     return
@@ -95,5 +95,15 @@ _run "av1-enc=rav1e disables svtav1" "Skipping svtav1 (disabled via CLI)" \
   ./mediaforge.sh build --av1-enc=rav1e
 _run "av1-enc=rav1e disables av1 (libaom)" "Skipping av1 (disabled via CLI)" \
   ./mediaforge.sh build --av1-enc=rav1e
+
+# Additional video codecs — version-gated. Default no-profile build == 8.0.1,
+# so all five flags appear; older profiles gate some out.
+_run "uavs3d default on"        "--enable-libuavs3d" ./mediaforge.sh build
+_run "vvenc on (default 8.x)"   "--enable-libvvenc"  ./mediaforge.sh build
+_run "oapv on (default 8.x)"    "--enable-liboapv"   ./mediaforge.sh build
+_run "xeve on (default 8.x)"    "--enable-libxeve"   ./mediaforge.sh build
+_run_no "oapv OFF on 7.1"       "--enable-liboapv"   ./mediaforge.sh build --profile=7.1
+_run_no "vvenc OFF on 7.0"      "--enable-libvvenc"  ./mediaforge.sh build --profile=7.0
+_run_no "xeve OFF on 6.1"       "--enable-libxeve"   ./mediaforge.sh build --profile=6.1
 
 exit "$_fail"
