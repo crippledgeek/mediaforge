@@ -135,4 +135,14 @@ _run "dvdnav on (gpl)"       "--enable-libdvdnav"  ./mediaforge.sh build --enabl
 _run_no "dvdnav off (free)"  "--enable-libdvdnav"  ./mediaforge.sh build
 _run_no "dvdnav OFF on 6.1"  "--enable-libdvdnav"  ./mediaforge.sh build --enable-gpl --profile=6.1
 
+# Protocol inputs — librabbitmq (AMQP, ungated) + libssh (SFTP, mbedtls-gated).
+# In dry-run mbedtls isn't actually built, so $PREFIX/lib/libmbedcrypto.a never
+# exists → libssh logs the skip in BOTH the default and --tls=mbedtls cases.
+# The skip-log assertion is the meaningful one; --enable-libssh can't appear
+# without a real mbedtls build. The --tls=mbedtls case just confirms acceptance.
+_run "rabbitmq default on"        "--enable-librabbitmq" ./mediaforge.sh build
+_run "libssh skipped w/o mbedtls" "Skipping libssh"      ./mediaforge.sh build
+_run_no "no libssh flag in default dry-run" "--enable-libssh" ./mediaforge.sh build
+_run "libssh selectable w/ mbedtls tls" "tls=mbedtls" ./mediaforge.sh build --tls=mbedtls
+
 exit "$_fail"
