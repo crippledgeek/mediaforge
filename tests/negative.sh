@@ -47,6 +47,9 @@ _run "--menu --yes is rejected" "mutually exclusive" \
 _run "unknown pkg, no suggestion" "Run '.*--list-pkgs'" \
   ./mediaforge.sh build --disable=zzznonexistent --dry-run --yes
 
+_run "--spirv bogus rejected" "Invalid --spirv" \
+  ./mediaforge.sh build --spirv=bogus --dry-run --yes
+
 # Regression: a mutex-disabled recipe that was previously stamped must NOT
 # leak its --enable flag (would collide with the chosen backend -> FFmpeg die).
 # Simulate by stamping gnutls then selecting openssl; only one TLS flag may appear.
@@ -59,7 +62,12 @@ _gv=$(sh -c '. recipes/crypto/gnutls.sh 2>/dev/null; printf "%s" "$PKG_VERSION"'
 _stampfile="$_stampdir/gnutls-$_gv"
 # Always remove the temporary stamp, even if the build aborts early under set -e.
 # Single-quote so $_stampfile is expanded at trap time, not now (shellcheck-clean).
-trap 'rm -f "$_stampfile"' EXIT
+# Derive glslang stamp name the same way (version-resilient) so the spirv
+# mutex stamp-leak check below stays meaningful across glslang version bumps.
+_gv=$(sh -c '. recipes/hwaccel/glslang.sh 2>/dev/null; printf "%s" "$PKG_VERSION"')
+_glslang_stampfile="$_stampdir/glslang-$_gv"
+# Clean both temporary stamps on exit even if a build aborts early under set -e.
+trap 'rm -f "$_stampfile" "$_glslang_stampfile"' EXIT
 : > "$_stampfile"
 _out=$(./mediaforge.sh build --tls=openssl --dry-run --yes 2>&1) || true
 rm -f "$_stampfile"
@@ -68,6 +76,19 @@ if printf '%s' "$_out" | grep -q 'enable-gnutls'; then
   _fail=1
 else
   printf 'PASS [stamp-leak: disabled backend flag suppressed]\n'
+fi
+
+# glslang stamped + --spirv=shaderc must NOT leak --enable-libglslang. The two
+# SPIR-V flags are mutually exclusive — a leak would collide with
+# --enable-libshaderc and make FFmpeg's configure die.
+: > "$_glslang_stampfile"
+_out=$(./mediaforge.sh build --spirv=shaderc --dry-run --yes 2>&1) || true
+rm -f "$_glslang_stampfile"
+if printf '%s' "$_out" | grep -q 'enable-libglslang'; then
+  printf 'FAIL [spirv stamp-leak]: --enable-libglslang leaked while --spirv=shaderc\n' >&2
+  _fail=1
+else
+  printf 'PASS [spirv stamp-leak suppressed]\n'
 fi
 
 exit "$_fail"

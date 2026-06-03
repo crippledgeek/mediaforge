@@ -96,6 +96,13 @@ _run "av1-enc=rav1e disables svtav1" "Skipping svtav1 (disabled via CLI)" \
 _run "av1-enc=rav1e disables av1 (libaom)" "Skipping av1 (disabled via CLI)" \
   ./mediaforge.sh build --av1-enc=rav1e
 
+# SPIR-V compiler mutex (glslang vs shaderc — interchangeable, FFmpeg forbids both)
+_run "spirv default glslang"            "spirv=glslang"                        ./mediaforge.sh build
+_run "spirv=shaderc disables glslang"   "Skipping glslang (disabled via CLI)"  ./mediaforge.sh build --spirv=shaderc
+_run "spirv=glslang disables shaderc"   "Skipping shaderc (disabled via CLI)"  ./mediaforge.sh build --spirv=glslang
+_run_no "spirv=shaderc no libglslang flag" "enable-libglslang"                 ./mediaforge.sh build --spirv=shaderc
+_run_no "spirv=glslang no libshaderc flag" "enable-libshaderc"                 ./mediaforge.sh build
+
 # Additional video codecs — version-gated. Default no-profile build == 8.0.1,
 # so all five flags appear; older profiles gate some out.
 _run "uavs3d default on"        "--enable-libuavs3d" ./mediaforge.sh build

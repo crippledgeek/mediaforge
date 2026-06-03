@@ -12,6 +12,7 @@ FLAC_IMPL=""
 H264_IMPL=""
 H265_IMPL=""
 AV1_ENC_IMPL=""
+SPIRV_IMPL=""
 
 # Conservative defaults (used when non-interactive and nothing else resolves).
 TLS_BACKEND_DEFAULT_BUILTIN="gnutls"
@@ -20,6 +21,7 @@ FLAC_IMPL_DEFAULT_BUILTIN="native"
 H264_IMPL_DEFAULT_BUILTIN="x264"
 H265_IMPL_DEFAULT_BUILTIN="x265"
 AV1_ENC_IMPL_DEFAULT_BUILTIN="svtav1"
+SPIRV_IMPL_DEFAULT_BUILTIN="glslang"
 
 # Members of each mutex group (excluding sentinels like "none" and "native").
 TLS_GROUP="openssl gnutls mbedtls libressl"
@@ -28,6 +30,7 @@ FLAC_GROUP="flac"
 H264_GROUP="x264 openh264"
 H265_GROUP="x265 kvazaar"
 AV1_ENC_GROUP="svtav1 rav1e av1"   # av1 = libaom recipe filename
+SPIRV_GROUP="glslang shaderc"
 
 # Given a chosen TLS backend, return the space-separated list of TLS-related
 # packages that must be disabled. gmp/nettle are gnutls build-deps.
@@ -97,6 +100,12 @@ resolve_choices() {
         rav1e  "rav1e — pure Rust" \
         av1    "libaom — reference encoder, slow") || die "AV1 prompt cancelled"
     fi
+    if [ -z "$SPIRV_IMPL" ]; then
+      SPIRV_IMPL=$(menu_radiolist \
+        "Pick a SPIR-V compiler" "$SPIRV_IMPL_DEFAULT_BUILTIN" \
+        glslang "glslang — Khronos reference (default, simpler build)" \
+        shaderc "shaderc — Google wrapper (heavier build)") || die "SPIRV prompt cancelled"
+    fi
   fi
 
   # When --enable-nonfree is on AND the user didn't explicitly pick an AAC
@@ -114,6 +123,7 @@ resolve_choices() {
   : "${H264_IMPL:=${H264_IMPL_DEFAULT:-$H264_IMPL_DEFAULT_BUILTIN}}"
   : "${H265_IMPL:=${H265_IMPL_DEFAULT:-$H265_IMPL_DEFAULT_BUILTIN}}"
   : "${AV1_ENC_IMPL:=${AV1_ENC_IMPL_DEFAULT:-$AV1_ENC_IMPL_DEFAULT_BUILTIN}}"
+  : "${SPIRV_IMPL:=${SPIRV_IMPL_DEFAULT:-$SPIRV_IMPL_DEFAULT_BUILTIN}}"
 
   _validate_enum "--tls"     "$TLS_BACKEND"  "openssl|gnutls|mbedtls|libressl|none"
   _validate_enum "--aac"     "$AAC_IMPL"     "fdk_aac|native"
@@ -121,6 +131,7 @@ resolve_choices() {
   _validate_enum "--h264"    "$H264_IMPL"    "x264|openh264"
   _validate_enum "--h265"    "$H265_IMPL"    "x265|kvazaar"
   _validate_enum "--av1-enc" "$AV1_ENC_IMPL" "svtav1|rav1e|av1"
+  _validate_enum "--spirv"   "$SPIRV_IMPL"   "glslang|shaderc"
 
   # TLS: disable companions of the chosen backend
   for _p in $(tls_disable_companions "$TLS_BACKEND"); do
@@ -138,7 +149,7 @@ resolve_choices() {
   esac
 
   # H264 / H265 / AV1-enc: disable every member of the group except the chosen one
-  for _g_var in H264_GROUP H265_GROUP AV1_ENC_GROUP; do
+  for _g_var in H264_GROUP H265_GROUP AV1_ENC_GROUP SPIRV_GROUP; do
     eval "_members=\$$_g_var"
     eval "_chosen=\$${_g_var%_GROUP}_IMPL"
     for _m in $_members; do
@@ -148,7 +159,7 @@ resolve_choices() {
   done
 
   # Detect contradictions: --tls=X --disable=X
-  for _chosen in "$TLS_BACKEND" "$AAC_IMPL" "$FLAC_IMPL" "$H264_IMPL" "$H265_IMPL" "$AV1_ENC_IMPL"; do
+  for _chosen in "$TLS_BACKEND" "$AAC_IMPL" "$FLAC_IMPL" "$H264_IMPL" "$H265_IMPL" "$AV1_ENC_IMPL" "$SPIRV_IMPL"; do
     case "$_chosen" in
       none|native) continue ;;
     esac
@@ -179,6 +190,7 @@ load_stored_choices() {
   : "${H264_IMPL:=${STORED_H264_IMPL:-}}"
   : "${H265_IMPL:=${STORED_H265_IMPL:-}}"
   : "${AV1_ENC_IMPL:=${STORED_AV1_ENC_IMPL:-}}"
+  : "${SPIRV_IMPL:=${STORED_SPIRV_IMPL:-}}"
 }
 
 # Save resolved choices for next run.
@@ -194,6 +206,7 @@ STORED_FLAC_IMPL=$FLAC_IMPL
 STORED_H264_IMPL=$H264_IMPL
 STORED_H265_IMPL=$H265_IMPL
 STORED_AV1_ENC_IMPL=$AV1_ENC_IMPL
+STORED_SPIRV_IMPL=$SPIRV_IMPL
 EOF
 }
 
@@ -263,4 +276,7 @@ run_menu() {
     svtav1 "SVT-AV1" \
     rav1e  "rav1e"   \
     av1    "libaom (slow reference)") || die "Menu cancelled"
+  SPIRV_IMPL=$(menu_radiolist "SPIR-V compiler" "${SPIRV_IMPL:-glslang}" \
+    glslang "glslang (reference)" \
+    shaderc "shaderc (Google)") || die "Menu cancelled"
 }

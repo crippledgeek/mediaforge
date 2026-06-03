@@ -1,0 +1,12 @@
+--- a/libshaderc_util/CMakeLists.txt
++++ b/libshaderc_util/CMakeLists.txt
+@@ -87,3 +87,8 @@ if(${SHADERC_ENABLE_TESTS})
+   add_dependencies(shaderc_util_file_finder_test testdata)
+   add_dependencies(shaderc_util_io_shaderc_test testdata)
+ endif()
++
++# Install the static shaderc_util archive so shaderc_static.pc's -lshaderc_util
++# resolves for downstream static linkers (e.g. FFmpeg --enable-libshaderc).
++if(SHADERC_ENABLE_INSTALL)
++  install(TARGETS shaderc_util ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
++endif()
