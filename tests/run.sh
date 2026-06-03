@@ -5,6 +5,7 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
 sh tests/shellcheck.sh
+sh tests/version-ge.sh
 sh tests/negative.sh
 sh tests/dry-run-matrix.sh
 sh tests/menu-stdin.sh

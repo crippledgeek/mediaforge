@@ -117,3 +117,14 @@ is_interactive() {
   [ -t 0 ] || return 1
   return 0
 }
+
+# Return 0 if the active FFmpeg version (FFMPEG_VERSION) is >= the argument.
+# Used by recipes whose FFmpeg configure flag only exists from a given release
+# (e.g. --enable-libvvenc requires FFmpeg >= 7.1). Uses sort -V (version sort; requires coreutils or recent BSD sort).
+ffmpeg_version_ge() {
+  _min="$1"
+  _cur="${FFMPEG_VERSION:-0}"
+  [ "$_cur" = "$_min" ] && return 0
+  _lowest=$(printf '%s\n%s\n' "$_cur" "$_min" | sort -V | head -1)
+  [ "$_lowest" = "$_min" ]
+}
