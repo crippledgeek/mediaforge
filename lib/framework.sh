@@ -173,11 +173,22 @@ run_recipe() {
 
   # Check guards
   if ! check_guards; then
-    # Still accumulate ffmpeg option if the package was previously built
-    _has_stamp=false
-    for _s in "$PREFIX/.stamps/${PKG_NAME}-"*; do [ -f "$_s" ] && _has_stamp=true && break; done
-    if [ -n "$PKG_FFMPEG_OPT" ] && [ "$_has_stamp" = true ]; then
-      FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
+    # If the recipe was EXPLICITLY disabled (in DISABLE_PKGS - e.g. a mutex
+    # resolver excluded this backend, or --disable=X), do NOT re-accumulate its
+    # FFmpeg flag from a stale stamp. Doing so leaks a flag for a backend that
+    # is mutually exclusive with the chosen one (FFmpeg configure dies). For
+    # all other guard failures (GPL off, missing cmd, platform) the library is
+    # present in the workspace from a prior run, so re-accumulating is correct.
+    _in_disable=false
+    for _d in $DISABLE_PKGS; do
+      [ "$_d" = "$PKG_NAME" ] && _in_disable=true && break
+    done
+    if [ "$_in_disable" != true ]; then
+      _has_stamp=false
+      for _s in "$PREFIX/.stamps/${PKG_NAME}-"*; do [ -f "$_s" ] && _has_stamp=true && break; done
+      if [ -n "$PKG_FFMPEG_OPT" ] && [ "$_has_stamp" = true ]; then
+        FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
+      fi
     fi
     return 0
   fi

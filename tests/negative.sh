@@ -47,4 +47,27 @@ _run "--menu --yes is rejected" "mutually exclusive" \
 _run "unknown pkg, no suggestion" "Run '.*--list-pkgs'" \
   ./mediaforge.sh build --disable=zzznonexistent --dry-run --yes
 
+# Regression: a mutex-disabled recipe that was previously stamped must NOT
+# leak its --enable flag (would collide with the chosen backend -> FFmpeg die).
+# Simulate by stamping gnutls then selecting openssl; only one TLS flag may appear.
+_stampdir="workspace/.stamps"
+mkdir -p "$_stampdir"
+# Derive the stamp name from the version the recipe actually declares, so a
+# future gnutls version bump keeps this test exercising the real leak path
+# instead of silently becoming vacuous against a stale hardcoded filename.
+_gv=$(sh -c '. recipes/crypto/gnutls.sh 2>/dev/null; printf "%s" "$PKG_VERSION"')
+_stampfile="$_stampdir/gnutls-$_gv"
+# Always remove the temporary stamp, even if the build aborts early under set -e.
+# Single-quote so $_stampfile is expanded at trap time, not now (shellcheck-clean).
+trap 'rm -f "$_stampfile"' EXIT
+: > "$_stampfile"
+_out=$(./mediaforge.sh build --tls=openssl --dry-run --yes 2>&1) || true
+rm -f "$_stampfile"
+if printf '%s' "$_out" | grep -q 'enable-gnutls'; then
+  printf 'FAIL [stamp-leak]: --enable-gnutls leaked while --tls=openssl\n' >&2
+  _fail=1
+else
+  printf 'PASS [stamp-leak: disabled backend flag suppressed]\n'
+fi
+
 exit "$_fail"
