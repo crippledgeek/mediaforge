@@ -214,6 +214,12 @@ cmd_build() {
     run_menu
   fi
 
+  # Snapshot the AAC choice the user made THIS run (CLI --aac= or --menu),
+  # before load_stored_choices backfills it from a prior build. Used so
+  # --enable-nonfree's fdk_aac implication can beat a stale stored 'native'
+  # (see resolve_choices) without overriding an explicit --aac= this run.
+  _aac_cli="$AAC_IMPL"
+
   # Load stored choices from previous run (CLI flags take precedence —
   # load_stored_choices only sets values that are currently empty).
   load_stored_choices

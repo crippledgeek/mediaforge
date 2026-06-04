@@ -108,11 +108,11 @@ resolve_choices() {
     fi
   fi
 
-  # When --enable-nonfree is on AND the user didn't explicitly pick an AAC
-  # encoder, default to fdk_aac. This preserves the historical mediaforge
-  # behaviour where `--enable-nonfree` implied fdk_aac (the main reason most
-  # users opt into nonfree). Native AAC is still the default for free builds.
-  if [ -z "$AAC_IMPL" ] && [ "$ENABLE_NONFREE" = true ]; then
+  # --enable-nonfree implies fdk_aac unless the user explicitly picked an AAC
+  # encoder THIS run (--aac= or --menu, captured in _aac_cli before stored
+  # choices backfilled AAC_IMPL). This lets nonfree beat a stale stored 'native'
+  # from a prior free build, while an explicit --aac=native this run still wins.
+  if [ "$ENABLE_NONFREE" = true ] && [ -z "${_aac_cli:-}" ]; then
     AAC_IMPL="fdk_aac"
   fi
 
