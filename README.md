@@ -118,7 +118,6 @@ Codec / backend selectors (mutually exclusive within each group):
                             (default: gnutls)
   --aac=IMPL                AAC encoder: fdk_aac|native
                             (default: native; nonfree -> fdk_aac)
-  --flac=IMPL               FLAC encoder: libflac|native (default: native)
   --h264=IMPL               H.264 encoder: x264|openh264 (default: x264)
   --h265=IMPL               H.265 encoder: x265|kvazaar (default: x265)
   --av1-enc=IMPL            AV1 encoder: svtav1|rav1e|av1 (default: svtav1)

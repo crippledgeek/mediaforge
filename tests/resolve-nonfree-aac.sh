@@ -11,7 +11,7 @@ DRY_RUN=false
 _fail=0
 
 _reset() {  # valid values for the other groups so _validate_enum passes
-  TLS_BACKEND=gnutls; FLAC_IMPL=native; H264_IMPL=x264; H265_IMPL=x265
+  TLS_BACKEND=gnutls; H264_IMPL=x264; H265_IMPL=x265
   AV1_ENC_IMPL=svtav1; SPIRV_IMPL=glslang; DISABLE_PKGS=""; DISABLE_PKGS_INPUT=""
 }
 
