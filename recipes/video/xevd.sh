@@ -15,6 +15,13 @@ else
   PKG_DISABLED=true
 fi
 
+# Built from a tarball (no .git), xevd's CMakeLists can't `git describe` its
+# version and aborts unless version.txt exists in the source root, in the
+# format v[MAJOR].[MINOR].[PATCH]. Write it before configure.
+pkg_prepare() {
+  printf 'v%s\n' "$PKG_VERSION" > "$DISTDIR/xevd-${PKG_VERSION}/version.txt"
+}
+
 # xevd requires an out-of-source build/ dir. Default (no SET_PROF) builds the
 # MAIN profile, producing libxevd.a + xevd.pc; MAIN-profile libs also support
 # baseline operation. xevd exposes no toggle to disable the app/shared lib, so

@@ -15,6 +15,13 @@ else
   PKG_DISABLED=true
 fi
 
+# Built from a tarball (no .git), xeve's CMakeLists can't `git describe` its
+# version and aborts unless version.txt exists in the source root, in the
+# format v[MAJOR].[MINOR].[PATCH]. Write it before configure.
+pkg_prepare() {
+  printf 'v%s\n' "$PKG_VERSION" > "$DISTDIR/xeve-${PKG_VERSION}/version.txt"
+}
+
 # xeve requires an out-of-source build/ dir. Default (no SET_PROF) builds the
 # MAIN profile, producing libxeve.a + xeve.pc; MAIN-profile libs also support
 # baseline operation. xeve exposes no toggle to disable the app/shared lib, so
