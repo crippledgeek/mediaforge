@@ -26,11 +26,18 @@ fi
 #   VN_SDK_JSON_CONFIG — avoids nlohmann-json dependency
 #   VN_SDK_PIPELINE_VULKAN — off (default); avoids vulkan-loader
 #   VN_SDK_DOCS — off; VN_SDK_SYSTEM_INSTALL=OFF keeps licences inside $PREFIX
+# LCEVCdec forbids in-source builds (cmake/modules/CMakeSetup.cmake) — use an
+# out-of-source build/ dir.
 pkg_configure() {
-  run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" -DBUILD_SHARED_LIBS=OFF \
+  rm -rf build
+  run cmake -S . -B build -DCMAKE_INSTALL_PREFIX="$PREFIX" -DBUILD_SHARED_LIBS=OFF \
     -DCMAKE_BUILD_TYPE=Release \
     -DVN_SDK_EXECUTABLES=OFF -DVN_SDK_UNIT_TESTS=OFF \
     -DVN_SDK_SAMPLE_SOURCE=OFF -DVN_SDK_JSON_CONFIG=OFF \
     -DVN_SDK_PIPELINE_VULKAN=OFF -DVN_SDK_DOCS=OFF \
-    -DVN_SDK_SYSTEM_INSTALL=OFF .
+    -DVN_SDK_SYSTEM_INSTALL=OFF
 }
+
+pkg_build() { run cmake --build build -j "$MJOBS"; }
+
+pkg_install() { run cmake --install build; }
