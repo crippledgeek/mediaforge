@@ -15,14 +15,21 @@ else
   PKG_DISABLED=true
 fi
 
+# quirc's Makefile sets SDL_CFLAGS := $(shell pkg-config --cflags sdl 2>&1) and
+# folds it into the library compile flags. The 2>&1 captures pkg-config's error
+# text — including a stray backtick from `sdl.pc' — into CFLAGS when SDL 1.x is
+# absent, which breaks the shell during compilation. The patch changes it to
+# 2>/dev/null so an absent SDL yields empty flags. (The library needs no SDL.)
+pkg_prepare() {
+  if ! patch -p1 < "$SCRIPT_DIR/patches/quirc-sdl-cflags.patch"; then
+    patch -p1 -R --dry-run < "$SCRIPT_DIR/patches/quirc-sdl-cflags.patch" >/dev/null 2>&1 \
+      || die "quirc-sdl-cflags.patch failed to apply and is not already applied"
+  fi
+}
+
 pkg_configure() { :; }
 
-# The library doesn't need SDL, but quirc's Makefile globally sets
-# SDL_CFLAGS := $(shell pkg-config --cflags sdl 2>&1) and folds it into the
-# library compile flags. When 'sdl' (SDL 1.x) is absent the pkg-config error
-# text — including a stray backtick from `sdl.pc' — pollutes CFLAGS and breaks
-# the shell. Override SDL_CFLAGS empty for the lib build.
-pkg_build() { run make -j "$MJOBS" libquirc.a SDL_CFLAGS=; }
+pkg_build() { run make -j "$MJOBS" libquirc.a; }
 
 pkg_install() {
   install -d "$PREFIX/include" "$PREFIX/lib" "$PREFIX/lib/pkgconfig"
