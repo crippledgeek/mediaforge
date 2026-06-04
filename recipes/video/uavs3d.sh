@@ -52,10 +52,11 @@ pkg_configure() {
   rm -rf "$_src/build/linux"
   mkdir -p "$_src/build/linux"
   cd "$_src/build/linux" || die "Failed to cd to uavs3d build dir"
-  # uavs3d's CMakeLists declares cmake_minimum_required(VERSION 3.1). That is
-  # rejected by CMake 4.x, but mediaforge builds its own cmake 3.31.7 ahead of
-  # every cmake consumer (recipes/_order.conf) and puts it first on PATH, so the
-  # host's cmake version is irrelevant here.
+  # uavs3d's CMakeLists declares cmake_minimum_required(VERSION 3.1), which the
+  # bundled cmake 4.x rejects on its own. The global CMAKE_POLICY_VERSION_MINIMUM=3.5
+  # floor (lib/platform.sh) raises the policy floor for sources declaring a lower
+  # minimum, so uavs3d configures cleanly. (This is the min-version class the floor
+  # covers; x265's explicit cmake_policy(SET ... OLD) needs a patch instead.)
   run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release ../..
 }

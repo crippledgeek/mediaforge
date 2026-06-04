@@ -48,7 +48,7 @@ pkg_install() {
   # link of -lxeve resolves to libxeve.a (otherwise: "cannot find -lxeve").
   cp src_main/libxeve.a "$PREFIX/lib/libxeve.a" \
     || die "xeve static lib (src_main/libxeve.a) not found"
-  rm -f "$PREFIX"/lib/libxeve.so "$PREFIX"/lib/libxeve.so.*
+  rm -f "$PREFIX/lib/libxeve.so" "$PREFIX/lib/libxeve.so".*
 }
 
 # xeve is C++ but its pkgconfig omits -lstdc++ for static linking.
