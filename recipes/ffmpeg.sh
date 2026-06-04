@@ -24,6 +24,21 @@ log "======================="
 fetch "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" \
   "FFmpeg-release-${FFMPEG_VERSION}.tar.gz"
 
+# FFmpeg 8.0's libuavs3d wrapper reads colour-description fields that the
+# official uavs3d library never exposed (absent in the v1.1 tag and master), so
+# it fails to compile against the real library. Drop that block. Version-
+# specific to this libuavs3d.c: apply only when uavs3d is enabled AND the patch
+# matches this FFmpeg's source — otherwise warn (other profiles may differ).
+if printf '%s' "$FFMPEG_CONFIGURE_OPTS" | grep -q 'enable-libuavs3d'; then
+  if patch -p1 --dry-run < "$SCRIPT_DIR/patches/ffmpeg-uavs3d-no-colordesc.patch" >/dev/null 2>&1; then
+    log "Applying ffmpeg-uavs3d-no-colordesc.patch (uavs3d lacks colour-description API)"
+    patch -p1 < "$SCRIPT_DIR/patches/ffmpeg-uavs3d-no-colordesc.patch" >/dev/null \
+      || die "ffmpeg-uavs3d-no-colordesc.patch failed to apply"
+  else
+    warn "ffmpeg-uavs3d-no-colordesc.patch did not apply to FFmpeg $FFMPEG_VERSION — libuavs3d may fail to compile"
+  fi
+fi
+
 print_flags
 
 # Build the full configure command as a string, then eval it.

@@ -1,0 +1,27 @@
+--- a/libavcodec/libuavs3d.c
++++ b/libavcodec/libuavs3d.c
+@@ -123,24 +123,6 @@
+         return ret;
+     h->got_seqhdr = 1;
+ 
+-    if (seqh->colour_description) {
+-        if (UAVS3D_CHECK_INVALID_RANGE(seqh->colour_primaries, 0, 9) ||
+-            UAVS3D_CHECK_INVALID_RANGE(seqh->transfer_characteristics, 0, 14) ||
+-            UAVS3D_CHECK_INVALID_RANGE(seqh->matrix_coefficients, 0, 11)) {
+-            av_log(avctx, AV_LOG_ERROR,
+-                   "Invalid colour description: primaries: %d"
+-                   "transfer characteristics: %d"
+-                   "matrix coefficients: %d.\n",
+-                   seqh->colour_primaries,
+-                   seqh->transfer_characteristics,
+-                   seqh->matrix_coefficients);
+-        } else {
+-            avctx->color_primaries = ff_avs3_color_primaries_tab[seqh->colour_primaries];
+-            avctx->color_trc       = ff_avs3_color_transfer_tab [seqh->transfer_characteristics];
+-            avctx->colorspace      = ff_avs3_color_matrix_tab   [seqh->matrix_coefficients];
+-        }
+-    }
+-
+     return 0;
+ }
+ 
