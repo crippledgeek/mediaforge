@@ -17,6 +17,18 @@ else
   PKG_DISABLED=true
 fi
 
+# The generated lcevc_dec.pc lists -lstdc++ -lm BEFORE the lcevc static libs
+# (CMakeInstall.cmake prepends PC_LIBS_PRIVATE). Static link order matters: the
+# C++ runtime must follow the libs that reference it (operator new/delete,
+# vtables, __cxa_guard) or FFmpeg's static link probe fails with undefined
+# references. The patch swaps the prepend to an append at the source.
+pkg_prepare() {
+  if ! patch -p1 < "$SCRIPT_DIR/patches/lcevc-pc-libs-order.patch"; then
+    patch -p1 -R --dry-run < "$SCRIPT_DIR/patches/lcevc-pc-libs-order.patch" >/dev/null 2>&1 \
+      || die "lcevc-pc-libs-order.patch failed to apply and is not already applied"
+  fi
+}
+
 # V-Nova's CMake pulls third-party deps (nlohmann-json, fmt, gtest, range-v3,
 # ffmpeg) via Conan ONLY when executables/tests/json-config/base-decoder are
 # enabled. With those OFF (and Vulkan off), conanfile.py's requirements() list

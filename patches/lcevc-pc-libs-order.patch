@@ -1,0 +1,11 @@
+--- a/cmake/modules/CMakeInstall.cmake
++++ b/cmake/modules/CMakeInstall.cmake
+@@ -110,7 +110,7 @@
+     string(REPLACE ";" " " PC_LIBS_PRIVATE "${PC_LIBS_PRIVATE}")
+     set(PC_LIBS_PRIVATE "Libs.private: ${PC_LIBS_PRIVATE}")
+ else ()
+-    set(PC_LIBS "${PC_LIBS_PRIVATE};${PC_LIBS}")
++    set(PC_LIBS "${PC_LIBS};${PC_LIBS_PRIVATE}")
+     unset(PC_LIBS_PRIVATE)
+ endif ()
+ string(REPLACE ";" " " PC_LIBS "${PC_LIBS}")
