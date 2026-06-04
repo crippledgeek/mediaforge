@@ -9,5 +9,6 @@ sh tests/version-ge.sh
 sh tests/negative.sh
 sh tests/dry-run-matrix.sh
 sh tests/menu-stdin.sh
+sh tests/fetch-fail-no-cache.sh
 
 printf 'All tests passed.\n'
