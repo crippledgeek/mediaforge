@@ -6,6 +6,7 @@ PKG_GITHUB_REPO="KhronosGroup/glslang"
 PKG_URL="https://github.com/KhronosGroup/glslang/archive/refs/tags/${PKG_VERSION}.tar.gz"
 PKG_FILENAME="glslang-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libglslang"
+PKG_MUTEX_GROUP="spirv"
 PKG_REQUIRES_CMD="python3"
 
 pkg_prepare() {

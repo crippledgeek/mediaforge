@@ -27,7 +27,7 @@ fetch() {
     _ok=false
     _attempts=0
     while [ "$_attempts" -lt 3 ]; do
-      if curl -L -sS -o "$DISTDIR/$_file" "$_url"; then
+      if curl -fL -sS -o "$DISTDIR/$_file" "$_url"; then
         _ok=true
         break
       fi

@@ -91,6 +91,7 @@ cmd_help() {
   printf '      --h264=IMPL           H.264 encoder: x264|openh264 (default: x264)\n'
   printf '      --h265=IMPL           H.265 encoder: x265|kvazaar (default: x265)\n'
   printf '      --av1-enc=IMPL        AV1 encoder: svtav1|rav1e|av1 (default: svtav1)\n'
+  printf '      --spirv=IMPL          SPIR-V compiler: glslang|shaderc (default: glslang)\n'
   printf '      --flite-audio=BACKEND flite audio output: none|alsa|pulseaudio|oss|sun (default: none; FFmpeg filter does not invoke it)\n'
   printf '\nRecipe overrides:\n'
   printf '      --disable=PKG         Disable a recipe by name (repeatable, comma-separated ok)\n'
@@ -183,6 +184,8 @@ cmd_build() {
       --h265)              shift; _need_arg "$#" --h265; H265_IMPL="$1" ;;
       --av1-enc=*)         AV1_ENC_IMPL="${1#--av1-enc=}" ;;
       --av1-enc)           shift; _need_arg "$#" --av1-enc; AV1_ENC_IMPL="$1" ;;
+      --spirv=*)           SPIRV_IMPL="${1#--spirv=}" ;;
+      --spirv)             shift; _need_arg "$#" --spirv; SPIRV_IMPL="$1" ;;
       --menu)              USE_MENU=true ;;
       --)                  shift; break ;;
       -*)                  die "Unknown option: $1" ;;
@@ -211,6 +214,12 @@ cmd_build() {
     run_menu
   fi
 
+  # Snapshot the AAC choice the user made THIS run (CLI --aac= or --menu),
+  # before load_stored_choices backfills it from a prior build. Used so
+  # --enable-nonfree's fdk_aac implication can beat a stale stored 'native'
+  # (see resolve_choices) without overriding an explicit --aac= this run.
+  _aac_cli="$AAC_IMPL"
+
   # Load stored choices from previous run (CLI flags take precedence —
   # load_stored_choices only sets values that are currently empty).
   load_stored_choices
@@ -225,7 +234,7 @@ cmd_build() {
   save_stored_choices
 
   # Log final choice matrix
-  log "Choices: tls=$TLS_BACKEND aac=$AAC_IMPL flac=$FLAC_IMPL h264=$H264_IMPL h265=$H265_IMPL av1-enc=$AV1_ENC_IMPL"
+  log "Choices: tls=$TLS_BACKEND aac=$AAC_IMPL flac=$FLAC_IMPL h264=$H264_IMPL h265=$H265_IMPL av1-enc=$AV1_ENC_IMPL spirv=$SPIRV_IMPL"
 
   # Apply deferred flags
   if [ "$ENABLE_GPL" = true ]; then
@@ -234,13 +243,22 @@ cmd_build() {
   if [ "$ENABLE_NONFREE" = true ]; then
     FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-nonfree"
   fi
+  # Position-independent code for every recipe, unconditionally, so the static
+  # archives we produce link into PIE executables and shared libraries on ANY
+  # host (e.g. downstream consumers like rdlp). Arch defaults to PIE so this is
+  # redundant there, but non-PIE-default toolchains need it or a dynamic build
+  # hits "relocation R_X86_64_32 ... cannot be used when making a PIE object".
+  # Exported so codec ./configure and cmake invocations inherit it — without the
+  # export it would reach only FFmpeg (via --extra-cflags), not the codecs.
+  # The fully-static ffmpeg binary (-static) stays opt-in below.
+  CFLAGS="$CFLAGS -fPIC"
+  CXXFLAGS="$CXXFLAGS -fPIC"
+  export CFLAGS CXXFLAGS
   if [ "$_enable_static" = true ]; then
     if [ "$OS_MACOS" = true ]; then
       die "Full static binaries can only be built on Linux."
     fi
     LDEXEFLAGS="-static -fPIC"
-    CFLAGS="$CFLAGS -fPIC"
-    CXXFLAGS="$CXXFLAGS -fPIC"
   fi
   if [ "$_enable_small" = true ]; then
     FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-small --disable-doc"

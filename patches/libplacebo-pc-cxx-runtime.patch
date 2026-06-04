@@ -1,0 +1,10 @@
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -291,6 +291,7 @@
+   name: proj_name,
+   description: 'Reusable library for GPU-accelerated video/image rendering',
+   libraries: lib,
++  libraries_private: ['-lstdc++'],
+   version: version,
+   variables: pc_vars,
+   extra_cflags: extra_cflags,

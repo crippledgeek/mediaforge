@@ -117,3 +117,19 @@ is_interactive() {
   [ -t 0 ] || return 1
   return 0
 }
+
+# Return 0 if the active FFmpeg version (FFMPEG_VERSION) is >= the argument.
+# Used by recipes whose FFmpeg configure flag only exists from a given release
+# (e.g. --enable-libvvenc requires FFmpeg >= 7.1). Uses an awk field-wise numeric compare (POSIX-portable).
+ffmpeg_version_ge() {
+  awk -v cur="${FFMPEG_VERSION:-0}" -v min="$1" 'BEGIN {
+    n = split(cur, a, "."); m = split(min, b, ".")
+    k = (n > m) ? n : m
+    for (i = 1; i <= k; i++) {
+      av = a[i] + 0; bv = b[i] + 0
+      if (av > bv) exit 0
+      if (av < bv) exit 1
+    }
+    exit 0
+  }'
+}

@@ -1,0 +1,32 @@
+CMake 4.x removed OLD behavior for policies CMP0025 and CMP0054, and rejects
+cmake_minimum_required(VERSION < 3.5). x265 4.1's source/CMakeLists.txt requests
+both (inside if(POLICY ...) guards) and declares VERSION 2.8.8, so it fails to
+configure under the bundled cmake 4.x. The global CMAKE_POLICY_VERSION_MINIMUM
+floor CANNOT fix this — it does not override an explicit cmake_policy(SET ...
+OLD) call. Flip the two policy SETs to NEW (the guards make this safe on every
+cmake version; CMP0025 is Apple-clang-id only, a no-op on Linux; x265 has been
+CMP0054-NEW-safe since 2015) and bump the minimum to 3.5. Canonical fix used by
+Debian, Gentoo, and the x265 upstream patch (x265-devel, 2025-02-24).
+--- a/source/CMakeLists.txt
++++ b/source/CMakeLists.txt
+@@ -7,17 +7,17 @@
+ endif()
+ message(STATUS "cmake version ${CMAKE_VERSION}")
+ if(POLICY CMP0025)
+-    cmake_policy(SET CMP0025 OLD) # report Apple's Clang as just Clang
++    cmake_policy(SET CMP0025 NEW) # report Apple's Clang as just Clang
+ endif()
+ if(POLICY CMP0042)
+     cmake_policy(SET CMP0042 NEW) # MACOSX_RPATH
+ endif()
+ if(POLICY CMP0054)
+-    cmake_policy(SET CMP0054 OLD) # Only interpret if() arguments as variables or keywords when unquoted
++    cmake_policy(SET CMP0054 NEW) # Only interpret if() arguments as variables or keywords when unquoted
+ endif()
+ 
+ project (x265)
+-cmake_minimum_required (VERSION 2.8.8) # OBJECT libraries require 2.8.8
++cmake_minimum_required (VERSION 3.5) # cmake 4.x requires policy minimum >= 3.5
+ include(CheckIncludeFiles)
+ include(CheckFunctionExists)
+ include(CheckSymbolExists)
