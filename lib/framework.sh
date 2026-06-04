@@ -189,6 +189,13 @@ run_recipe() {
     done
     [ "$PKG_GPL" = true ] && [ "$ENABLE_GPL" != true ] && _excluded=true
     [ "$PKG_NONFREE" = true ] && [ "$ENABLE_NONFREE" != true ] && _excluded=true
+    # A default-disabled (opt-in) recipe is a POLICY exclusion like the license
+    # tiers above: the user did not ask for it, so don't re-feed its FFmpeg flag
+    # even when a stamp from a prior build is present. If it HAD been
+    # force-enabled (--enable=PKG), check_guards would not have skipped it here —
+    # unless a later transient guard (platform/arch/cmd) tripped, in which case
+    # the lib is not usable this run and suppressing the flag is the safe choice.
+    [ "$PKG_DISABLED" = true ] && _excluded=true
     if [ "$_excluded" != true ]; then
       _has_stamp=false
       for _s in "$PREFIX/.stamps/${PKG_NAME}-"*; do [ -f "$_s" ] && _has_stamp=true && break; done

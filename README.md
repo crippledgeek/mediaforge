@@ -65,6 +65,18 @@ sudo apt install cargo python3 meson ninja-build nvidia-cuda-toolkit
 ./mediaforge.sh build --enable-nonfree --enable-static
 ```
 
+> **Note — `build` installs when it finishes.** By default the `build` command
+> runs the install step at the end, which prompts with the interactive prefix
+> menu (System / User / custom). Pass `-I` / `--no-install` to build *only* and
+> install later as a separate step. The `--prefix=` flag applies to the
+> standalone `install` command, not to `build`'s trailing auto-install (that
+> one always uses the menu).
+>
+> ```sh
+> ./mediaforge.sh build --enable-nonfree --enable-static --no-install
+> ./mediaforge.sh install --prefix=$HOME/.local/mediaforge
+> ```
+
 ## Usage
 
 ```

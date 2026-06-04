@@ -1,0 +1,16 @@
+--- a/cmake/modules/CMakeInstall.cmake
++++ b/cmake/modules/CMakeInstall.cmake
+@@ -110,7 +110,12 @@
+     string(REPLACE ";" " " PC_LIBS_PRIVATE "${PC_LIBS_PRIVATE}")
+     set(PC_LIBS_PRIVATE "Libs.private: ${PC_LIBS_PRIVATE}")
+ else ()
+-    set(PC_LIBS "${PC_LIBS_PRIVATE};${PC_LIBS}")
++    # mediaforge: the split LCEVC static archives are merged post-install into
++    # a single liblcevc_dec.a (recipes/other/lcevc.sh pkg_post_install) so a
++    # downstream single-pass static link resolves their circular references
++    # without -Wl,--start-group (rejected by Apple ld64 / MSVC link). Emit the
++    # merged archive name; keep the C++ runtime + libm (PC_LIBS_PRIVATE) after it.
++    set(PC_LIBS "-llcevc_dec;${PC_LIBS_PRIVATE}")
+     unset(PC_LIBS_PRIVATE)
+ endif ()
+ string(REPLACE ";" " " PC_LIBS "${PC_LIBS}")
