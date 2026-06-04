@@ -31,6 +31,23 @@ if [ -z "$MULTIARCH_TRIPLET" ] && command_exists gcc; then
   MULTIARCH_TRIPLET=$(gcc -dumpmachine 2>/dev/null) || MULTIARCH_TRIPLET=""
 fi
 
+# CMake policy floor for the bundled cmake (recipes/tools/cmake.sh, 4.x).
+# CMake 4.0 hard-errors on cmake_minimum_required(VERSION < 3.5). A handful of
+# the frozen codec sources we vendor still declare older minimums (libgme 2.6,
+# vid_stab 2.8, frei0r/qrencode/libsnappy/uavs3d 3.1, chromaprint 3.3) and will
+# never update their CMakeLists. CMAKE_POLICY_VERSION_MINIMUM is CMake's own,
+# documented mechanism for this ("to help packagers and end users configure
+# existing projects that have not been updated"); it only raises the policy
+# floor for projects declaring a LOWER minimum — projects at >= 3.5 are
+# untouched, and CMake < 3.25 ignores the variable.
+#
+# This is a deliberate, global setting because cmake is a build *tool* we own
+# and drive for a curated, end-to-end-tested set of recipes — not the host's
+# cmake. Distros (Fedora/Nixpkgs) patch per-package instead, because they build
+# thousands of unaudited projects where a global floor could mask a real policy
+# break; that risk does not apply at our scale. Override by pre-setting the var.
+export CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
+
 # Parallel job count detection
 # $NUMJOBS env var overrides automatic detection
 detect_jobs() {
