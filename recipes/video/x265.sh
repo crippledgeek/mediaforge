@@ -20,7 +20,7 @@ pkg_prepare() {
   # x265 4.1's source/CMakeLists.txt sets CMP0025/CMP0054 to OLD and declares
   # cmake_minimum_required 2.8.8 — both rejected by the bundled cmake 4.x. The
   # CMAKE_POLICY_VERSION_MINIMUM floor can't override an explicit SET ... OLD.
-  if ! patch -p1 < "$SCRIPT_DIR/patches/x265-cmake4-policy.patch"; then
+  if ! patch -p1 -f < "$SCRIPT_DIR/patches/x265-cmake4-policy.patch"; then
     patch -p1 -R --dry-run < "$SCRIPT_DIR/patches/x265-cmake4-policy.patch" >/dev/null 2>&1 \
       || die "x265-cmake4-policy.patch failed to apply"
   fi

@@ -21,7 +21,7 @@ fi
 # absent, which breaks the shell during compilation. The patch changes it to
 # 2>/dev/null so an absent SDL yields empty flags. (The library needs no SDL.)
 pkg_prepare() {
-  if ! patch -p1 < "$SCRIPT_DIR/patches/quirc-sdl-cflags.patch"; then
+  if ! patch -p1 -f < "$SCRIPT_DIR/patches/quirc-sdl-cflags.patch"; then
     patch -p1 -R --dry-run < "$SCRIPT_DIR/patches/quirc-sdl-cflags.patch" >/dev/null 2>&1 \
       || die "quirc-sdl-cflags.patch failed to apply and is not already applied"
   fi

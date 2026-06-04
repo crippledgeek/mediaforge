@@ -23,7 +23,7 @@ fi
 # vtables, __cxa_guard) or FFmpeg's static link probe fails with undefined
 # references. The patch swaps the prepend to an append at the source.
 pkg_prepare() {
-  if ! patch -p1 < "$SCRIPT_DIR/patches/lcevc-pc-libs-order.patch"; then
+  if ! patch -p1 -f < "$SCRIPT_DIR/patches/lcevc-pc-libs-order.patch"; then
     patch -p1 -R --dry-run < "$SCRIPT_DIR/patches/lcevc-pc-libs-order.patch" >/dev/null 2>&1 \
       || die "lcevc-pc-libs-order.patch failed to apply and is not already applied"
   fi

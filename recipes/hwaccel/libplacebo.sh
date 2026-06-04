@@ -40,7 +40,7 @@ pkg_prepare() {
   # meson-generated .pc omits the C++ runtime, so FFmpeg's static link probe
   # fails with undefined std::locale / C++ symbols. Patch pkg.generate() to add
   # -lstdc++ to Libs.private (at the source, so the generated .pc is correct).
-  if ! patch -p1 < "$SCRIPT_DIR/patches/libplacebo-pc-cxx-runtime.patch"; then
+  if ! patch -p1 -f < "$SCRIPT_DIR/patches/libplacebo-pc-cxx-runtime.patch"; then
     patch -p1 -R --dry-run < "$SCRIPT_DIR/patches/libplacebo-pc-cxx-runtime.patch" >/dev/null 2>&1 \
       || die "libplacebo-pc-cxx-runtime.patch failed to apply and is not already applied"
   fi
