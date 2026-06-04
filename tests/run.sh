@@ -9,6 +9,7 @@ sh tests/version-ge.sh
 sh tests/negative.sh
 sh tests/dry-run-matrix.sh
 sh tests/resolve-nonfree-aac.sh
+sh tests/flac-removed.sh
 sh tests/menu-stdin.sh
 sh tests/fetch-fail-no-cache.sh
 
