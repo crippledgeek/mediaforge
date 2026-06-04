@@ -13,10 +13,15 @@ PKG_GPL=true
 # absolute build dir per phase. davs2's configure builds static by default
 # (no --enable-static flag; it offers --disable-static instead). install-lib-static
 # installs libdavs2.a, headers, and davs2.pc (probed by --enable-libdavs2).
+# davs2 1.7 predates GCC 14, which promoted incompatible-pointer-types (and
+# friends) from warnings to hard errors by default. Demote them back via
+# --extra-cflags so the old C compiles on GCC 14/15/16.
+_davs2_compat="-Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=int-conversion -Wno-error=implicit-int"
 pkg_configure() {
   cd "$DISTDIR/davs2-${PKG_VERSION}/build/linux" || die "Failed to cd to davs2 build/linux"
   run ./configure --prefix="$PREFIX" --disable-cli \
-    --disable-shared --enable-pic
+    --disable-shared --enable-pic \
+    --extra-cflags="$_davs2_compat"
 }
 
 pkg_build() {

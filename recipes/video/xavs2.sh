@@ -13,10 +13,15 @@ PKG_GPL=true
 # phases, so each phase cds to the absolute build dir (idempotent). The Makefile
 # has no plain `install` target — install-lib-static installs libxavs2.a, the
 # headers, and xavs2.pc (which FFmpeg's --enable-libxavs2 probes).
+# xavs2 1.4 (2019) predates GCC 14, which promoted incompatible-pointer-types
+# (and friends) from warnings to hard errors by default. Demote them back via
+# --extra-cflags so the old C compiles on GCC 14/15/16.
+_xavs2_compat="-Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=int-conversion -Wno-error=implicit-int"
 pkg_configure() {
   cd "$DISTDIR/xavs2-${PKG_VERSION}/build/linux" || die "Failed to cd to xavs2 build/linux"
   run ./configure --prefix="$PREFIX" --disable-cli \
-    --disable-shared --enable-static --enable-pic
+    --disable-shared --enable-static --enable-pic \
+    --extra-cflags="$_xavs2_compat"
 }
 
 pkg_build() {
