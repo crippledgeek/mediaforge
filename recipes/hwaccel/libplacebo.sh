@@ -44,15 +44,14 @@ pkg_configure() {
   # vulkan is also a feature; demos/tests are 'boolean' (true/false). Verified
   # against meson_options.txt @ v7.360.1.
   if [ "${SPIRV_IMPL:-glslang}" = shaderc ]; then
-    _spv="-Dshaderc=enabled -Dglslang=disabled"
+    _spv_a="-Dshaderc=enabled"; _spv_b="-Dglslang=disabled"
   else
-    _spv="-Dglslang=enabled -Dshaderc=disabled"
+    _spv_a="-Dglslang=enabled"; _spv_b="-Dshaderc=disabled"
   fi
   rm -rf build && mkdir -p build
-  # shellcheck disable=SC2086
   run meson setup build --prefix="$PREFIX" --buildtype=release \
     --default-library=static --libdir="$PREFIX/lib" \
-    -Dvulkan=enabled -Ddemos=false -Dtests=false $_spv
+    -Dvulkan=enabled -Ddemos=false -Dtests=false "$_spv_a" "$_spv_b"
 }
 
 pkg_build() {

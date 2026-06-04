@@ -12,7 +12,10 @@ PKG_REQUIRES_CMD="python3 git"
 PKG_CMAKE=true
 
 pkg_prepare() {
-  patch -p1 < "$SCRIPT_DIR/patches/shaderc-util-install.patch" 2>/dev/null || true
+  if ! patch -p1 < "$SCRIPT_DIR/patches/shaderc-util-install.patch"; then
+    patch -p1 -R --dry-run < "$SCRIPT_DIR/patches/shaderc-util-install.patch" >/dev/null 2>&1 \
+      || die "shaderc-util-install.patch failed to apply and is not already applied"
+  fi
   run python3 utils/git-sync-deps
 }
 pkg_configure() {
