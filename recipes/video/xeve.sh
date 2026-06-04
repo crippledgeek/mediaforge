@@ -23,10 +23,9 @@ pkg_prepare() {
 }
 
 # xeve requires an out-of-source build/ dir. Default (no SET_PROF) builds the
-# MAIN profile, producing libxeve.a + xeve.pc; MAIN-profile libs also support
-# baseline operation. xeve exposes no toggle to disable the app/shared lib, so
-# those extra artifacts are built and discarded — FFmpeg links the static lib
-# via pkg-config.
+# MAIN profile (which also supports baseline). xeve ignores BUILD_SHARED_LIBS and
+# unconditionally builds BOTH a static (src_main/libxeve.a) and a shared lib;
+# its install rules ship only the shared one. pkg_install corrects that.
 pkg_configure() {
   _src="$DISTDIR/xeve-${PKG_VERSION}"
   rm -rf "$_src/build"
@@ -44,6 +43,12 @@ pkg_build() {
 pkg_install() {
   cd "$DISTDIR/xeve-${PKG_VERSION}/build" || die "Failed to cd to xeve build dir"
   default_install
+  # Upstream installs only the shared lib; this is a static build. Install the
+  # static archive xeve also built and drop the shared lib so FFmpeg's --static
+  # link of -lxeve resolves to libxeve.a (otherwise: "cannot find -lxeve").
+  cp src_main/libxeve.a "$PREFIX/lib/libxeve.a" \
+    || die "xeve static lib (src_main/libxeve.a) not found"
+  rm -f "$PREFIX"/lib/libxeve.so "$PREFIX"/lib/libxeve.so.*
 }
 
 # xeve is C++ but its pkgconfig omits -lstdc++ for static linking.

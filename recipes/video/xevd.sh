@@ -23,10 +23,9 @@ pkg_prepare() {
 }
 
 # xevd requires an out-of-source build/ dir. Default (no SET_PROF) builds the
-# MAIN profile, producing libxevd.a + xevd.pc; MAIN-profile libs also support
-# baseline operation. xevd exposes no toggle to disable the app/shared lib, so
-# those extra artifacts are built and discarded — FFmpeg links the static lib
-# via pkg-config.
+# MAIN profile (which also supports baseline). xevd ignores BUILD_SHARED_LIBS and
+# unconditionally builds BOTH a static (src_main/libxevd.a) and a shared lib;
+# its install rules ship only the shared one. pkg_install corrects that.
 pkg_configure() {
   _src="$DISTDIR/xevd-${PKG_VERSION}"
   rm -rf "$_src/build"
@@ -44,6 +43,12 @@ pkg_build() {
 pkg_install() {
   cd "$DISTDIR/xevd-${PKG_VERSION}/build" || die "Failed to cd to xevd build dir"
   default_install
+  # Upstream installs only the shared lib; this is a static build. Install the
+  # static archive xevd also built and drop the shared lib so FFmpeg's --static
+  # link of -lxevd resolves to libxevd.a (otherwise: "cannot find -lxevd").
+  cp src_main/libxevd.a "$PREFIX/lib/libxevd.a" \
+    || die "xevd static lib (src_main/libxevd.a) not found"
+  rm -f "$PREFIX"/lib/libxevd.so "$PREFIX"/lib/libxevd.so.*
 }
 
 # xevd is C++ but its pkgconfig omits -lstdc++ for static linking.
