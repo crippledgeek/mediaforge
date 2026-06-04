@@ -243,13 +243,22 @@ cmd_build() {
   if [ "$ENABLE_NONFREE" = true ]; then
     FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-nonfree"
   fi
+  # Position-independent code for every recipe, unconditionally, so the static
+  # archives we produce link into PIE executables and shared libraries on ANY
+  # host (e.g. downstream consumers like rdlp). Arch defaults to PIE so this is
+  # redundant there, but non-PIE-default toolchains need it or a dynamic build
+  # hits "relocation R_X86_64_32 ... cannot be used when making a PIE object".
+  # Exported so codec ./configure and cmake invocations inherit it — without the
+  # export it would reach only FFmpeg (via --extra-cflags), not the codecs.
+  # The fully-static ffmpeg binary (-static) stays opt-in below.
+  CFLAGS="$CFLAGS -fPIC"
+  CXXFLAGS="$CXXFLAGS -fPIC"
+  export CFLAGS CXXFLAGS
   if [ "$_enable_static" = true ]; then
     if [ "$OS_MACOS" = true ]; then
       die "Full static binaries can only be built on Linux."
     fi
     LDEXEFLAGS="-static -fPIC"
-    CFLAGS="$CFLAGS -fPIC"
-    CXXFLAGS="$CXXFLAGS -fPIC"
   fi
   if [ "$_enable_small" = true ]; then
     FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-small --disable-doc"
