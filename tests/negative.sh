@@ -66,8 +66,13 @@ _stampfile="$_stampdir/gnutls-$_gv"
 # mutex stamp-leak check below stays meaningful across glslang version bumps.
 _gv=$(sh -c '. recipes/hwaccel/glslang.sh 2>/dev/null; printf "%s" "$PKG_VERSION"')
 _glslang_stampfile="$_stampdir/glslang-$_gv"
-# Clean both temporary stamps on exit even if a build aborts early under set -e.
-trap 'rm -f "$_stampfile" "$_glslang_stampfile"' EXIT
+# Derive the xavs2 stamp name the same way for the GPL stamp-leak check below.
+_xv=$(sh -c '. recipes/video/xavs2.sh 2>/dev/null; printf "%s" "$PKG_VERSION"')
+_xavs2_stampfile="$_stampdir/xavs2-$_xv"
+# Clean all temporary stamps on exit even if a build aborts early under set -e.
+# A bare second `trap ... EXIT` would clobber this one, so all stamp files this
+# script creates are removed by this single handler.
+trap 'rm -f "$_stampfile" "$_glslang_stampfile" "$_xavs2_stampfile"' EXIT
 : > "$_stampfile"
 _out=$(./mediaforge.sh build --tls=openssl --dry-run --yes 2>&1) || true
 rm -f "$_stampfile"
@@ -89,6 +94,19 @@ if printf '%s' "$_out" | grep -q 'enable-libglslang'; then
   _fail=1
 else
   printf 'PASS [spirv stamp-leak suppressed]\n'
+fi
+
+# Regression: a GPL recipe built in a prior --enable-gpl run (stamp present)
+# must NOT leak its --enable flag into a later FREE build — FFmpeg's configure
+# rejects e.g. --enable-libx264 without --enable-gpl.
+: > "$_xavs2_stampfile"
+_out=$(./mediaforge.sh build --dry-run --yes 2>&1) || true
+rm -f "$_xavs2_stampfile"
+if printf '%s' "$_out" | grep -q 'enable-libxavs2'; then
+  printf 'FAIL [gpl-stamp-leak]: --enable-libxavs2 leaked into a free build\n' >&2
+  _fail=1
+else
+  printf 'PASS [gpl-stamp-leak: GPL flag suppressed in free build]\n'
 fi
 
 exit "$_fail"

@@ -173,17 +173,19 @@ run_recipe() {
 
   # Check guards
   if ! check_guards; then
-    # If the recipe was EXPLICITLY disabled (in DISABLE_PKGS - e.g. a mutex
-    # resolver excluded this backend, or --disable=X), do NOT re-accumulate its
-    # FFmpeg flag from a stale stamp. Doing so leaks a flag for a backend that
-    # is mutually exclusive with the chosen one (FFmpeg configure dies). For
-    # all other guard failures (GPL off, missing cmd, platform) the library is
-    # present in the workspace from a prior run, so re-accumulating is correct.
-    _in_disable=false
+    # Don't re-accumulate the FFmpeg flag for a recipe excluded BY POLICY this
+    # run: explicit --disable/mutex (DISABLE_PKGS), or its license tier not
+    # enabled (GPL/nonfree). FFmpeg would reject the flag (e.g. --enable-libx264
+    # without --enable-gpl aborts configure) or mislicense the binary. Transient
+    # guards (missing cmd/meson, platform, arch) still re-accumulate, since the
+    # stamped lib is present, linkable, and carries no license objection.
+    _excluded=false
     for _d in $DISABLE_PKGS; do
-      [ "$_d" = "$PKG_NAME" ] && _in_disable=true && break
+      [ "$_d" = "$PKG_NAME" ] && _excluded=true && break
     done
-    if [ "$_in_disable" != true ]; then
+    [ "$PKG_GPL" = true ] && [ "$ENABLE_GPL" != true ] && _excluded=true
+    [ "$PKG_NONFREE" = true ] && [ "$ENABLE_NONFREE" != true ] && _excluded=true
+    if [ "$_excluded" != true ]; then
       _has_stamp=false
       for _s in "$PREFIX/.stamps/${PKG_NAME}-"*; do [ -f "$_s" ] && _has_stamp=true && break; done
       if [ -n "$PKG_FFMPEG_OPT" ] && [ "$_has_stamp" = true ]; then
