@@ -25,7 +25,11 @@ pkg_post_install() {
   _saved=$(pwd)
   _para_ver="${PKG_VERSION_LIBCDIO_PARANOIA:-10.2+2.0.2}"
   if stamp_check "libcdio-paranoia" "$_para_ver"; then
-    fetch "https://github.com/rocky/libcdio-paranoia/releases/download/release-${_para_ver}/libcdio-paranoia-${_para_ver}.tar.bz2"
+    # Pass the explicit filename (2nd arg) — otherwise fetch falls back to the
+    # main recipe's still-set PKG_FILENAME (libcdio-*.tar.bz2) and re-extracts
+    # the wrong tarball. (Same pattern as the opencl.sh sub-build.)
+    fetch "https://github.com/rocky/libcdio-paranoia/releases/download/release-${_para_ver}/libcdio-paranoia-${_para_ver}.tar.bz2" \
+      "libcdio-paranoia-${_para_ver}.tar.bz2"
     cd "$DISTDIR/libcdio-paranoia-${_para_ver}" || die "Failed to cd to libcdio-paranoia source"
     run ./configure --prefix="$PREFIX" --disable-shared --enable-static \
       --disable-cpp-progs --disable-example-progs
