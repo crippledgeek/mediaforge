@@ -17,7 +17,12 @@ fi
 
 pkg_configure() { :; }
 
-pkg_build() { run make -j "$MJOBS" libquirc.a; }
+# The library doesn't need SDL, but quirc's Makefile globally sets
+# SDL_CFLAGS := $(shell pkg-config --cflags sdl 2>&1) and folds it into the
+# library compile flags. When 'sdl' (SDL 1.x) is absent the pkg-config error
+# text — including a stray backtick from `sdl.pc' — pollutes CFLAGS and breaks
+# the shell. Override SDL_CFLAGS empty for the lib build.
+pkg_build() { run make -j "$MJOBS" libquirc.a SDL_CFLAGS=; }
 
 pkg_install() {
   install -d "$PREFIX/include" "$PREFIX/lib" "$PREFIX/lib/pkgconfig"
