@@ -1,0 +1,29 @@
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -142,13 +142,13 @@
+
+ # Install static library and public headers
+ #
+-# Static library (liboapv.a or oapv.lib) will be installed to <prefix>/lib/oapv
++# Static library (liboapv.a or oapv.lib) will be installed to <prefix>/lib
+ # Public headers will be installed to <prefix>/include/oapv
+ #
+ if(OAPV_BUILD_STATIC_LIB)
+   set_target_properties(${LIB_NAME_BASE} PROPERTIES PUBLIC_HEADER "${OAPV_PUBLIC_HEADERS}")
+   install(TARGETS ${LIB_NAME_BASE}
+-          ARCHIVE COMPONENT Development DESTINATION ${CMAKE_INSTALL_LIBDIR}/${LIB_NAME_BASE}
++          ARCHIVE COMPONENT Development DESTINATION ${CMAKE_INSTALL_LIBDIR}
+           PUBLIC_HEADER COMPONENT Development DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${LIB_NAME_BASE}
+   )
+ endif()
+--- a/pkgconfig/oapv.pc.in
++++ b/pkgconfig/oapv.pc.in
+@@ -11,7 +11,7 @@
+
+ Requires:
+ Libs: -L${libdir} -l@LIB_NAME_BASE@
+-Libs.private: -L${libdir}/@LIB_NAME_BASE@ -lm
++Libs.private: -L${libdir} -lm
+
+ Cflags: -I${includedir} @EXTRA_CFLAGS@
+ Cflags.private: @EXTRA_CFLAGS_PRIVATE@

@@ -24,3 +24,20 @@ PKG_CMAKE_FLAGS="\
   -DOAPV_BUILD_SHARED_LIB=OFF \
   -DOAPV_BUILD_STATIC_LIB=ON \
   -DENABLE_TESTS=OFF"
+
+# openapv's CMake installs the static archive into <prefix>/lib/oapv (a subdir;
+# src/CMakeLists.txt) and its oapv.pc points Libs.private at <prefix>/lib/oapv.
+# mediaforge's installer only copies lib/*.a (flat), so liboapv.a never reaches
+# the installed prefix and FFmpeg's libavcodec.pc inherits a dangling
+# -L<prefix>/lib/oapv (downstream static link fails: "library not found: oapv").
+# The patch installs the archive to <prefix>/lib like every other codec and
+# points the generated .pc at ${libdir}.
+# --fuzz=0: require exact context. A future openapv bump that drifts the patched
+# lines should fail loudly here (→ update the patch), not silently mis-apply at a
+# fuzzy offset and leave liboapv.a / oapv.pc wrong.
+pkg_prepare() {
+  if ! patch -p1 -f --fuzz=0 < "$SCRIPT_DIR/patches/oapv-install-libdir.patch"; then
+    patch -p1 -R --fuzz=0 --dry-run < "$SCRIPT_DIR/patches/oapv-install-libdir.patch" >/dev/null 2>&1 \
+      || die "oapv-install-libdir.patch failed to apply and is not already applied"
+  fi
+}
