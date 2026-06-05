@@ -24,6 +24,19 @@ log "======================="
 fetch "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" \
   "FFmpeg-release-${FFMPEG_VERSION}.tar.gz"
 
+# Local patch: mark AVS2 as AV_CODEC_PROP_REORDER so libavcodec/encode.c does
+# NOT clobber libxavs2's B-frame decode-order DTS with dts=pts (which yields a
+# non-monotonic DTS in coding order -> muxer "non monotonically increasing dts"
+# EINVAL). libxavs2 has CAP_DELAY and no FF_CODEC_CAP_EOF_FLUSH, so the missing
+# REORDER prop is the sole trigger; VVC/EVC already carry it. Applied here (CWD
+# is the extracted FFmpeg source). --fuzz=0: a future FFmpeg version that drifts
+# or fixes this upstream makes the patch fail loudly (drop it then) rather than
+# mis-apply. See patches/ffmpeg-avs2-reorder.patch.
+if ! patch -p1 -f --fuzz=0 < "$SCRIPT_DIR/patches/ffmpeg-avs2-reorder.patch"; then
+  patch -p1 -R --fuzz=0 --dry-run < "$SCRIPT_DIR/patches/ffmpeg-avs2-reorder.patch" >/dev/null 2>&1 \
+    || die "ffmpeg-avs2-reorder.patch failed to apply and is not already applied"
+fi
+
 print_flags
 
 # Build the full configure command as a string, then eval it.

@@ -1,0 +1,35 @@
+From: mediaforge
+Subject: [PATCH] lavc/codec_desc: mark AVS2 as AV_CODEC_PROP_REORDER
+
+The AVS2 codec descriptor carries only AV_CODEC_PROP_LOSSY, while every
+other modern inter-frame codec that supports B-frames (H.264, HEVC, VVC,
+EVC, AV1, ...) also sets AV_CODEC_PROP_REORDER. libxavs2 emits a real
+B-frame-reordered stream (default bf=7) with a correct decode-order DTS,
+but ff_encode_encode_cb() in libavcodec/encode.c clobbers it with
+dts = pts whenever the descriptor lacks REORDER:
+
+    if (!(avctx->codec_descriptor->props & AV_CODEC_PROP_REORDER) ||
+        !(avctx->codec->capabilities & AV_CODEC_CAP_DELAY)        ||
+        (codec->caps_internal & FF_CODEC_CAP_EOF_FLUSH))
+        avpkt->dts = avpkt->pts;
+
+libxavs2 has AV_CODEC_CAP_DELAY and does not set FF_CODEC_CAP_EOF_FLUSH,
+so the missing REORDER prop is the only reason its DTS is destroyed,
+yielding non-monotonic DTS in coding order and a muxer EINVAL
+("non monotonically increasing dts"). Adding REORDER preserves the
+wrapper-provided DTS (encode.c) and makes the muxer treat the stream as
+reordered (libavformat/mux.c sets sti->reorder=1). The AVS2 sequence
+header already signals the reorder depth via output_reorder_delay, so a
+conformant decoder reorders correctly. No decode/demux path reads this
+prop, so decoding is unaffected. Brings AVS2 in line with VVC/EVC.
+--- a/libavcodec/codec_desc.c
++++ b/libavcodec/codec_desc.c
+@@ -1413,7 +1413,7 @@
+         .type      = AVMEDIA_TYPE_VIDEO,
+         .name      = "avs2",
+         .long_name = NULL_IF_CONFIG_SMALL("AVS2-P2/IEEE1857.4"),
+-        .props     = AV_CODEC_PROP_LOSSY,
++        .props     = AV_CODEC_PROP_LOSSY | AV_CODEC_PROP_REORDER,
+     },
+     {
+         .id        = AV_CODEC_ID_PGX,
