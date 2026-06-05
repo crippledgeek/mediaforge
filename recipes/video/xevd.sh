@@ -25,7 +25,8 @@ pkg_prepare() {
 # xevd requires an out-of-source build/ dir. Default (no SET_PROF) builds the
 # MAIN profile (which also supports baseline). xevd ignores BUILD_SHARED_LIBS and
 # unconditionally builds BOTH a static (src_main/libxevd.a) and a shared lib;
-# its install rules ship only the shared one. pkg_install corrects that.
+# its install rules put the shared lib flat in lib/ but the static archive in a
+# nested lib/xevd/ subdir. pkg_install corrects that (see below).
 pkg_configure() {
   _src="$DISTDIR/xevd-${PKG_VERSION}"
   rm -rf "$_src/build"
@@ -43,12 +44,15 @@ pkg_build() {
 pkg_install() {
   cd "$DISTDIR/xevd-${PKG_VERSION}/build" || die "Failed to cd to xevd build dir"
   default_install
-  # Upstream installs only the shared lib; this is a static build. Install the
-  # static archive xevd also built and drop the shared lib so FFmpeg's --static
-  # link of -lxevd resolves to libxevd.a (otherwise: "cannot find -lxevd").
+  # This is a static build, but upstream's install ships the shared lib and
+  # puts the static archive in a nested lib/xevd/ subdir that mediaforge's
+  # installer (flat lib/*.a glob) never copies. Install a flat libxevd.a so
+  # FFmpeg's --static link of -lxevd resolves it, drop the shared lib, and
+  # remove the redundant nested archive so it doesn't linger in the workspace.
   cp src_main/libxevd.a "$PREFIX/lib/libxevd.a" \
     || die "xevd static lib (src_main/libxevd.a) not found"
   rm -f "$PREFIX/lib/libxevd.so" "$PREFIX/lib/libxevd.so".*
+  rm -rf "$PREFIX/lib/xevd"
 }
 
 # xevd is C++ but its pkgconfig omits -lstdc++ for static linking.
