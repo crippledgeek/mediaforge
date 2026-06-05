@@ -25,7 +25,8 @@ pkg_prepare() {
 # xeve requires an out-of-source build/ dir. Default (no SET_PROF) builds the
 # MAIN profile (which also supports baseline). xeve ignores BUILD_SHARED_LIBS and
 # unconditionally builds BOTH a static (src_main/libxeve.a) and a shared lib;
-# its install rules ship only the shared one. pkg_install corrects that.
+# its install rules put the shared lib flat in lib/ but the static archive in a
+# nested lib/xeve/ subdir. pkg_install corrects that (see below).
 pkg_configure() {
   _src="$DISTDIR/xeve-${PKG_VERSION}"
   rm -rf "$_src/build"
@@ -43,12 +44,15 @@ pkg_build() {
 pkg_install() {
   cd "$DISTDIR/xeve-${PKG_VERSION}/build" || die "Failed to cd to xeve build dir"
   default_install
-  # Upstream installs only the shared lib; this is a static build. Install the
-  # static archive xeve also built and drop the shared lib so FFmpeg's --static
-  # link of -lxeve resolves to libxeve.a (otherwise: "cannot find -lxeve").
+  # This is a static build, but upstream's install ships the shared lib and
+  # puts the static archive in a nested lib/xeve/ subdir that mediaforge's
+  # installer (flat lib/*.a glob) never copies. Install a flat libxeve.a so
+  # FFmpeg's --static link of -lxeve resolves it, drop the shared lib, and
+  # remove the redundant nested archive so it doesn't linger in the workspace.
   cp src_main/libxeve.a "$PREFIX/lib/libxeve.a" \
     || die "xeve static lib (src_main/libxeve.a) not found"
   rm -f "$PREFIX/lib/libxeve.so" "$PREFIX/lib/libxeve.so".*
+  rm -rf "$PREFIX/lib/xeve"
 }
 
 # xeve is C++ but its pkgconfig omits -lstdc++ for static linking.
