@@ -20,6 +20,22 @@ fi
 # format v[MAJOR].[MINOR].[PATCH]. Write it before configure.
 pkg_prepare() {
   printf 'v%s\n' "$PKG_VERSION" > "$DISTDIR/xeve-${PKG_VERSION}/version.txt"
+
+  # MEMORY SAFETY: xeve sizes its picture buffers from param->codec_bit_depth but
+  # always writes 16-bit pels, so an 8-bit codec depth overflows every plane.
+  # FFmpeg forwards arbitrary -xeve-params straight into xeve_param_parse(), so
+  # `-xeve-params codec-bit-depth=8` corrupts the heap in the binary we ship;
+  # upstream's own v0.5.1 xeve_app segfaults on the documented
+  # --codec-bit-depth 8 too. The patch rejects anything outside the supported
+  # {10, 12}. Full rationale in the patch header.
+  #
+  # Applied with the strict ffmpeg.sh idiom, NOT the lenient `|| true` used by
+  # some recipes: a security patch that silently stops applying after a version
+  # bump is exactly the failure this must not have.
+  if ! patch -p1 -f --fuzz=0 < "$SCRIPT_DIR/patches/xeve-codec-bit-depth-overflow.patch"; then
+    patch -p1 -R --fuzz=0 --dry-run < "$SCRIPT_DIR/patches/xeve-codec-bit-depth-overflow.patch" >/dev/null 2>&1 \
+      || die "xeve-codec-bit-depth-overflow.patch failed to apply and is not already applied"
+  fi
 }
 
 # xeve requires an out-of-source build/ dir. Default (no SET_PROF) builds the
