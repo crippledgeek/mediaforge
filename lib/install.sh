@@ -55,6 +55,20 @@ _needs_priv() {
   return 0
 }
 
+# Resolve a path to its PHYSICAL location by walking to the nearest EXISTING
+# ancestor and resolving that. `cd`/`pwd -P` only answer for paths that exist,
+# and install destinations frequently do not yet.
+#
+# Prints nothing (and returns non-zero) when nothing in the chain resolves, so
+# callers must treat an empty result as "unknown", never as "matches".
+_resolve_existing() {
+  _re_path="$1"
+  while [ ! -d "$_re_path" ] && [ "$_re_path" != "/" ]; do
+    _re_path=$(dirname "$_re_path")
+  done
+  (cd "$_re_path" 2>/dev/null && pwd -P)
+}
+
 # Copy a file, creating parent dirs as needed. Appends the installed-relative
 # path to the manifest accumulator at $_manifest_tmp_path.
 #
@@ -69,7 +83,37 @@ _install_file() {
   _priv="$4"
 
   $_priv mkdir -p "$(dirname "$_dest")" 2>/dev/null
-  $_priv cp "$_src" "$_dest"
+  # Unlink first: `cp` FOLLOWS a symlink at the destination and overwrites what
+  # it points at, leaving the link itself in place. A symlink pre-planted at any
+  # destination path — planted while the prefix was writable, no race required —
+  # would otherwise redirect this copy, which runs under $_priv (sudo for a
+  # system prefix), into an arbitrary file: an attacker-chosen destination for a
+  # privileged write. `rm -f` removes the LINK without following it.
+  #
+  # Here rather than at one call site: every caller (binaries, static libs,
+  # pkgconfig, headers, man pages, the CA bundle) shares the same exposure, and
+  # a guard that protects only the newest destination invites the next one to
+  # miss it. POSIX cp has no portable --no-dereference-on-write, so unlink-first
+  # is the idiom.
+  # Belt-and-braces against the irreversible path: _select_prefix already
+  # refuses an install prefix that resolves to the build prefix, which is the
+  # guard that catches aliases. This one costs a line.
+  [ "$_src" = "$_dest" ] && return 0
+
+  $_priv rm -f "$_dest" 2>/dev/null
+  # Checked, and checked HERE rather than left to the caller, because the unlink
+  # above changed the failure mode: before it, a failed copy left the previous
+  # file in place, so an unnoticed failure was survivable. Now it leaves NOTHING
+  # at the destination — for the CA bundle that is a prefix with no trust store
+  # at the path the binary was built to read.
+  #
+  # The manifest append moved below the check for the same reason: recording a
+  # file that was never written makes `uninstall` report a removal count it did
+  # not perform, and hides the failure a second time.
+  $_priv cp "$_src" "$_dest" \
+    || die "failed to install $_dest (source: $_src).
+  Nothing is at that path now — the previous file, if any, was removed before
+  the copy. Re-run install once the cause is fixed."
   printf '%s\n' "${_dest#"$_install_prefix"/}" >> "$_manifest_tmp_path"
 }
 
@@ -112,6 +156,43 @@ _select_prefix() {
         ;;
       *) die "Invalid selection" ;;
     esac
+  fi
+
+  # Strip a trailing slash. "$_install_prefix"/* is matched against the baked
+  # openssldir below; with a trailing slash the pattern becomes '<prefix>//*',
+  # which does not match '<prefix>/etc/ssl', and the CA bundle would be skipped
+  # silently on nothing worse than how the user typed --prefix.
+  while :; do
+    case "$_install_prefix" in
+      */) _install_prefix="${_install_prefix%/}" ;;
+      *)  break ;;
+    esac
+  done
+
+  # Installing into the build prefix would copy the workspace onto itself: every
+  # destination is its own source. _install_file guards the individual copy, but
+  # the operation as a whole is meaningless and its failure modes are all bad,
+  # so refuse it here where the message can say why.
+  # Compared RESOLVED, not lexically. A symlink, a bind mount, or simply a
+  # second path into the same tree names the build prefix without matching its
+  # string — and then every $_src/$_dest pair is lexically distinct too, so
+  # _install_file's own guard misses it as well and the unlink deletes the
+  # source through the alias. The CA-bundle destination check further down
+  # already refuses to trust a lexical match for exactly this reason; this
+  # guard was written without it.
+  #
+  # Only when the destination EXISTS: a path that is not there cannot be an
+  # alias of one that is, and resolving a nonexistent --prefix to its nearest
+  # existing ancestor would wrongly refuse --prefix="$PREFIX/sub", which is
+  # unusual but harmless (different files, no self-copy).
+  if [ -d "$_install_prefix" ]; then
+    _ip_real=$(_resolve_existing "$_install_prefix")
+    _pfx_real=$(_resolve_existing "$PREFIX")
+    if [ -n "$_ip_real" ] && [ "$_ip_real" = "$_pfx_real" ]; then
+      die "--prefix resolves to the build prefix ($_pfx_real). Install copies the
+  workspace to a destination; copying it onto itself would delete the build tree
+  in place. Choose a different prefix, e.g. --prefix=\$HOME/.local/mediaforge."
+    fi
   fi
 
   # Determine privilege escalation
@@ -173,6 +254,102 @@ do_install() {
     rm -f "$_tmppc"
     log "  lib/pkgconfig/$_name"
   done
+
+  # Trust store. Only the libressl arm stages one (recipes/crypto/libressl.sh),
+  # and it is the arm with no ENVIRONMENT override at all — libtls bakes an
+  # absolute TLS_DEFAULT_CA_FILE at compile time and reads no SSL_CERT_FILE, so
+  # unlike the openssl arm the compiled-in path is its only default. Without
+  # this copy the bundle lives only in $PREFIX, which `clean` deletes.
+  #
+  # BOTH inputs come from .mediaforge-choices, the file that already persists
+  # every resolved choice. The arm decides whether to ship a bundle at all; the
+  # openssldir decides where. Reading the openssldir is not optional: the
+  # resolver is a pure function, so it reproduces the build's answer only if it
+  # is given the build's inputs, and `install` is a separate process where
+  # nothing else carries them. cmd_install does not call load_stored_choices,
+  # so without this read OPENSSLDIR is empty here and the probe silently
+  # returns a different answer than the build baked.
+  #
+  # Parsed with sed rather than sourced. load_stored_choices sources it, but
+  # this function runs privileged commands, and sourcing build output into a
+  # process that shells out under sudo is a worse trust posture than parsing a
+  # value out of it.
+  #
+  # A stale bundle from a previous arm is ignored rather than deleted: reading
+  # the arm cannot damage a workspace, and deleting build state from an
+  # installer can.
+  _stored_tls=""
+  _stored_od=""
+  if [ -f "$PREFIX/.mediaforge-choices" ]; then
+    _stored_tls=$(sed -n 's/^STORED_TLS_BACKEND=//p' "$PREFIX/.mediaforge-choices")
+    # save_stored_choices single-quotes this one; strip the quotes.
+    _stored_od=$(sed -n "s/^STORED_OPENSSLDIR='\(.*\)'$/\1/p" "$PREFIX/.mediaforge-choices")
+  fi
+  if [ -n "$_stored_od" ]; then
+    _validate_openssldir "STORED_OPENSSLDIR (from $PREFIX/.mediaforge-choices)" \
+      "$_stored_od" "It is used as a privileged install destination."
+  fi
+  if [ -f "$PREFIX/etc/ssl/cert.pem" ] && [ "$_stored_tls" = "libressl" ]; then
+    resolve_openssldir "$_stored_od" "$PREFIX/etc/ssl"
+    _baked="$OPENSSLDIR_RESOLVED"
+    case "$_baked" in
+      "$_install_prefix"/*)
+        # The documented workflow: the user baked the install location, so put
+        # the bundle exactly where the binary will look for it.
+        _ca_dest="$_baked/cert.pem"
+        ;;
+      "$PREFIX"/*)
+        # Baked at the staging prefix, which `clean` removes. Ship the bundle so
+        # it survives, but it is NOT at the baked path — verification needs
+        # -ca_file, or a rebuild with --openssldir set to the install prefix.
+        _ca_dest="$_install_prefix/etc/ssl/cert.pem"
+        warn "CA bundle installed to $_ca_dest, but the binary looks for"
+        warn "  $_baked/cert.pem (the build prefix, which 'clean' deletes)."
+        warn "  Use -ca_file, or rebuild with --openssldir=$_install_prefix/etc/ssl"
+        ;;
+      *)
+        # A host trust store (probed, or given explicitly). The host owns it —
+        # installing our snapshot over it is exactly what the libressl install
+        # hook was patched out for. Said out loud: silence here is
+        # indistinguishable from the bundle having been forgotten.
+        _ca_dest=""
+        log "  (CA bundle not installed: the build trusts $_baked, which the host owns)"
+        ;;
+    esac
+    if [ -n "$_ca_dest" ]; then
+      # Validate BEFORE creating anything, and validate the nearest EXISTING
+      # ancestor rather than the leaf.
+      #
+      # The case patterns above are lexical: '..' is rejected at validation, but
+      # a SYMLINK is invisible to a string match and need not exist when
+      # --openssldir is validated. `mkdir -p` follows symlink components, so
+      # running it first — under $_priv, i.e. sudo for a system prefix — creates
+      # root-owned directories at the escaped target before any check can refuse
+      # the copy. No file content escapes, but the directories do, and nothing
+      # manifests them so `uninstall` cannot sweep them either.
+      #
+      # Walking to the nearest existing ancestor is the same technique
+      # _needs_priv already uses above, and for the same reason: `test`/`cd`
+      # answer questions about paths that exist, so resolve what is there and
+      # let mkdir create only the symlink-free remainder.
+      #
+      # `cd ... && pwd -P` rather than `readlink -f`: -f is a GNU extension that
+      # macOS's readlink has historically lacked, and this must work on both.
+      _ca_real=$(_resolve_existing "$(dirname "$_ca_dest")")
+      _prefix_real=$(_resolve_existing "$_install_prefix")
+      if [ -z "$_ca_real" ] || [ -z "$_prefix_real" ]; then
+        die "cannot resolve the CA bundle destination '$_ca_dest' — refusing to write."
+      fi
+      case "$_ca_real/" in
+        "$_prefix_real"/*) : ;;
+        *) die "CA bundle destination '$_ca_dest' resolves to '$_ca_real', outside
+  the install prefix '$_prefix_real'. Refusing a privileged write through a
+  symlink. Check for a symlinked component under the prefix." ;;
+      esac
+      _install_file "$PREFIX/etc/ssl/cert.pem" "$_ca_dest" "$_manifest_tmp" "$_priv"
+      log "  ${_ca_dest#"$_install_prefix"/} (CA bundle)"
+    fi
+  fi
 
   # Headers
   if [ -d "$PREFIX/include" ]; then

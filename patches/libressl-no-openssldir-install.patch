@@ -1,0 +1,89 @@
+From: mediaforge
+Subject: [PATCH] build: stop the install/uninstall hooks writing to OPENSSLDIR
+
+LibreSSL's install-exec-hook installs cert.pem, openssl.cnf and x509v3.cnf
+into $(DESTDIR)@OPENSSLDIR@ -- a path that ignores --prefix entirely. Its
+uninstall-local counterpart removes the same three files from there.
+
+mediaforge's default_install (lib/framework.sh:26; wired as the default
+pkg_install at :69) runs a bare `make install`
+with NO DESTDIR, so @OPENSSLDIR@ is used verbatim. That makes the hook actively
+harmful the moment --openssldir points anywhere outside the build prefix.
+Measured 2026-08-23 against LibreSSL 4.3.2, configured --with-openssldir=/etc/ssl:
+
+    make            rc=0
+    make install    rc=2
+      install: cannot remove '/etc/ssl/cert.pem': Permission denied
+      install: cannot remove '/etc/ssl/openssl.cnf': Permission denied
+      install: cannot create regular file '/etc/ssl/x509v3.cnf': Permission denied
+
+As an unprivileged user the recipe simply dies. Run as root it would instead
+OVERWRITE the host's trust store and OpenSSL configuration, because upstream's
+own no-overwrite guard does not work:
+
+    for i in cert.pem openssl.cnf x509v3.cnf; do \
+        if [ ! -f "$$OPENSSLDIR/$i" ]; then \
+
+`$i` is a MAKE variable reference (single $), not the shell loop variable `$$i`,
+and make expands it to the empty string. The guard therefore tests
+`[ ! -f "$OPENSSLDIR/" ]` -- a directory, for which -f is always false -- so the
+"already exists, install will not overwrite" branch is unreachable and every
+run installs unconditionally. That is why the measured run above tried to
+*remove* an existing /etc/ssl/cert.pem rather than skipping it. Reported
+upstream; the typo is present in 4.3.2.
+
+The same hazard does not reach the sibling mediaforge-meson port, because
+meson's external_project always sets DESTDIR for the install step
+(mesonbuild/scripts/externalproject.py:58), which redirects the hook into the
+staging tree. mediaforge has no such redirection, so the lever available here is
+to remove the hooks.
+
+Nothing of value is lost: mediaforge does not want LibreSSL's bundled
+configuration files installed by upstream's rules, and it places the CA bundle
+itself in pkg_post_install so that the location is a decision the recipe makes
+rather than a side effect of autotools' sysconfdir. `make uninstall` is never
+invoked by mediaforge (uninstall is manifest-based, lib/install.sh), so
+uninstall-local is unreachable in this build -- it is neutralised alongside
+install-exec-hook because it is the same class of out-of-prefix write, not
+because it currently fires.
+
+TARGETS Makefile.in, NOT Makefile.am: the release tarball is an autotools *dist*
+tarball shipping pre-generated Makefile.in, so patching the .am would be inert
+without autoreconf.
+
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -916,31 +916,10 @@
+ install_sw: install
+ 
+ install-exec-hook:
+-	@if [ "@OPENSSLDIR@x" != "x" ]; then \
+-		OPENSSLDIR="$(DESTDIR)@OPENSSLDIR@"; \
+-	else \
+-		OPENSSLDIR="$(DESTDIR)$(sysconfdir)/ssl"; \
+-	fi; \
+-	mkdir -p "$$OPENSSLDIR/certs"; \
+-	for i in cert.pem openssl.cnf x509v3.cnf; do \
+-		if [ ! -f "$$OPENSSLDIR/$i" ]; then \
+-			$(INSTALL) -m 644 "$(srcdir)/$$i" "$$OPENSSLDIR/$$i"; \
+-		else \
+-			echo " $$OPENSSLDIR/$$i already exists, install will not overwrite"; \
+-		fi \
+-	done
++	@:
+ 
+ uninstall-local:
+-	@if [ "@OPENSSLDIR@x" != "x" ]; then \
+-		OPENSSLDIR="$(DESTDIR)@OPENSSLDIR@"; \
+-	else \
+-		OPENSSLDIR="$(DESTDIR)$(sysconfdir)/ssl"; \
+-	fi; \
+-	for i in cert.pem openssl.cnf x509v3.cnf; do \
+-		if cmp -s "$$OPENSSLDIR/$$i" "$(srcdir)/$$i"; then \
+-			rm -f "$$OPENSSLDIR/$$i"; \
+-		fi \
+-	done
++	@:
+ 
+ # Tell versions [3.59,3.63) of GNU make to not export all variables.
+ # Otherwise a system limit (for SysV at least) may be exceeded.

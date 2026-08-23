@@ -19,5 +19,11 @@ sh tests/fetch-fail-no-cache.sh
 # assert against $PREFIX and stay manual.
 sh tests/lcevc-default-off.sh
 sh tests/libressl-pin-asm.sh
+sh tests/libressl-trust-store.sh
+# Runs the unmerged test files against the merge base and fails if any assertion
+# passes there. Catches the oracle that drifted into matching an error message,
+# and the fixture whose path collided with the value it was distinguishing —
+# both real, both green under shellcheck and the suite.
+sh tests/oracle-baseline.sh
 
 printf 'All tests passed.\n'

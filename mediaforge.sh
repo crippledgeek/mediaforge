@@ -92,6 +92,8 @@ cmd_help() {
   printf '      --av1-enc=IMPL        AV1 encoder: svtav1|rav1e|av1 (default: svtav1)\n'
   printf '      --spirv=IMPL          SPIR-V compiler: glslang|shaderc (default: glslang)\n'
   printf '      --flite-audio=BACKEND flite audio output: none|alsa|pulseaudio|oss|sun (default: none; FFmpeg filter does not invoke it)\n'
+  printf '      --openssldir=PATH     Compiled-in trust store for the openssl/libressl arms (absolute).\n'
+  printf '                            Default: probe the host for a dir holding cert.pem, else the prefix.\n'
   printf '\nRecipe overrides:\n'
   printf '      --disable=PKG         Disable a recipe by name (repeatable, comma-separated ok)\n'
   printf '      --enable=PKG          Force-enable a recipe that defaults to off\n'
@@ -154,6 +156,8 @@ cmd_build() {
       --disable-lto)       ENABLE_LTO=false ;;
       --flite-audio=*)     FLITE_AUDIO="${1#--flite-audio=}" ;;
       --flite-audio)       shift; _need_arg "$#" --flite-audio; FLITE_AUDIO="$1" ;;
+      --openssldir=*)      OPENSSLDIR="${1#--openssldir=}" ;;
+      --openssldir)        shift; _need_arg "$#" --openssldir; OPENSSLDIR="$1" ;;
       --profile=*)         PROFILE_NAME="${1#--profile=}" ;;
       --profile)           shift; _need_arg "$#" --profile; PROFILE_NAME="$1" ;;
       --jobs=*)            MJOBS="${1#--jobs=}" ;;
@@ -231,7 +235,7 @@ cmd_build() {
   save_stored_choices
 
   # Log final choice matrix
-  log "Choices: tls=$TLS_BACKEND aac=$AAC_IMPL h264=$H264_IMPL h265=$H265_IMPL av1-enc=$AV1_ENC_IMPL spirv=$SPIRV_IMPL"
+  log "Choices: tls=$TLS_BACKEND aac=$AAC_IMPL h264=$H264_IMPL h265=$H265_IMPL av1-enc=$AV1_ENC_IMPL spirv=$SPIRV_IMPL openssldir=${OPENSSLDIR:-auto}"
 
   # Apply deferred flags
   if [ "$ENABLE_GPL" = true ]; then
