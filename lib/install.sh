@@ -20,6 +20,10 @@
 # root-owned 0700 prefix it says "not a directory" for a directory that is
 # there, and the walk stops one or more levels too high. The caller then vets an
 # ancestor and learns nothing about the symlink below it.
+#
+# $2 reaches a COMMAND-WORD position unvalidated here — _resolve_existing, the
+# only caller, rejects anything but ''|sudo before calling. A second caller must
+# validate the same way or move that check down into this function.
 _nearest_existing() {
   while ! ${2-} test -d "$1" && [ "$1" != "/" ]; do
     set -- "$(dirname "$1")" "${2-}"
@@ -165,15 +169,25 @@ _install_file() {
   # one the write gets.
   _dest_real=$(_resolve_existing "$(dirname "$_dest")" "$_priv")
   if [ -z "$_dest_real" ] || [ -z "${_install_prefix_real:-}" ]; then
-    die "cannot resolve the install destination '$_dest' — refusing to write."
+    die "cannot resolve the install destination '$_dest' — refusing to write.
+  For a privileged prefix the check runs 'sudo sh -c', which a sudoers policy
+  permitting only mkdir/cp/rm will refuse — that is one cause of this."
   fi
-  # The trailing '/' on the subject is what separates a sibling from a child:
-  # without it '/opt/mf-evil' matches the pattern for '/opt/mf'.
+  # The trailing '/' on the subject admits the prefix ROOT itself: '/opt/mf'
+  # does not match '/opt/mf'/*, but '/opt/mf/' does, since '*' matches empty.
+  # That is the common FIRST-install case — the nearest existing ancestor of
+  # <prefix>/bin is <prefix>, because <prefix>/bin does not exist yet — so
+  # dropping the slash would refuse a legitimate destination.
+  #
+  # It is NOT what excludes a sibling; the literal '/' in the pattern does that
+  # on its own. Measured 2026-08-23 under dash 0.5.13.4 and bash, subject
+  # against pattern '/opt/mf'/*: '/opt/mf-evil' no, '/opt/mf-evil/' no,
+  # '/opt/mf' no, '/opt/mf/' MATCH, '/opt/mf/x' MATCH.
   #
   # The expansion is QUOTED, which makes its content literal rather than a
   # pattern — a prefix containing '*' or '?' cannot widen the match. Measured
-  # 2026-08-23 with prefix '/opt/mf*' against '/opt/mfEVIL/': no match under
-  # both dash 0.5.12 and bash, per POSIX quote removal in case patterns.
+  # the same day with prefix '/opt/mf*' against '/opt/mfEVIL/': no match under
+  # both shells, per POSIX quote removal in case patterns.
   case "$_dest_real/" in
     "$_install_prefix_real"/*) : ;;
     *) die "install destination '$_dest' resolves to '$_dest_real', outside the
