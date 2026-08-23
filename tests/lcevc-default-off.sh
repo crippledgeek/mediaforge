@@ -41,7 +41,20 @@ else
   echo "PASS: default build omits --enable-liblcevc-dec"
 fi
 
-# 2) --enable=lcevc: flag present
+# 2) --enable=lcevc: flag present.
+#
+# Linux-only, and skipped rather than failed elsewhere. recipes/other/lcevc.sh
+# sets PKG_LINUX_ONLY=true (added in 829b927 alongside the archive merge, which
+# uses GNU ar/ranlib), and check_guards (lib/framework.sh:140) returns 1 for
+# that on a non-Linux host BEFORE the force-enable branch can matter — so
+# --enable=lcevc legitimately emits nothing on macOS. Asserting unconditionally
+# would make `tests/run.sh` Linux-only for a project that supports macOS
+# throughout; assertion 1 above is platform-independent and still runs.
+if [ "$(uname -s)" != "Linux" ]; then
+  echo "SKIP: --enable=lcevc opt-in assertion (lcevc is PKG_LINUX_ONLY; host is $(uname -s))"
+  exit "$_fail"
+fi
+
 _optin=$(_configure_line --enable=lcevc)
 if [ -z "$_optin" ]; then
   echo "FAIL: --enable=lcevc dry-run emitted no configure line — cannot assert"
