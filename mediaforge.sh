@@ -234,10 +234,6 @@ cmd_build() {
   # Persist the resolved matrix for next run
   save_stored_choices
 
-  # Drop a previous arm's trust-store state when the chosen arm bakes none, so
-  # do_install cannot ship a CA bundle for a binary that no longer links libtls.
-  openssldir_clear_if_unused "$TLS_BACKEND"
-
   # Log final choice matrix
   log "Choices: tls=$TLS_BACKEND aac=$AAC_IMPL h264=$H264_IMPL h265=$H265_IMPL av1-enc=$AV1_ENC_IMPL spirv=$SPIRV_IMPL openssldir=${OPENSSLDIR:-auto}"
 

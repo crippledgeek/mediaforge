@@ -8,13 +8,6 @@ PKG_FILENAME="openssl-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-openssl"
 PKG_MUTEX_GROUP="tls"
 
-# OpenSSL compiles OPENSSLDIR in as its default verify path (and openssl.cnf
-# search path), so it is a build input. Declared for run_recipe to resolve
-# before the stamp check — see lib/framework.sh. The fallback is $PREFIX, not
-# $PREFIX/etc/ssl, because that is where OpenSSL expects to find its own tree.
-PKG_USES_OPENSSLDIR=true
-PKG_OPENSSLDIR_FALLBACK="$PREFIX"
-
 pkg_configure() {
   # --openssldir is the compiled-in trust store: OpenSSL resolves
   # SSL_CTX_set_default_verify_paths() (which FFmpeg's backend calls,
@@ -33,8 +26,10 @@ pkg_configure() {
   # into its own fallback. This arm gets away without one because OpenSSL
   # honours SSL_CERT_FILE at runtime; libtls has no environment override at all.
   #
-  # Resolved and validated by run_recipe before the stamp check.
-  openssldir_record "$OPENSSLDIR_RESOLVED"
+  # Resolved here rather than recorded for other phases to read. The fallback is
+  # $PREFIX, not $PREFIX/etc/ssl, because that is where OpenSSL expects its own
+  # tree beneath the value.
+  resolve_openssldir "$PREFIX"
 
   run ./Configure --prefix="$PREFIX" --openssldir="$OPENSSLDIR_RESOLVED" --libdir="lib" \
     --with-zlib-include="$PREFIX/include/" --with-zlib-lib="$PREFIX/lib" \

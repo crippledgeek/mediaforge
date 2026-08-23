@@ -100,58 +100,6 @@ resolve_openssldir() {
   OPENSSLDIR_FROM="fallback"
 }
 
-# The resolved openssldir, recorded in the prefix so the recipe's later phases
-# and the installer all read ONE value instead of each re-deriving it. Same
-# accumulator-file idiom the build already uses for .extra_cflags and
-# .pc-skip-queue, and for the same reason: build phases are separate function
-# calls and the installer is a separate process, so a shell variable cannot
-# carry the decision across all three.
-OPENSSLDIR_STATE_FILE=".openssldir"
-
-# Record the resolved openssldir for later phases and for the installer.
-openssldir_record() {
-  printf '%s\n' "$1" > "$PREFIX/$OPENSSLDIR_STATE_FILE"
-}
-
-# Read back the recorded openssldir; prints nothing when none was recorded
-# (no TLS arm built, or a workspace predating this file).
-openssldir_recorded() {
-  [ -f "$PREFIX/$OPENSSLDIR_STATE_FILE" ] || return 1
-  cat "$PREFIX/$OPENSSLDIR_STATE_FILE"
-}
-
-# Abort when a rebuild asks for a different openssldir than the workspace was
-# built with. The stamp is keyed on name+version only (lib/utils.sh
-# stamp_check), so a recipe whose ONLY changed input is the openssldir would be
-# skipped as "already built" and silently keep the previous baked path — the
-# common case being: build, discover https:// needs a trust store, re-run with
-# --openssldir. Failing loudly with the remedy beats baking a stale path.
-openssldir_assert_unchanged() {
-  _want=$1
-  _have=$(openssldir_recorded) || return 0
-  [ "$_have" = "$_want" ] && return 0
-  die "openssldir changed since this workspace was built ('$_have' -> '$_want').
-  The build stamp does not capture it, so the TLS recipe would be skipped and
-  the old path kept. Remove the stamp to rebuild against the new value:
-    rm -f $PREFIX/.stamps/${2}-* $PREFIX/$OPENSSLDIR_STATE_FILE"
-}
-
-# Drop trust-store state when the chosen TLS arm does not bake an openssldir.
-#
-# $PREFIX/etc/ssl/cert.pem and the .openssldir record are written by the
-# libressl arm and removed by nothing short of `clean`. Rebuilding the same
-# workspace with --tls=gnutls or --tls=none would otherwise leave both in place,
-# and do_install's `[ -f "$PREFIX/etc/ssl/cert.pem" ]` gate would still fire:
-# a CA bundle installed and manifest-tracked for a binary that no longer links
-# libtls, plus a warning about a library that is not there.
-openssldir_clear_if_unused() {
-  case "$1" in
-    openssl|libressl) return 0 ;;
-  esac
-  [ -d "$PREFIX" ] || return 0
-  rm -f "$PREFIX/$OPENSSLDIR_STATE_FILE" "$PREFIX/etc/ssl/cert.pem"
-}
-
 # Validate a value against a "|"-separated enum. Aborts on mismatch.
 _validate_enum() {
   _name=$1; _value=$2; _allowed=$3
@@ -159,6 +107,24 @@ _validate_enum() {
     *"|$_value|"*) return 0 ;;
   esac
   die "Invalid $_name: $_value. Allowed: $(printf '%s' "$_allowed" | tr '|' ',')"
+}
+
+# openssldir_warn_if_changed PREVIOUS CURRENT
+#
+# A changed openssldir on an existing workspace will NOT rebuild the TLS arm:
+# the build stamp is keyed on <pkg>-<version> (lib/utils.sh stamp_check), and
+# the compiled-in trust store is not part of that identity. Warn rather than
+# abort, and rather than tracking it in state of our own — .mediaforge-choices
+# already persists the previous value, and the user can act on the message.
+#
+# This is the common path into the flag: build, find https:// has no trust
+# store, re-run with --openssldir. Silence there bakes the old path.
+openssldir_warn_if_changed() {
+  [ -n "$1" ] && [ -n "$2" ] && [ "$1" != "$2" ] || return 0
+  warn "--openssldir changed ('$1' -> '$2')."
+  warn "  The build stamp does not capture it, so an already-built TLS arm is"
+  warn "  skipped and keeps the OLD baked path. To rebuild against the new one:"
+  warn "    rm -f $PREFIX/.stamps/libressl-* $PREFIX/.stamps/openssl-*"
 }
 
 # Validate a path that is compiled into a library, persisted across runs, and
@@ -284,6 +250,8 @@ resolve_choices() {
   # libcrypto as X509_CERT_FILE, so a relative value would be resolved against
   # the working directory of whatever process links it — the arm would silently
   # trust nothing rather than fail loudly.
+  openssldir_warn_if_changed "${STORED_OPENSSLDIR:-}" "$OPENSSLDIR"
+
   _validate_openssldir "--openssldir" "$OPENSSLDIR" \
     "It is compiled into the TLS library as its default trust store."
 

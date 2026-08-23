@@ -277,9 +277,11 @@ over it is exactly what `patches/libressl-no-openssldir-install.patch` exists to
 prevent.
 
 Note that the baked path is a build input the stamp does not capture, so
-re-running `build` with a different `--openssldir` on an existing workspace
-fails loudly and tells you which stamp to remove, rather than silently keeping
-the old path.
+re-running `build` with a different `--openssldir` on an existing workspace will
+**not** rebuild the TLS arm — it is skipped as already-built and keeps the old
+baked path. mediaforge warns when it sees the value change and prints the stamp
+to remove; it does not abort, because a stale stamp is not the only reason the
+two can differ.
 
 Unlike the other dependencies, LibreSSL is pinned to the same current version in
 every version profile rather than an era-appropriate one. Holding an old

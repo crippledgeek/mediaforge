@@ -191,20 +191,24 @@ do_install() {
   # unlike the openssl arm the compiled-in path is its only default. Without
   # this copy the bundle lives only in $PREFIX, which `clean` deletes.
   #
-  # WHERE it goes follows the path the build actually baked in, read from the
-  # prefix rather than re-derived here — the resolver's decision has one home
-  # (lib/resolve.sh, $PREFIX/.openssldir) and this is a reader of it, not a
-  # fourth independent guess at what the answer was.
-  if [ -f "$PREFIX/etc/ssl/cert.pem" ]; then
-    # Read through the accessor rather than cat-ing the filename: the state
-    # file's name and location belong to lib/resolve.sh, and re-deriving them
-    # here would be the fourth copy of a value this whole change exists to
-    # centralise.
-    if ! _baked=$(openssldir_recorded) || [ -z "$_baked" ]; then
-      warn "no usable openssldir recorded in $PREFIX — skipping the CA bundle."
-      warn "  Rebuild the TLS arm if https:// verification is expected to work."
-      _baked=""
-    fi
+  # WHICH arm built the prefix comes from .mediaforge-choices, the file that
+  # already persists every resolved choice — not from a trust-store-specific
+  # state file. WHERE the bundle goes is recomputed with the same resolver the
+  # recipe used: it is a pure function of --openssldir (also persisted there),
+  # the candidate list and the arm's fallback, so it returns the build's answer
+  # without anything needing to be kept in sync.
+  #
+  # A stale bundle from a previous arm is ignored rather than deleted. Deleting
+  # build state from the installer is what made an earlier design destructive on
+  # --dry-run and silently lossy across an arm switch; reading the arm costs
+  # nothing and cannot damage a workspace.
+  _stored_tls=""
+  if [ -f "$PREFIX/.mediaforge-choices" ]; then
+    _stored_tls=$(sed -n 's/^STORED_TLS_BACKEND=//p' "$PREFIX/.mediaforge-choices")
+  fi
+  if [ -f "$PREFIX/etc/ssl/cert.pem" ] && [ "$_stored_tls" = "libressl" ]; then
+    resolve_openssldir "$PREFIX/etc/ssl"
+    _baked="$OPENSSLDIR_RESOLVED"
     case "$_baked" in
       "$_install_prefix"/*)
         # The documented workflow: the user baked the install location, so put
@@ -220,8 +224,6 @@ do_install() {
         warn "  $_baked/cert.pem (the build prefix, which 'clean' deletes)."
         warn "  Use -ca_file, or rebuild with --openssldir=$_install_prefix/etc/ssl"
         ;;
-      "")
-        _ca_dest="" ;;
       *)
         # A host trust store (probed, or given explicitly). The host owns it —
         # installing our snapshot over it is exactly what the libressl install
@@ -232,7 +234,28 @@ do_install() {
         ;;
     esac
     if [ -n "$_ca_dest" ]; then
-      _install_file "$PREFIX/etc/ssl/cert.pem" "$_ca_dest" "$_manifest_tmp" "$_priv"
+      # CANONICALIZE before the privileged copy. The case patterns above are
+      # lexical: `..` is rejected at validation, but a SYMLINK component is not
+      # visible to a string match and need not exist when --openssldir is
+      # validated. _install_file runs `cp` under $_priv (sudo for a system
+      # prefix), so a symlink planted under the install prefix during the
+      # unprivileged build could otherwise redirect a root-owned write anywhere.
+      #
+      # `cd ... && pwd -P` rather than `readlink -f`: -f is a GNU extension that
+      # macOS's readlink has historically lacked, and this must work on both.
+      $_priv mkdir -p "$(dirname "$_ca_dest")" 2>/dev/null
+      _ca_real=$(cd "$(dirname "$_ca_dest")" 2>/dev/null && pwd -P) || _ca_real=""
+      _prefix_real=$(cd "$_install_prefix" 2>/dev/null && pwd -P) || _prefix_real=""
+      if [ -z "$_ca_real" ] || [ -z "$_prefix_real" ]; then
+        die "cannot resolve the CA bundle destination '$_ca_dest' — refusing to write."
+      fi
+      case "$_ca_real/" in
+        "$_prefix_real"/*) : ;;
+        *) die "CA bundle destination '$_ca_dest' resolves to '$_ca_real', outside
+  the install prefix '$_prefix_real'. Refusing a privileged write through a
+  symlink. Check for a symlinked component under the prefix." ;;
+      esac
+      _install_file "$PREFIX/etc/ssl/cert.pem" "$_ca_real/cert.pem" "$_manifest_tmp" "$_priv"
       log "  ${_ca_dest#"$_install_prefix"/} (CA bundle)"
     fi
   fi

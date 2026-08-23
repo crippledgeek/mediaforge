@@ -14,13 +14,6 @@ PKG_FILENAME="libressl-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libtls"
 PKG_MUTEX_GROUP="tls"
 
-# libtls bakes <openssldir>/cert.pem into the library, so the openssldir is a
-# build input. Declared here rather than resolved in a phase: run_recipe must
-# see it BEFORE the stamp decides whether to skip us, or a rebuild with a
-# changed --openssldir silently keeps the old baked path.
-PKG_USES_OPENSSLDIR=true
-PKG_OPENSSLDIR_FALLBACK="$PREFIX/etc/ssl"
-
 pkg_prepare() {
   # LibreSSL's install-exec-hook writes cert.pem/openssl.cnf/x509v3.cnf into
   # @OPENSSLDIR@, ignoring --prefix, and default_install runs a bare
@@ -36,10 +29,12 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  # OPENSSLDIR_RESOLVED was resolved (and validated against any previous build)
-  # by run_recipe before the stamp check — see lib/framework.sh. Record it so
-  # pkg_post_install and lib/install.sh read one value instead of re-deriving.
-  openssldir_record "$OPENSSLDIR_RESOLVED"
+  # Resolved here, in the phase that uses it. resolve_openssldir is a pure
+  # function of --openssldir, the candidate list and this fallback, so every
+  # caller that asks the same question gets the same answer without a recorded
+  # value to keep in sync — which is what the earlier state-file design existed
+  # to do, and where all of its defects came from.
+  resolve_openssldir "$PREFIX/etc/ssl"
 
   # --with-pic: NOT because the objects would otherwise lack -fPIC. mediaforge.sh
   # exports `CFLAGS="$CFLAGS -fPIC"` for every recipe unconditionally
@@ -75,8 +70,8 @@ pkg_post_install() {
     warn "libressl: libtls.pc not found at $PREFIX/lib/pkgconfig/libtls.pc"
   fi
 
-  _libressl_openssldir=$(openssldir_recorded) \
-    || die "libressl: no openssldir recorded — pkg_configure did not run"
+  resolve_openssldir "$PREFIX/etc/ssl"
+  _libressl_openssldir="$OPENSSLDIR_RESOLVED"
 
   # The install hook that used to place this bundle is patched out, so mediaforge
   # stages it here instead — same file, chosen location.

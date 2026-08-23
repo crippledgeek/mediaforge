@@ -89,7 +89,7 @@ fi
 # text, lib/resolve.sh and README; for a while it reached only libressl, so the
 # flag was silently ignored under --tls=openssl — the worst shape for a
 # security-relevant knob, since the user gets no signal.
-if grep -q '^PKG_USES_OPENSSLDIR=true' recipes/crypto/openssl.sh \
+if grep -q 'resolve_openssldir' recipes/crypto/openssl.sh \
    && grep -q -- '--openssldir=' recipes/crypto/openssl.sh \
    && grep -q 'OPENSSLDIR_RESOLVED' recipes/crypto/openssl.sh; then
   _pass "openssl arm honours --openssldir"
@@ -97,22 +97,19 @@ else
   _bad "recipes/crypto/openssl.sh ignores --openssldir, which help/README advertise"
 fi
 
-# Every consumer must read the ONE recorded value rather than re-deriving it:
-# the recipe's configure phase resolves and records, its post-install phase and
-# lib/install.sh read back. Three independent derivations is how the staged
-# bundle ends up somewhere the baked path does not look.
-# Anchored to the CODE shape, not to a bare token: lib/install.sh mentions
-# ".openssldir" in a comment, so `grep -q '\.openssldir'` would keep passing if
-# the accessor were replaced by a hand-rolled cat of the same file — the very
-# "string is somewhere in the file" weakness corrected in the patch-target
-# assertion above.
-if grep -q 'openssldir_recorded' "$_recipe" \
-   && grep -qE '^ *(if ! )?_baked=\$\(openssldir_recorded\)' lib/install.sh \
-   && ! grep -qE '^ *_baked=\$\(cat ' lib/install.sh; then
-  _pass "post-install and installer read the recorded openssldir"
-else
-  _bad "a consumer re-derives the openssldir instead of reading the recorded value"
-fi
+# No state file, and no helpers to keep three consumers agreeing. The recipe
+# and the installer each call resolve_openssldir, which is a pure function of
+# --openssldir, the candidate list and the fallback — so they agree by
+# construction rather than by synchronisation. Asserted negatively, because the
+# earlier design's defects all came from that machinery existing.
+for _gone in openssldir_record openssldir_recorded openssldir_assert_unchanged \
+             openssldir_clear_if_unused OPENSSLDIR_STATE_FILE PKG_USES_OPENSSLDIR; do
+  if grep -rq "$_gone" lib/ mediaforge.sh recipes/ 2>/dev/null; then
+    _bad "$_gone survives — the openssldir state layer was supposed to be gone"
+  else
+    _pass "no $_gone (state layer stays retired)"
+  fi
+done
 
 # The patch is what makes a host openssldir SAFE. LibreSSL's install-exec-hook
 # writes cert.pem/openssl.cnf/x509v3.cnf into $(DESTDIR)@OPENSSLDIR@, ignoring
@@ -156,25 +153,28 @@ _dest=$(mktemp -d) || exit 1
 rmdir "$_dest"          # do_install creates it; a pre-existing dir would mask a failure
 mkdir -p "$_stage/etc/ssl" "$_stage/.logs"
 printf 'not-a-real-bundle\n' > "$_stage/etc/ssl/cert.pem"
-# Record the openssldir the way a real build does. A staged bundle with NO
-# record is an inconsistent workspace, and the installer deliberately refuses to
-# guess in that case — so a fixture missing this would be testing the refusal,
-# not the install. Recorded as the INSTALL prefix, which is the documented
-# workflow and the branch that places the bundle at the baked path.
-printf '%s\n' "$_dest/etc/ssl" > "$_stage/.openssldir"
+# The installer reads the ARM from .mediaforge-choices — the file that already
+# persists every resolved choice — and recomputes the path with the same
+# resolver the recipe used. So the fixture needs the arm and the explicit
+# openssldir, exactly as a real build would have left them.
+printf 'STORED_TLS_BACKEND=libressl\n' > "$_stage/.mediaforge-choices"
+printf "STORED_OPENSSLDIR='%s'\n" "$_dest/etc/ssl" >> "$_stage/.mediaforge-choices"
 
 # A separate `sh` process rather than a ( ) subshell: install.sh's do_install
 # reads PREFIX/AUTOINSTALL from the environment, and shadowing this script's own
 # PREFIX inside a subshell would both confuse the reader and leak install.sh's
 # functions into the assertions that follow.
 PREFIX="$_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
+  OPENSSLDIR="$_dest/etc/ssl" \
   sh -c '
+    _want="${OPENSSLDIR:-}"
     . "$SCRIPT_DIR/lib/utils.sh"
-    # resolve.sh too: install.sh reads the recorded openssldir through that
-    # file'"'"'s accessor. mediaforge.sh sources it at :23, ahead of every
-    # install.sh source site, so this mirrors the real load order.
+    # resolve.sh too: install.sh calls resolve_openssldir from that file.
+    # mediaforge.sh sources it at :23, ahead of every install.sh source site,
+    # so this mirrors the real load order.
     . "$SCRIPT_DIR/lib/resolve.sh"
     . "$SCRIPT_DIR/lib/install.sh"
+    OPENSSLDIR="$_want"
     do_install "$1"
     # `|| true`, not `|| echo 0`: grep -c already PRINTS 0 on no match and then
     # exits 1, so the fallback would append a second line and yield "0\n0".
@@ -196,6 +196,44 @@ else
   _pass "install/uninstall round-trip leaves no residue"
 fi
 rm -rf "$_stage" "$_dest"
+
+# ─── a symlinked prefix component must NOT redirect the install ─────────────
+# The `case` match on the destination is lexical: '..' is rejected at
+# validation, but a SYMLINK is invisible to a string comparison and need not
+# exist when --openssldir is validated. _install_file copies under $_priv —
+# sudo for a system prefix — so a symlink planted under the install prefix
+# during the UNPRIVILEGED build phase would otherwise turn a build-time
+# compromise into a root-owned write anywhere on disk.
+_sym_stage=$(mktemp -d) || exit 1
+_sym_dest=$(mktemp -d) || exit 1
+_sym_out=$(mktemp -d) || exit 1
+mkdir -p "$_sym_stage/etc/ssl" "$_sym_stage/.logs"
+printf 'not-a-real-bundle\n' > "$_sym_stage/etc/ssl/cert.pem"
+printf 'STORED_TLS_BACKEND=libressl\n' > "$_sym_stage/.mediaforge-choices"
+# 'escape' looks like it is under the install prefix and resolves outside it.
+ln -s "$_sym_out" "$_sym_dest/escape"
+
+_sym_log=$(
+  PREFIX="$_sym_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
+  OPENSSLDIR="$_sym_dest/escape/etc/ssl" \
+  sh -c '
+    _want="${OPENSSLDIR:-}"
+    . "$SCRIPT_DIR/lib/utils.sh"
+    . "$SCRIPT_DIR/lib/resolve.sh"
+    . "$SCRIPT_DIR/lib/install.sh"
+    OPENSSLDIR="$_want"
+    do_install "$1"
+  ' _ "$_sym_dest" 2>&1
+) || true
+
+if [ -f "$_sym_out/etc/ssl/cert.pem" ]; then
+  _bad "the CA bundle was written THROUGH a symlink to $_sym_out — privileged write escaped the prefix"
+elif printf '%s' "$_sym_log" | grep -q 'Refusing a privileged write'; then
+  _pass "a symlinked destination is refused before the copy"
+else
+  _bad "symlinked destination neither refused nor written — unclear outcome: $(printf '%s' "$_sym_log" | tail -2)"
+fi
+rm -rf "$_sym_stage" "$_sym_dest" "$_sym_out"
 
 # ─── the probe, unit-tested against a synthetic root ────────────────────────
 # curl's shape (acinclude.m4, CURL_CHECK_CA_BUNDLE): try a documented candidate
@@ -299,40 +337,30 @@ else
   _bad "--openssldir rejected a legitimate path"
 fi
 
-# ─── the stamp guard, exercised on the path it actually guards ──────────────
-# The openssldir is compiled in but is NOT part of the stamp identity
-# (stamp_check keys on <pkg>-<ver>, lib/utils.sh:70), so a rebuild whose only
-# changed input is --openssldir would be skipped as "already built" and keep the
-# old baked path. The guard therefore has to run BEFORE the stamp decision.
-#
-# Asserted by driving run_recipe against a STAMPED synthetic workspace: an
-# earlier version of this fix sat inside pkg_configure, which run_recipe never
-# reaches once the stamp exists, so it was dead code for exactly this case and
-# a test that only checked "the guard exists" would have passed anyway.
-_ws=$(mktemp -d) || exit 1
-mkdir -p "$_ws/.stamps"
-: > "$_ws/.stamps/libressl-4.3.2"          # pretend it is already built
-printf '/etc/ssl\n' > "$_ws/.openssldir"   # ...against this trust store
-
-_guard=$(
-  PREFIX="$_ws" OPENSSLDIR="/somewhere/else" SCRIPT_DIR="$_root" DISTDIR="$_ws/dist" \
-  sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    . "$SCRIPT_DIR/lib/resolve.sh"
-    . "$SCRIPT_DIR/lib/framework.sh"
-    OPENSSLDIR="/somewhere/else"
-    run_recipe "$SCRIPT_DIR/recipes/crypto/libressl.sh"
-  ' 2>&1
-)
-case "$_guard" in
-  *"openssldir changed since this workspace was built"*)
-    _pass "stamped rebuild with a changed openssldir aborts instead of skipping" ;;
-  *"already built"*)
-    _bad "stamped rebuild SKIPPED with a changed openssldir — the guard runs after the stamp check" ;;
-  *)
-    _bad "stamped rebuild produced neither the guard nor a skip: $(printf '%s' "$_guard" | tail -3)" ;;
-esac
-rm -rf "$_ws"
+# ─── changed openssldir on an existing workspace warns ──────────────────────
+# The stamp is keyed on <pkg>-<version> and does not capture the compiled-in
+# trust store, so an already-built TLS arm is skipped and keeps the old baked
+# path. The earlier design detected this with a per-recipe state file and a
+# framework hook, and that machinery produced two Criticals; the value is
+# already persisted in .mediaforge-choices, so a warning off the stored value
+# costs nothing and cannot damage a workspace.
+# Exercised directly rather than through the CLI: load_stored_choices returns
+# early on --dry-run, so the stored value is never read in a dry run and the
+# comparison is unreachable that way. A real build is far too slow for a gate.
+_w=$(openssldir_warn_if_changed "/previously/etc/ssl" "/now/etc/ssl" 2>&1) || true
+if printf '%s' "$_w" | grep -q -- '--openssldir changed'; then
+  _pass "a changed --openssldir warns that the stamp will skip the rebuild"
+else
+  _bad "a changed --openssldir produced no warning about the stale stamp"
+fi
+# ...and stays quiet when it has not changed, or when there is nothing to compare.
+_w=$(openssldir_warn_if_changed "/same/etc/ssl" "/same/etc/ssl" 2>&1) || true
+_w2=$(openssldir_warn_if_changed "" "/now/etc/ssl" 2>&1) || true
+if [ -z "$_w" ] && [ -z "$_w2" ]; then
+  _pass "no warning when the openssldir is unchanged or previously unset"
+else
+  _bad "spurious openssldir-changed warning: '$_w' '$_w2'"
+fi
 
 # ─── CLI surface ────────────────────────────────────────────────────────────
 # Absolute is the boundary, asserted on BOTH sides: the value is compiled into

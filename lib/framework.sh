@@ -52,14 +52,6 @@ reset_recipe() {
   PKG_CMAKE=false
   PKG_CMAKE_FLAGS=""
   PKG_GITHUB_REPO=""
-  # Recipe-declared dependency on the compiled-in openssldir. A recipe that
-  # bakes the trust store into its output sets PKG_USES_OPENSSLDIR=true and
-  # PKG_OPENSSLDIR_FALLBACK to the directory it wants when nothing else
-  # resolves; run_recipe then resolves and validates it BEFORE the stamp
-  # decision. See the openssldir block in run_recipe for why that timing is
-  # load-bearing.
-  PKG_USES_OPENSSLDIR=false
-  PKG_OPENSSLDIR_FALLBACK=""
   # Recipe-declared install intent. If true, the recipe's pkgconfig files
   # listed in PKG_PC_FILES (space-separated, without .pc suffix) are queued
   # for removal AFTER FFmpeg's configure has consumed them but BEFORE
@@ -212,44 +204,6 @@ run_recipe() {
       fi
     fi
     return 0
-  fi
-
-  # Resolve the compiled-in openssldir BEFORE the stamp is consulted.
-  #
-  # The timing is the whole point. stamp_check keys the stamp on <pkg>-<ver>
-  # (lib/utils.sh:70), so the openssldir — a build input that is compiled into
-  # the library — is not part of the recipe's identity. A rebuild whose ONLY
-  # changed input is --openssldir therefore hits the stamp below, returns
-  # "already built", and silently keeps the previously baked path. That is the
-  # normal way a user meets this flag: build, discover https:// has no trust
-  # store, re-run with --openssldir.
-  #
-  # Putting the check inside a phase does not work: the phases run ~40 lines
-  # below, past the stamp's `return 0`, so it would be dead code on precisely
-  # the path it exists to guard. Putting it at recipe top level does not work
-  # either: check_updates sources every recipe in its own loop (lib/updates.sh)
-  # without ever entering run_recipe, and it does not parse --openssldir, so a
-  # top-level assert would abort `check-updates` on any workspace whose recorded
-  # value differs from a fresh probe. Here it runs on the build path only, and
-  # only after check_guards has confirmed the recipe is actually wanted.
-  #
-  # This also leaves OPENSSLDIR_RESOLVED set for the phases, so the recipe
-  # records rather than re-derives it — one resolution per run.
-  # The assert fires ONLY when this recipe is already stamped, i.e. only when the
-  # stamp is about to make us skip a rebuild that the changed input calls for.
-  # Asserting unconditionally would abort two legitimate rebuilds instead:
-  #   * a build that failed AFTER pkg_configure recorded the value leaves a
-  #     record with no stamp, so the corrected re-run would be refused — and the
-  #     remedy the message prints (rm the stamp) would match nothing;
-  #   * the two TLS arms share one record with different fallbacks, so switching
-  #     --tls=libressl to --tls=openssl on a host with no cert.pem would abort a
-  #     build in which the user changed nothing about the trust store.
-  # In both, no stamp exists for this recipe, so the build proceeds and re-records.
-  if [ "$PKG_USES_OPENSSLDIR" = true ]; then
-    resolve_openssldir "$PKG_OPENSSLDIR_FALLBACK"
-    if stamp_exists "$PKG_NAME" "$PKG_VERSION"; then
-      openssldir_assert_unchanged "$OPENSSLDIR_RESOLVED" "$PKG_NAME"
-    fi
   fi
 
   # Check stamp (stamp_check returns 1 if already built)
