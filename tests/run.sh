@@ -21,6 +21,7 @@ sh tests/lcevc-default-off.sh
 sh tests/libressl-pin-asm.sh
 sh tests/libressl-trust-store.sh
 sh tests/install-containment.sh
+sh tests/install-privileged-execs.sh
 # Runs the unmerged test files against the merge base and fails if any assertion
 # passes there. Catches the oracle that drifted into matching an error message,
 # and the fixture whose path collided with the value it was distinguishing —

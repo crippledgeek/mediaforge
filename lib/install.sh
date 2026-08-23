@@ -129,8 +129,9 @@ _needs_priv() {
 # $_priv. /tmp keeps the accumulator outside any sudo concern.
 #
 # Reads $_install_prefix_real, which do_install resolves once after creating the
-# prefix. Resolved once rather than per call because the headers loop alone runs
-# this hundreds of times and the prefix cannot change mid-install.
+# prefix: it is the containment BOUNDARY, it cannot change mid-install, and
+# resolving it per file would put back an exec the helper below exists to avoid.
+# Each DESTINATION is still resolved per file, inside that helper.
 _install_file() {
   _src="$1"
   _dest="$2"
@@ -145,83 +146,87 @@ _install_file() {
   # nothing resolved.
   [ "$_src" = "$_dest" ] && return 0
 
-  # Containment, BEFORE anything is created. Every destination this function is
-  # given is composed lexically from $_install_prefix, and a lexical composition
-  # says nothing about where the path leads: a SYMLINK at any component is
-  # invisible to string composition and need not have existed when the prefix
-  # was chosen. `mkdir -p` follows symlink components, so running it first —
-  # under $_priv, i.e. sudo for a system prefix — creates root-owned directories
-  # at the escaped target before any check can refuse the copy. No file content
-  # escapes then, but the directories do, and nothing manifests them so
-  # `uninstall` cannot sweep them either.
+  # ONE privileged process does all of it — resolve, contain, mkdir, unlink,
+  # copy — because five sudo calls per file is what made re-checking every file
+  # look expensive enough to trade away (#23). lib/install-one-file.sh carries
+  # the reasoning and the guarantees; what matters here is that no verdict is
+  # ever reused between files, and that the whole thing costs one exec.
   #
-  # Here rather than at one call site, for the same reason the unlink below is:
-  # all six classes (binaries, static libs, pkgconfig, headers, man pages, the
-  # CA bundle) compose their destination the same way and share the exposure.
-  # This guard lived on the CA-bundle path alone until #21 — it was itself the
-  # example of "a guard that protects only the newest destination".
+  # The helper's TEXT is read once per process and passed to `sh -c`, rather
+  # than the helper being run from its path under sudo. Running it by path would
+  # re-read the file from disk under root once per installed file — ~250 chances
+  # per install for the executed text to differ from the text this install
+  # started with. One unprivileged read, before the first copy, is one chance.
   #
-  # The nearest EXISTING ancestor is what gets resolved: `cd`/`pwd -P` answer
-  # only for paths that exist, and install destinations mostly do not yet. That
-  # leaves mkdir to create only the symlink-free remainder.
-  # Under $_priv: the mkdir and the cp below run under it, so a check that ran
-  # unprivileged would be answering about a different filesystem view than the
-  # one the write gets.
-  _dest_real=$(_resolve_existing "$(dirname "$_dest")" "$_priv")
-  if [ -z "$_dest_real" ] || [ -z "${_install_prefix_real:-}" ]; then
-    die "cannot resolve the install destination '$_dest' — refusing to write.
-  For a privileged prefix the check runs 'sudo sh -c', which a sudoers policy
-  permitting only mkdir/cp/rm will refuse — that is one cause of this."
+  # Read lazily rather than at source time so that sourcing lib/install.sh stays
+  # free of I/O for callers that never install (uninstall, the option parser).
+  if [ -z "${_install_helper:-}" ]; then
+    _install_helper=$(cat "$SCRIPT_DIR/lib/install-one-file.sh") \
+      || die "Cannot read the install helper at $SCRIPT_DIR/lib/install-one-file.sh"
+    # An empty read is a truncated or missing helper. Caught here rather than
+    # later, because an empty script exits 0 under POSIX and every install would
+    # report success having copied nothing.
+    [ -n "$_install_helper" ] \
+      || die "The install helper at $SCRIPT_DIR/lib/install-one-file.sh is empty."
   fi
-  # The trailing '/' on the subject admits the prefix ROOT itself: '/opt/mf'
-  # does not match '/opt/mf'/*, but '/opt/mf/' does, since '*' matches empty.
-  # That is the common FIRST-install case — the nearest existing ancestor of
-  # <prefix>/bin is <prefix>, because <prefix>/bin does not exist yet — so
-  # dropping the slash would refuse a legitimate destination.
+
+  # Under $_priv, so the check answers about the same filesystem view the copy
+  # gets: a root-owned 0700 prefix is invisible to an unprivileged `cd`, which is
+  # the divergence #21 was about.
   #
-  # It is NOT what excludes a sibling; the literal '/' in the pattern does that
-  # on its own. Measured 2026-08-23 under dash 0.5.13.4 and bash, subject
-  # against pattern '/opt/mf'/*: '/opt/mf-evil' no, '/opt/mf-evil/' no,
-  # '/opt/mf' no, '/opt/mf/' MATCH, '/opt/mf/x' MATCH.
-  #
-  # The expansion is QUOTED, which makes its content literal rather than a
-  # pattern — a prefix containing '*' or '?' cannot widen the match. Measured
-  # the same day with prefix '/opt/mf*' against '/opt/mfEVIL/': no match under
-  # both shells, per POSIX quote removal in case patterns.
-  case "$_dest_real/" in
-    "$_install_prefix_real"/*) : ;;
-    *) die "install destination '$_dest' resolves to '$_dest_real', outside the
+  # Exit codes carry the outcome back, because the messages belong out here with
+  # die(): 3 unresolvable, 4 bad usage, 5 copy failed, 6 outside the prefix
+  # (resolved path on stdout). The helper avoids every status the shell itself
+  # can produce, so 1/2/126/127 below mean the helper failed to run or to parse
+  # rather than anything it decided. Status 0 is necessary but NOT sufficient —
+  # see the sentinel check.
+  _helper_out=$($_priv sh -c "$_install_helper" _ \
+    "$_src" "$_dest" "$_install_prefix_real")
+  _install_rc=$?
+
+  case "$_install_rc" in
+    # Status 0 alone would also be what a helper mangled down to nothing
+    # returns, having checked nothing and copied nothing. The sentinel is
+    # printed only after the copy reported success, so requiring it is what
+    # makes "installed" mean installed.
+    0)
+      [ "$_helper_out" = "INSTALLED" ] \
+        || die "the install helper reported success for '$_dest' without
+  completing — no INSTALLED sentinel. The helper text may be truncated or
+  altered; check $SCRIPT_DIR/lib/install-one-file.sh." ;;
+    6) die "install destination '$_dest' resolves to '$_helper_out', outside the
   install prefix '$_install_prefix_real'. Refusing a privileged write through a
   symlink. Check for a symlinked component under the prefix." ;;
+    # `sh` returns 2 for a syntax error, so this is a helper damaged in the
+    # middle of a construct — the truncation the INSTALLED sentinel cannot
+    # catch, because the script never runs far enough to print anything. The
+    # containment refusal deliberately does NOT use 2, so the two can never be
+    # confused: an operator told to hunt a symlink over a damaged file loses the
+    # time twice.
+    2) die "the install helper failed to parse while installing '$_dest'
+  (exit 2). Its text is truncated or altered; check
+  $SCRIPT_DIR/lib/install-one-file.sh." ;;
+    3) die "cannot resolve the install destination '$_dest' — refusing to write." ;;
+    5) die "failed to install $_dest (source: $_src).
+  Nothing is at that path now — the previous file, if any, was removed before
+  the copy. Re-run install once the cause is fixed." ;;
+    4) die "internal: lib/install-one-file.sh rejected its arguments for '$_dest'.
+  A destination with a trailing slash is one cause: it names a directory, and
+  this installs files." ;;
+    # The helper never ran at all. sudo refusing to execute sh exits 1, an
+    # unreadable helper 126, a missing one 127 — none of which reach the arms
+    # above, so a restricted sudoers policy surfaced as 'exited 1' with nothing
+    # to act on. That diagnosis used to hang off exit 3, where it can no longer
+    # arrive: exit 3 now means the destination did not resolve, a different
+    # problem with a different fix.
+    1|126|127) die "could not run the install helper for '$_dest' (status $_install_rc).
+  For a privileged prefix this runs '$_priv sh -c' over
+  $SCRIPT_DIR/lib/install-one-file.sh, which a sudoers policy permitting only
+  mkdir/cp/rm will refuse — that is one cause. A missing or unreadable helper is
+  the other." ;;
+    *) die "internal: the install helper for '$_dest' exited $_install_rc" ;;
   esac
 
-  $_priv mkdir -p "$(dirname "$_dest")" 2>/dev/null
-  # Unlink first: `cp` FOLLOWS a symlink at the destination and overwrites what
-  # it points at, leaving the link itself in place. A symlink pre-planted at any
-  # destination path — planted while the prefix was writable, no race required —
-  # would otherwise redirect this copy, which runs under $_priv (sudo for a
-  # system prefix), into an arbitrary file: an attacker-chosen destination for a
-  # privileged write. `rm -f` removes the LINK without following it.
-  #
-  # Here rather than at one call site: every caller (binaries, static libs,
-  # pkgconfig, headers, man pages, the CA bundle) shares the same exposure, and
-  # a guard that protects only the newest destination invites the next one to
-  # miss it. POSIX cp has no portable --no-dereference-on-write, so unlink-first
-  # is the idiom.
-  $_priv rm -f "$_dest" 2>/dev/null
-  # Checked, and checked HERE rather than left to the caller, because the unlink
-  # above changed the failure mode: before it, a failed copy left the previous
-  # file in place, so an unnoticed failure was survivable. Now it leaves NOTHING
-  # at the destination — for the CA bundle that is a prefix with no trust store
-  # at the path the binary was built to read.
-  #
-  # The manifest append moved below the check for the same reason: recording a
-  # file that was never written makes `uninstall` report a removal count it did
-  # not perform, and hides the failure a second time.
-  $_priv cp "$_src" "$_dest" \
-    || die "failed to install $_dest (source: $_src).
-  Nothing is at that path now — the previous file, if any, was removed before
-  the copy. Re-run install once the cause is fixed."
   printf '%s\n' "${_dest#"$_install_prefix"/}" >> "$_manifest_tmp_path"
 }
 
