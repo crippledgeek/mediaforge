@@ -55,6 +55,20 @@ _needs_priv() {
   return 0
 }
 
+# Resolve a path to its PHYSICAL location by walking to the nearest EXISTING
+# ancestor and resolving that. `cd`/`pwd -P` only answer for paths that exist,
+# and install destinations frequently do not yet.
+#
+# Prints nothing (and returns non-zero) when nothing in the chain resolves, so
+# callers must treat an empty result as "unknown", never as "matches".
+_resolve_existing() {
+  _re_path="$1"
+  while [ ! -d "$_re_path" ] && [ "$_re_path" != "/" ]; do
+    _re_path=$(dirname "$_re_path")
+  done
+  (cd "$_re_path" 2>/dev/null && pwd -P)
+}
+
 # Copy a file, creating parent dirs as needed. Appends the installed-relative
 # path to the manifest accumulator at $_manifest_tmp_path.
 #
@@ -69,7 +83,37 @@ _install_file() {
   _priv="$4"
 
   $_priv mkdir -p "$(dirname "$_dest")" 2>/dev/null
-  $_priv cp "$_src" "$_dest"
+  # Unlink first: `cp` FOLLOWS a symlink at the destination and overwrites what
+  # it points at, leaving the link itself in place. A symlink pre-planted at any
+  # destination path — planted while the prefix was writable, no race required —
+  # would otherwise redirect this copy, which runs under $_priv (sudo for a
+  # system prefix), into an arbitrary file: an attacker-chosen destination for a
+  # privileged write. `rm -f` removes the LINK without following it.
+  #
+  # Here rather than at one call site: every caller (binaries, static libs,
+  # pkgconfig, headers, man pages, the CA bundle) shares the same exposure, and
+  # a guard that protects only the newest destination invites the next one to
+  # miss it. POSIX cp has no portable --no-dereference-on-write, so unlink-first
+  # is the idiom.
+  # Belt-and-braces against the irreversible path: _select_prefix already
+  # refuses an install prefix that resolves to the build prefix, which is the
+  # guard that catches aliases. This one costs a line.
+  [ "$_src" = "$_dest" ] && return 0
+
+  $_priv rm -f "$_dest" 2>/dev/null
+  # Checked, and checked HERE rather than left to the caller, because the unlink
+  # above changed the failure mode: before it, a failed copy left the previous
+  # file in place, so an unnoticed failure was survivable. Now it leaves NOTHING
+  # at the destination — for the CA bundle that is a prefix with no trust store
+  # at the path the binary was built to read.
+  #
+  # The manifest append moved below the check for the same reason: recording a
+  # file that was never written makes `uninstall` report a removal count it did
+  # not perform, and hides the failure a second time.
+  $_priv cp "$_src" "$_dest" \
+    || die "failed to install $_dest (source: $_src).
+  Nothing is at that path now — the previous file, if any, was removed before
+  the copy. Re-run install once the cause is fixed."
   printf '%s\n' "${_dest#"$_install_prefix"/}" >> "$_manifest_tmp_path"
 }
 
@@ -124,6 +168,32 @@ _select_prefix() {
       *)  break ;;
     esac
   done
+
+  # Installing into the build prefix would copy the workspace onto itself: every
+  # destination is its own source. _install_file guards the individual copy, but
+  # the operation as a whole is meaningless and its failure modes are all bad,
+  # so refuse it here where the message can say why.
+  # Compared RESOLVED, not lexically. A symlink, a bind mount, or simply a
+  # second path into the same tree names the build prefix without matching its
+  # string — and then every $_src/$_dest pair is lexically distinct too, so
+  # _install_file's own guard misses it as well and the unlink deletes the
+  # source through the alias. The CA-bundle destination check further down
+  # already refuses to trust a lexical match for exactly this reason; this
+  # guard was written without it.
+  #
+  # Only when the destination EXISTS: a path that is not there cannot be an
+  # alias of one that is, and resolving a nonexistent --prefix to its nearest
+  # existing ancestor would wrongly refuse --prefix="$PREFIX/sub", which is
+  # unusual but harmless (different files, no self-copy).
+  if [ -d "$_install_prefix" ]; then
+    _ip_real=$(_resolve_existing "$_install_prefix")
+    _pfx_real=$(_resolve_existing "$PREFIX")
+    if [ -n "$_ip_real" ] && [ "$_ip_real" = "$_pfx_real" ]; then
+      die "--prefix resolves to the build prefix ($_pfx_real). Install copies the
+  workspace to a destination; copying it onto itself would delete the build tree
+  in place. Choose a different prefix, e.g. --prefix=\$HOME/.local/mediaforge."
+    fi
+  fi
 
   # Determine privilege escalation
   if _needs_priv "$_install_prefix"; then
@@ -205,16 +275,19 @@ do_install() {
   # process that shells out under sudo is a worse trust posture than parsing a
   # value out of it.
   #
-  # A stale bundle from a previous arm is ignored rather than deleted. Deleting
-  # build state from the installer is what made an earlier design destructive on
-  # --dry-run and silently lossy across an arm switch; reading the arm costs
-  # nothing and cannot damage a workspace.
+  # A stale bundle from a previous arm is ignored rather than deleted: reading
+  # the arm cannot damage a workspace, and deleting build state from an
+  # installer can.
   _stored_tls=""
   _stored_od=""
   if [ -f "$PREFIX/.mediaforge-choices" ]; then
     _stored_tls=$(sed -n 's/^STORED_TLS_BACKEND=//p' "$PREFIX/.mediaforge-choices")
     # save_stored_choices single-quotes this one; strip the quotes.
     _stored_od=$(sed -n "s/^STORED_OPENSSLDIR='\(.*\)'$/\1/p" "$PREFIX/.mediaforge-choices")
+  fi
+  if [ -n "$_stored_od" ]; then
+    _validate_openssldir "STORED_OPENSSLDIR (from $PREFIX/.mediaforge-choices)" \
+      "$_stored_od" "It is used as a privileged install destination."
   fi
   if [ -f "$PREFIX/etc/ssl/cert.pem" ] && [ "$_stored_tls" = "libressl" ]; then
     resolve_openssldir "$_stored_od" "$PREFIX/etc/ssl"
@@ -262,13 +335,8 @@ do_install() {
       #
       # `cd ... && pwd -P` rather than `readlink -f`: -f is a GNU extension that
       # macOS's readlink has historically lacked, and this must work on both.
-      _ca_parent=$(dirname "$_ca_dest")
-      _ca_probe="$_ca_parent"
-      while [ ! -d "$_ca_probe" ] && [ "$_ca_probe" != "/" ]; do
-        _ca_probe=$(dirname "$_ca_probe")
-      done
-      _ca_real=$(cd "$_ca_probe" 2>/dev/null && pwd -P) || _ca_real=""
-      _prefix_real=$(cd "$_install_prefix" 2>/dev/null && pwd -P) || _prefix_real=""
+      _ca_real=$(_resolve_existing "$(dirname "$_ca_dest")")
+      _prefix_real=$(_resolve_existing "$_install_prefix")
       if [ -z "$_ca_real" ] || [ -z "$_prefix_real" ]; then
         die "cannot resolve the CA bundle destination '$_ca_dest' — refusing to write."
       fi
@@ -278,7 +346,6 @@ do_install() {
   the install prefix '$_prefix_real'. Refusing a privileged write through a
   symlink. Check for a symlinked component under the prefix." ;;
       esac
-      $_priv mkdir -p "$_ca_parent" 2>/dev/null
       _install_file "$PREFIX/etc/ssl/cert.pem" "$_ca_dest" "$_manifest_tmp" "$_priv"
       log "  ${_ca_dest#"$_install_prefix"/} (CA bundle)"
     fi

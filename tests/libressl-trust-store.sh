@@ -1,16 +1,19 @@
 #!/bin/sh
-# LibreSSL recipe regression tests — pin, assembly, PIC, and the compiled-in
-# trust store.
+# LibreSSL compiled-in trust store — regression tests.
 #
-# Covers crippledgeek/mediaforge#16, #17 and #18. Each assertion below fails
-# against the pre-fix tree; see the per-section comments for what each one is
-# guarding and why the evidence says so.
+# Covers crippledgeek/mediaforge#18. #16/#17 coverage lives in
+# tests/libressl-pin-asm.sh, which runs in the same suite; duplicating it here
+# is what previously made the claim below false.
 #
-# Every assertion here fails against the pre-fix tree. Checks that would also
-# pass on develop have been removed rather than kept for reassurance.
+# Every assertion is expected to FAIL against the merge base, and
+# tests/oracle-baseline.sh enforces that: it runs this file against a pristine
+# base export and fails if any assertion passes there, if none fails there, or
+# if the DONE sentinel at the bottom of this file never printed.
 #
 # No `set -e`: every check reports independently and the script exits with the
-# accumulated status, so one early failure does not hide the rest.
+# accumulated status, so one early failure does not hide the rest — and the
+# baseline gate above depends on that, since a file that aborts early cannot
+# prove the assertions after the abort point.
 set -u
 
 _here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -23,58 +26,6 @@ _fail=0
 
 _pass() { printf 'PASS: %s\n' "$1"; }
 _bad()  { printf 'FAIL: %s\n' "$1"; _fail=1; }
-
-# ─── #16: the pin, and the mechanism that let it rot ────────────────────────
-# 4.0.0 (2024-10-15) predates the 4.2.0 ChangeLog `* Security fixes` entry for
-# the CMS enveloped-data out-of-bounds read/write, so the old default shipped a
-# TLS stack missing an upstream-declared security fix.
-if grep -q 'PKG_VERSION_LIBRESSL:-4\.3\.2' "$_recipe"; then
-  _pass "libressl pins 4.3.2"
-else
-  _bad "libressl does not pin 4.3.2 (4.0.0 misses the 4.2.0 CMS security fix)"
-fi
-
-# The ROOT CAUSE of the staleness, not merely the symptom: lib/updates.sh:72
-# prints "(not on GitHub)" and skips any recipe with no PKG_GITHUB_REPO, so
-# `check-updates` has never once reported this pin. Upstream tags are
-# v-prefixed, which _strip_tag_prefix already handles.
-if grep -q '^PKG_GITHUB_REPO="libressl/portable"' "$_recipe"; then
-  _pass "libressl is visible to check-updates"
-else
-  _bad "libressl has no PKG_GITHUB_REPO — check-updates skips it (lib/updates.sh:72)"
-fi
-
-# Every other TLS arm is profile-pinned; libressl was the only one that was not,
-# so a --profile build silently fell back to the recipe default.
-for _prof in profiles/ffmpeg-*.conf; do
-  if grep -q '^PKG_VERSION_LIBRESSL=' "$_prof"; then
-    _pass "$(basename "$_prof") pins PKG_VERSION_LIBRESSL"
-  else
-    _bad "$(basename "$_prof") does not pin PKG_VERSION_LIBRESSL"
-  fi
-done
-
-# ─── #17: assembly, and PIC ─────────────────────────────────────────────────
-# Upstream already force-disables asm per-arch where it is unsafe
-# (configure.ac:82-84 for i?86/mips/mips64) and gates elf x86_64 on
-# enable_asm != no (:126), so a blanket flag only removed it where upstream
-# considers it good. Neither FreeBSD's port nor Alpine's APKBUILD passes it.
-# Comment lines are stripped first: the recipe DOCUMENTS --disable-asm in its
-# "NOT passed, deliberately" note, and a whole-file grep would match that prose
-# and report a regression that does not exist.
-if grep -v '^[[:space:]]*#' "$_recipe" | grep -q -- '--disable-asm'; then
-  _bad "libressl still passes --disable-asm (drops AES-NI/SHA/bignum asm)"
-else
-  _pass "libressl builds with assembly enabled"
-fi
-
-# With --disable-shared, libtool builds the static objects WITHOUT PIC, and
-# these archives are linked into libavcodec/libavformat.
-if grep -q -- '--with-pic' "$_recipe"; then
-  _pass "libressl builds PIC static objects"
-else
-  _bad "libressl does not pass --with-pic (static objects land in libav*)"
-fi
 
 # ─── #18: the compiled-in trust store ───────────────────────────────────────
 # libtls bakes TLS_DEFAULT_CA_FILE at compile time (tls/Makefile.am:53-55) and
@@ -100,13 +51,9 @@ else
   _bad "recipes/crypto/openssl.sh ignores --openssldir, which help/README advertise"
 fi
 
-# The state layer that used to keep three consumers agreeing is gone; each now
-# calls resolve_openssldir and is handed the same inputs explicitly. There is
-# deliberately no assertion that the removed helpers stay removed: those names
-# are absent from develop too, so such a check passes on any tree that never had
-# them, and it would guard a retired design by NAME while a re-introduction
-# under different names walked straight past. The reasoning lives in
-# lib/resolve.sh, where it informs rather than merely forbids.
+# The recipe and the installer each call resolve_openssldir and are handed the
+# same inputs explicitly, so they agree by construction rather than through a
+# shared recorded value.
 
 # The patch is what makes a host openssldir SAFE. LibreSSL's install-exec-hook
 # writes cert.pem/openssl.cnf/x509v3.cnf into $(DESTDIR)@OPENSSLDIR@, ignoring
@@ -155,7 +102,11 @@ printf 'not-a-real-bundle\n' > "$_stage/etc/ssl/cert.pem"
 # resolver the recipe used. So the fixture needs the arm and the explicit
 # openssldir, exactly as a real build would have left them.
 printf 'STORED_TLS_BACKEND=libressl\n' > "$_stage/.mediaforge-choices"
-printf "STORED_OPENSSLDIR='%s'\n" "$_dest/etc/ssl" >> "$_stage/.mediaforge-choices"
+# NOT "$_dest/etc/ssl": that is exactly where the build-prefix fallback arm
+# installs, so an implementation that ignored the stored value would land on the
+# same path and score a pass on any host lacking a probed cert.pem. A leaf no
+# fallback hardcodes makes the two outcomes distinguishable everywhere.
+printf "STORED_OPENSSLDIR='%s'\n" "$_dest/custom/trust" >> "$_stage/.mediaforge-choices"
 # Single-quoted exactly as save_stored_choices writes it, because do_install
 # parses that shape. No OPENSSLDIR is exported: cmd_install does not set it, and
 # injecting it is what previously let both install tests pass while the real
@@ -176,7 +127,7 @@ PREFIX="$_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=
     do_install "$1"
     # `|| true`, not `|| echo 0`: grep -c already PRINTS 0 on no match and then
     # exits 1, so the fallback would append a second line and yield "0\n0".
-    printf "MANIFESTED=%s\n" "$(grep -c "etc/ssl/cert.pem" "$1/.mediaforge-manifest" 2>/dev/null || true)" >&3
+    printf "MANIFESTED=%s\n" "$(grep -c "custom/trust/cert.pem" "$1/.mediaforge-manifest" 2>/dev/null || true)" >&3
     do_uninstall "$1"
   ' _ "$_dest" 3>"$_stage/probe" >/dev/null 2>&1
 
@@ -237,6 +188,153 @@ else
 fi
 rm -rf "$_sym_stage" "$_sym_dest" "$_sym_out"
 
+# ─── installing into the build prefix must not eat the build tree ───────────
+# _install_file unlinks the destination before copying. When the install prefix
+# IS the build prefix every destination is its own source, so the unlink deletes
+# the file the copy was about to read — binaries, static libs, .pc files and
+# headers, gone in place. Before the unlink, `cp` refused a same-file copy
+# harmlessly, so this failure mode is newer than the code around it.
+_bp=$(mktemp -d) || exit 1
+mkdir -p "$_bp/bin" "$_bp/.logs"
+printf 'FFMPEG-BINARY\n' > "$_bp/bin/ffmpeg"
+_bp_out=$(
+  PREFIX="$_bp" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
+  sh -c '
+    . "$SCRIPT_DIR/lib/utils.sh"
+    . "$SCRIPT_DIR/lib/resolve.sh"
+    . "$SCRIPT_DIR/lib/install.sh"
+    do_install "$1"
+  ' _ "$_bp" 2>&1
+) || true
+if [ "$(cat "$_bp/bin/ffmpeg" 2>/dev/null)" != "FFMPEG-BINARY" ]; then
+  _bad "installing into the build prefix destroyed the build tree (bin/ffmpeg is gone or empty)"
+elif printf '%s' "$_bp_out" | grep -q 'resolves to the build prefix'; then
+  _pass "installing into the build prefix is refused, and the tree survives"
+else
+  _bad "installing into the build prefix was neither refused nor harmful — unclear: $(printf '%s' "$_bp_out" | tail -1)"
+fi
+rm -rf "$_bp"
+
+# ...and the same via an ALIAS. A symlink, a bind mount, or a second path into
+# the same tree names the build prefix without matching its string, so a lexical
+# guard misses it — and then every $_src/$_dest pair is lexically distinct too,
+# so the per-file guard misses it as well and the unlink deletes the source
+# through the alias. This is the case the first version of the guard could not
+# pass; the destination check further down in install.sh already resolved paths
+# for exactly this reason.
+_ap=$(mktemp -d) || exit 1
+mkdir -p "$_ap/real/bin" "$_ap/real/.logs"
+printf 'FFMPEG-BINARY\n' > "$_ap/real/bin/ffmpeg"
+ln -s "$_ap/real" "$_ap/alias"
+_ap_out=$(
+  PREFIX="$_ap/real" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
+  sh -c '
+    . "$SCRIPT_DIR/lib/utils.sh"
+    . "$SCRIPT_DIR/lib/resolve.sh"
+    . "$SCRIPT_DIR/lib/install.sh"
+    do_install "$1"
+  ' _ "$_ap/alias" 2>&1
+) || true
+if [ "$(cat "$_ap/real/bin/ffmpeg" 2>/dev/null)" != "FFMPEG-BINARY" ]; then
+  _bad "an aliased --prefix destroyed the build tree through the symlink"
+elif printf '%s' "$_ap_out" | grep -q 'resolves to the build prefix'; then
+  _pass "an aliased --prefix is resolved, recognised and refused"
+else
+  _bad "an aliased --prefix was neither refused nor harmful — unclear: $(printf '%s' "$_ap_out" | tail -1)"
+fi
+rm -rf "$_ap"
+
+# ─── a failed copy must not be recorded as installed ────────────────────────
+# _install_file unlinks the destination before copying, so a failed copy now
+# leaves NOTHING where the previous file was — for the CA bundle, a prefix whose
+# binary reads a path that no longer exists. Recording it in the manifest anyway
+# would make `uninstall` report a removal it never performed and hide the
+# failure twice.
+#
+# Skipped as root, where the unwritable directory that provokes the failure is
+# not unwritable.
+if [ "$(id -u)" = "0" ]; then
+  printf 'SKIP: cp-failure assertion (running as root; the fixture cannot fail the copy)\n'
+else
+  _cf_stage=$(mktemp -d) || exit 1
+  _cf_dest=$(mktemp -d) || exit 1
+  mkdir -p "$_cf_stage/etc/ssl" "$_cf_stage/.logs"
+  printf 'CA-BUNDLE\n' > "$_cf_stage/etc/ssl/cert.pem"
+  printf 'STORED_TLS_BACKEND=libressl\n' > "$_cf_stage/.mediaforge-choices"
+  printf "STORED_OPENSSLDIR='%s'\n" "$_cf_dest/locked/trust" >> "$_cf_stage/.mediaforge-choices"
+  # Destination directory exists but is not writable, so the copy into it fails
+  # while every check upstream of it passes.
+  mkdir -p "$_cf_dest/locked/trust"
+  # The LEAF's directory must be unwritable: locking only its parent still
+  # leaves trust/ writable, and the copy succeeds.
+  chmod 500 "$_cf_dest/locked/trust"
+
+  _cf_out=$(
+    PREFIX="$_cf_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
+    sh -c '
+      . "$SCRIPT_DIR/lib/utils.sh"
+      . "$SCRIPT_DIR/lib/resolve.sh"
+      . "$SCRIPT_DIR/lib/install.sh"
+      do_install "$1"
+    ' _ "$_cf_dest" 2>&1
+  ) || true
+  chmod 700 "$_cf_dest/locked/trust" 2>/dev/null
+
+  _cf_manifest=$(grep -c 'locked/trust/cert.pem' "$_cf_dest/.mediaforge-manifest" 2>/dev/null || true)
+  if [ "${_cf_manifest:-0}" != "0" ]; then
+    _bad "a copy that failed was recorded in the manifest — uninstall would claim to remove it"
+  elif printf '%s' "$_cf_out" | grep -q 'failed to install'; then
+    _pass "a failed copy aborts and is not recorded as installed"
+  else
+    _bad "a failed copy neither aborted nor was recorded — unclear: $(printf '%s' "$_cf_out" | tail -1)"
+  fi
+  rm -rf "$_cf_stage" "$_cf_dest"
+fi
+
+# ─── a symlinked LEAF must NOT redirect the privileged write ────────────────
+# The ancestor walk validates the DIRECTORY chain. It says nothing about the
+# leaf: a symlink at $_ca_dest itself sits inside a perfectly legitimate
+# directory, so the canonicalization passes — and `cp` follows a destination
+# symlink and overwrites what it points at, leaving the link in place. That is a
+# privileged write to an attacker-chosen path needing no race at all, only that
+# the directory was writable at some earlier point.
+_leaf_stage=$(mktemp -d) || exit 1
+_leaf_dest=$(mktemp -d) || exit 1
+_leaf_sentinel=$(mktemp) || exit 1
+printf 'SENTINEL-MUST-SURVIVE\n' > "$_leaf_sentinel"
+mkdir -p "$_leaf_stage/etc/ssl" "$_leaf_stage/.logs"
+printf 'CA-BUNDLE\n' > "$_leaf_stage/etc/ssl/cert.pem"
+printf 'STORED_TLS_BACKEND=libressl\n' > "$_leaf_stage/.mediaforge-choices"
+printf "STORED_OPENSSLDIR='%s'\n" "$_leaf_dest/etc/ssl" >> "$_leaf_stage/.mediaforge-choices"
+# Directory chain legitimately inside the prefix; only the LEAF is a symlink.
+mkdir -p "$_leaf_dest/etc/ssl"
+ln -s "$_leaf_sentinel" "$_leaf_dest/etc/ssl/cert.pem"
+
+PREFIX="$_leaf_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
+  sh -c '
+    . "$SCRIPT_DIR/lib/utils.sh"
+    . "$SCRIPT_DIR/lib/resolve.sh"
+    . "$SCRIPT_DIR/lib/install.sh"
+    do_install "$1"
+  ' _ "$_leaf_dest" >/dev/null 2>&1 || true
+
+# BOTH halves, because either alone is satisfiable by doing nothing: an
+# untouched sentinel proves only that no write escaped, which is trivially true
+# on a tree with no trust-store install at all. The correct behaviour REPLACES
+# the symlink with a real file, so require that too.
+_leaf_ok=0
+if [ "$(cat "$_leaf_sentinel" 2>/dev/null)" != "SENTINEL-MUST-SURVIVE" ]; then
+  _bad "the CA bundle was written THROUGH a leaf symlink — sentinel now: $(cat "$_leaf_sentinel" 2>/dev/null)"
+elif [ -L "$_leaf_dest/etc/ssl/cert.pem" ]; then
+  _bad "the leaf is still a symlink — the bundle was not installed, so the sentinel surviving proves nothing"
+elif [ ! -f "$_leaf_dest/etc/ssl/cert.pem" ]; then
+  _bad "no bundle at the leaf destination — nothing was installed"
+else
+  _leaf_ok=1
+fi
+[ "$_leaf_ok" = 1 ] && _pass "a symlinked leaf is replaced, not followed, by the privileged write"
+rm -rf "$_leaf_stage" "$_leaf_dest" "$_leaf_sentinel"
+
 # ─── the probe, unit-tested against a synthetic root ────────────────────────
 # curl's shape (acinclude.m4, CURL_CHECK_CA_BUNDLE): try a documented candidate
 # list, fall back, and warn on a miss. libtls derives <openssldir>/cert.pem, so
@@ -257,7 +355,7 @@ else
   : > "$_tmp/hit/cert.pem"
 
   # Candidates are passed as an argument, not exported: the resolver takes them
-  # as $2 precisely so a real build cannot have its trust store redirected by a
+  # as $3 precisely so a real build cannot have its trust store redirected by a
   # stray environment variable.
   resolve_openssldir "" "/fallback/etc/ssl" "$_tmp/nope $_tmp/hit"
   if [ "$OPENSSLDIR_RESOLVED" = "$_tmp/hit" ] && [ "$OPENSSLDIR_FROM" = "host" ]; then
@@ -330,7 +428,8 @@ _reject_case "a trailing .."          '/usr/local/..'            "'..' segment"
 
 # A legitimate path with the characters real prefixes use must still pass.
 _o=$(./mediaforge.sh build --openssldir=/opt/my-prefix_1.0/etc/ssl --dry-run --yes 2>&1) || true
-if printf '%s' "$_o" | grep -q 'openssldir=/opt/my-prefix_1.0/etc/ssl'; then
+if printf '%s' "$_o" | grep -q 'Choices:.*openssldir=/opt/my-prefix_1.0/etc/ssl' \
+   && ! printf '%s' "$_o" | grep -qi 'unknown option'; then
   _pass "--openssldir accepts a realistic path with . _ - digits"
 else
   _bad "--openssldir rejected a legitimate path"
@@ -339,10 +438,8 @@ fi
 # ─── changed openssldir on an existing workspace warns ──────────────────────
 # The stamp is keyed on <pkg>-<version> and does not capture the compiled-in
 # trust store, so an already-built TLS arm is skipped and keeps the old baked
-# path. The earlier design detected this with a per-recipe state file and a
-# framework hook, and that machinery produced two Criticals; the value is
-# already persisted in .mediaforge-choices, so a warning off the stored value
-# costs nothing and cannot damage a workspace.
+# path. The previous value is already persisted in .mediaforge-choices, so
+# warning off it needs no state of our own and cannot damage a workspace.
 # Exercised directly rather than through the CLI: load_stored_choices returns
 # early on --dry-run, so the stored value is never read in a dry run and the
 # comparison is unreachable that way. A real build is far too slow for a gate.
@@ -406,4 +503,9 @@ else
   _bad "--openssldir with no value did not error"
 fi
 
+# Completion sentinel, read by tests/oracle-baseline.sh. It proves this file ran
+# to the END on the baseline tree — the property that distinguishes "asserted
+# and failed", which is what the gate wants to see, from "aborted before
+# asserting", which is what it exists to catch.
+printf 'DONE: libressl trust store\n'
 exit "$_fail"

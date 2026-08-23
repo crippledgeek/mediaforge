@@ -77,14 +77,12 @@ pkg_post_install() {
   # stages it here instead — same file, chosen location.
   #
   # UNCONDITIONALLY, and always at $PREFIX/etc/ssl rather than at the baked path.
-  # Two reasons. It is this package's own file and $PREFIX is the tree the build
-  # already owns, so there is no guard to get wrong and no way to write outside
-  # the prefix — the earlier form tested the baked path against "$PREFIX"/* with
-  # a glob, which answered a filesystem question with a lexical one and would
-  # have followed a symlink out of the prefix. And lib/install.sh cannot deliver
-  # a bundle it does not have: when the baked path is under the INSTALL prefix
-  # (the documented way to get verification working after install) nothing exists
-  # at that path yet at build time, so staging must not be conditional on it.
+  # It is this package's own file and $PREFIX is the tree the build already
+  # owns, so there is no guard to get wrong and no way to write outside the
+  # prefix. And lib/install.sh cannot deliver a bundle it does not have: when
+  # the baked path is under the INSTALL prefix — the documented way to get
+  # verification working after install — nothing exists there yet at build
+  # time, so staging must not be conditional on it.
   run mkdir -p "$PREFIX/etc/ssl"
   run cp cert.pem "$PREFIX/etc/ssl/cert.pem"
 

@@ -69,19 +69,18 @@ OPENSSLDIR_CANDIDATES_DEFAULT="/etc/ssl /etc/pki/tls /usr/local/etc/ssl /opt/hom
 # else the first candidate directory that actually holds a cert.pem, else
 # FALLBACK.
 #
-# EXPLICIT is a PARAMETER, not the $OPENSSLDIR global it used to read. The
-# global made the most important input invisible at the call site, and the
-# installer — a separate process that never loads it — silently resolved as
-# though the user had passed nothing, shipping a build that trusted a different
-# path than it baked. A parameter cannot be forgotten without the call looking
-# wrong.
+# EXPLICIT is a PARAMETER rather than a global, so the most important input is
+# visible at every call site. The installer is a separate process that loads no
+# choices of its own; a global would let it resolve as though the user had
+# passed nothing, and silently bake a different path than the build did.
 # Sets OPENSSLDIR_RESOLVED (the directory) and OPENSSLDIR_FROM (cli|host|
 # fallback). Never fails.
 #
-# The SOURCE is reported, not just the path, because callers need to know how
-# the decision was made — "did we fall back to a directory mediaforge owns?" is
-# a question about provenance, and inferring it afterwards by string-matching
-# the path against $PREFIX answers a filesystem question with a lexical test.
+# OPENSSLDIR_FROM reports HOW the decision was made (cli|host|fallback). No
+# production caller needs it today — lib/install.sh branches on where the path
+# lands relative to the two prefixes, which is a different question — but the
+# probe tests assert on it, and a resolver that returns a bare path cannot be
+# asked why.
 #
 # CANDIDATES is a parameter rather than an ambient variable so the probe can be
 # driven from a synthetic root in tests without exposing a knob that a stray
@@ -89,7 +88,7 @@ OPENSSLDIR_CANDIDATES_DEFAULT="/etc/ssl /etc/pki/tls /usr/local/etc/ssl /opt/hom
 resolve_openssldir() {
   _explicit=$1
   _fallback=$2
-  _candidates=${3:-$OPENSSLDIR_CANDIDATES_DEFAULT}
+  _candidates=${3-$OPENSSLDIR_CANDIDATES_DEFAULT}
 
   if [ -n "$_explicit" ]; then
     OPENSSLDIR_RESOLVED="$_explicit"
@@ -259,13 +258,18 @@ resolve_choices() {
   # libcrypto as X509_CERT_FILE, so a relative value would be resolved against
   # the working directory of whatever process links it — the arm would silently
   # trust nothing rather than fail loudly.
+  #
+  # Validated BEFORE the staleness warning below: warning first would quote an
+  # invalid value back at the user and then die on it anyway.
+  _validate_openssldir "--openssldir" "$OPENSSLDIR" \
+    "It is compiled into the TLS library as its default trust store."
+
+  # Only the two arms that bake an openssldir; the stamps this names exist for
+  # no other arm.
   case "$TLS_BACKEND" in
     openssl|libressl)
       openssldir_warn_if_changed "${STORED_OPENSSLDIR:-}" "$OPENSSLDIR" ;;
   esac
-
-  _validate_openssldir "--openssldir" "$OPENSSLDIR" \
-    "It is compiled into the TLS library as its default trust store."
 
   # TLS: disable companions of the chosen backend
   for _p in $(tls_disable_companions "$TLS_BACKEND"); do
