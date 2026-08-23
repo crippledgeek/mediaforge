@@ -12,5 +12,12 @@ sh tests/resolve-nonfree-aac.sh
 sh tests/flac-removed.sh
 sh tests/menu-stdin.sh
 sh tests/fetch-fail-no-cache.sh
+# Was never wired in, which is why dry-run-matrix.sh's contradicting lcevc row
+# went unnoticed: the accurate test did not run and the inaccurate one did.
+# Dry-run only, so it needs no built workspace — unlike lcevc-static-link.sh,
+# oapv-static-link.sh, no-nested-archives.sh and avs2-reorder-dts.sh, which
+# assert against $PREFIX and stay manual.
+sh tests/lcevc-default-off.sh
+sh tests/libressl-pin-asm.sh
 
 printf 'All tests passed.\n'

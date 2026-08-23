@@ -127,13 +127,30 @@ _run "harfbuzz flag on"     "--enable-libharfbuzz" ./mediaforge.sh build
 _run "quirc on (8.x)"       "--enable-libquirc"    ./mediaforge.sh build
 _run_no "quirc OFF on 6.1"  "--enable-libquirc"    ./mediaforge.sh build --profile=6.1
 
-# GPL codec coverage — xavs2/davs2/libcdio are GPL (only with --enable-gpl);
-# lcevc is free but FFmpeg-version-gated (>=7.1, so default 8.x build has it).
+# GPL codec coverage — xavs2/davs2/libcdio are GPL (only with --enable-gpl).
+#
+# lcevc carries TWO gates, and this block used to account for only one of them.
+# It is FFmpeg-version-gated (>=7.1, recipes/other/lcevc.sh:28) AND opt-in
+# (PKG_DISABLED=true, :19 — V-Nova patent encumbrance, decode-only, and eight
+# circular static archives that break a downstream single-pass link unless
+# merged). The row below asserted that a DEFAULT 8.x build emits
+# --enable-liblcevc-dec, which the version gate alone would imply but the
+# opt-in gate forbids. Both were introduced in the same commit (beba26c), so
+# the assertion never once passed — it contradicted the recipe it tested from
+# the day it was written, and tests/lcevc-default-off.sh asserts the opposite.
 _run "xavs2 on (gpl)"       "--enable-libxavs2"     ./mediaforge.sh build --enable-gpl
 _run "davs2 on (gpl)"       "--enable-libdavs2"     ./mediaforge.sh build --enable-gpl
 _run_no "xavs2 off (free)"  "--enable-libxavs2"     ./mediaforge.sh build
 _run "libcdio on (gpl)"     "--enable-libcdio"      ./mediaforge.sh build --enable-gpl
-_run "lcevc on (8.x)"       "--enable-liblcevc-dec" ./mediaforge.sh build
+# Only the OFF-by-default half lives here, paired with the 7.0 row below it.
+# The opt-in half (--enable=lcevc emits the flag) belongs to
+# tests/lcevc-default-off.sh, which owns that contract with a better oracle: it
+# greps the assembled `$ ./configure` line specifically, where _run/_run_no grep
+# the whole log — and that log mentions lcevc for other reasons. Asserting it
+# here as well would also make this matrix Linux-only, since lcevc.sh sets
+# PKG_LINUX_ONLY=true and check_guards (lib/framework.sh:140) skips it on macOS
+# regardless of --enable=.
+_run_no "lcevc off by default (8.x)" "--enable-liblcevc-dec" ./mediaforge.sh build
 _run_no "lcevc OFF on 7.0"  "--enable-liblcevc-dec" ./mediaforge.sh build --profile=7.0
 
 # DVD inputs — libdvdread/libdvdnav are GPL and FFmpeg-version-gated (>=7.0).

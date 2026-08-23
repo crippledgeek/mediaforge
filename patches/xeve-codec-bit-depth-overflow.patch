@@ -1,0 +1,118 @@
+Reject a codec_bit_depth outside {10, 12} instead of corrupting the heap.
+
+xeve's internal sample type is 16-bit unconditionally -- `typedef s16 pel`
+(src_base/xeve_port.h:52). Its reconstructed and reference picture buffers,
+however, are sized from param->codec_bit_depth: xeve_set_init_param() stores it
+as ctx->pa.bit_depth (src_base/xeve_enc.c:1706), the picture allocator hands it
+to xeve_picbuf_alloc(), which builds a colour space with
+XEVE_CS_SET(cf, bit_depth, 0), and xeve_imgb_create() then takes the plane
+stride from XEVE_CS_GET_BYTE_DEPTH(cs) -- which is 1 for an 8-bit depth.
+
+So at codec_bit_depth=8 every picture plane is allocated one byte per sample and
+subsequently written as 16-bit pels. The encoder runs off the end of every such
+allocation. ASan localizes it precisely, on a 352x288 encode:
+
+  WRITE of size 640 at ... 144 bytes before a 368640-byte region
+    #1 picbuf_expand
+    #2 xeve_picbuf_expand
+    #3 xeve_pic_finish
+    #4 xeve_enc
+  allocated by xeve_imgb_create
+
+640 is one padded row (stride 384+2*144 at one byte per sample), 368640 is
+640*576 -- i.e. the plane really was allocated at byte depth 1 -- and 144 is
+PIC_PAD_SIZE_L (MAX_CU_SIZE+16), the left/top pad that picbuf_expand writes into
+before the buffer even begins.
+
+THIS IS REACHABLE FROM UNMODIFIED UPSTREAM, not just from an embedding. xeve's
+own CLI takes --codec-bit-depth as a documented option (README.md:245) and
+v0.5.1's xeve_app segfaults on it:
+
+  $ xeve_app -i in.yuv -w 352 -h 288 -z 25 --codec-bit-depth 8 -o out.evc
+  Segmentation fault (exit 139)
+
+NOTE FOR ANYONE RE-VERIFYING VIA THAT CLI: it still segfaults after this patch,
+and that is NOT this patch failing. The library now refuses the value correctly
+-- xeve_create() returns -101 -- but the app's own error path then walks two
+uninitialized stack arrays: app/xeve_app.c:933-934 declare
+IMGB_LIST ilist_org[MAX_BUMP_FRM_CNT] / ilist_rec[...] with no initializer, and
+the ERR: label at :1441-1442 calls imgb_list_free() on both, which dereferences
+whatever was on the stack. ANY early xeve_create() failure crashes xeve_app that
+way, bit depth or not. That is an independent upstream defect in the application,
+not the library, and nothing this wrap ships reaches it -- we install the archive
+and link FFmpeg against it. Verify this fix from a library-level caller, where
+xeve_create() cleanly returns XEVE_ERR_INVALID_ARGUMENT.
+
+It matters for THIS project because FFmpeg reaches the same field. libxeve.c
+forwards arbitrary -xeve-params through xeve_param_parse() (ffmpeg-8.0.1
+libavcodec/libxeve.c:360-361) and codec_bit_depth is in that parse table
+(src_base/xeve_param_parse.c:95), so
+`ffmpeg -c:v libxeve -xeve-params codec-bit-depth=8` corrupts the heap in the
+binary we ship.
+
+WHY THE CHECK GOES HERE, and not in xeve_param_check(). That function is the
+obvious home -- it is the library's declared parameter validator -- but putting
+it there would fix nothing for FFmpeg, because FFmpeg calls it BEFORE it applies
+the user's -xeve-params:
+
+  libxeve.c:353   xeve_param_check(&cdsc->param)     <- validates the defaults
+  libxeve.c:361   xeve_param_parse(&cdsc->param,...) <- then applies user values
+  libxeve.c:370   xeve_create(cdsc, NULL)
+
+xeve_set_init_param() is downstream of all three: it is called from
+xeve_create() and so sees the final parameter set no matter which route filled
+it. It is also shared by both profiles -- src_main's xevem_set_init_param()
+(src_main/xevem_util.c:3037-3040) delegates to this base version -- so one check
+covers the MAIN build this wrap produces and the BASE build alike. And it is
+where upstream already keeps exactly this kind of guard: the function opens with
+a "/* check input parameters */" block of xeve_assert_rv(...,
+XEVE_ERR_INVALID_ARGUMENT) tests on w/h, qp, keyint and threads. This is one
+more of those, in the same style.
+
+The alternative fix -- allocating the picture buffers at two bytes per sample so
+that 8-bit coding actually works -- is deliberately NOT taken. Upstream
+documents the supported set as "codec internal bit depth (10, 12)"; 8 is out of
+contract, the path is plainly never exercised, and making it function would mean
+adopting a code path upstream does not test. Rejecting the value closes the
+memory-safety hole, which is the part that affects what we ship, with a diff
+small enough to be obviously correct.
+
+Behaviour change is confined to inputs that previously corrupted memory:
+codec_bit_depth 10 (the default) and 12 are untouched; anything else now returns
+XEVE_ERR_INVALID_ARGUMENT (-101) from xeve_create() instead of scribbling past
+every picture plane. Verified both directions against this wrap's build: a
+352x288 8-frame encode at 10-bit still produces 8413 bytes over 8 output frames
+and is clean under ASan, while the same probe at 8-bit now fails at
+xeve_create() with -101 and no ASan report.
+
+Upstream status: NOT fixed. v0.5.1 (2024-06-24) is the latest tag and the one
+this recipe pins, and xeve_param_check() on master still contains no bit-depth
+validation of any kind (checked 2026-08-02). Applied with -f --fuzz=0 and a
+reverse dry-run guard (the recipes/ffmpeg.sh idiom) rather than the lenient
+"|| true" form, because a security patch that silently stops applying is the one
+failure mode that must not pass quietly.
+
+The meson port of this project carries the identical patch as
+subprojects/packagefiles/patches/xeve-reject-unsupported-codec-bit-depth.patch.
+
+--- a/src_base/xeve_enc.c
++++ b/src_base/xeve_enc.c
+@@ -2281,6 +2281,18 @@
+     xeve_assert_rv(param->qp >= MIN_QUANT && param->qp <= MAX_QUANT, XEVE_ERR_INVALID_ARGUMENT);
+     xeve_assert_rv(param->keyint >= 0 ,XEVE_ERR_INVALID_ARGUMENT);
+     xeve_assert_rv(param->threads <= XEVE_MAX_THREADS ,XEVE_ERR_INVALID_ARGUMENT);
++    /* The encoder's internal sample type (pel) is s16 unconditionally
++       (src_base/xeve_port.h:52), but the reconstructed/reference picture buffers
++       are sized from this field: ctx->pa.bit_depth = param->codec_bit_depth
++       (:1706) reaches xeve_picbuf_alloc(), which builds a colour space with
++       XEVE_CS_SET(..., bit_depth, 0) and lets xeve_imgb_create() take the plane
++       stride from XEVE_CS_GET_BYTE_DEPTH() -- 1 byte per sample at 8-bit. The
++       encoder then writes those planes as 16-bit pels and runs off the end of
++       every allocation. Only 10 and 12 are supported (README.md: "codec internal
++       bit depth (10, 12)"), so reject anything else here rather than corrupt the
++       heap. */
++    xeve_assert_rv(param->codec_bit_depth == 10 || param->codec_bit_depth == 12,
++                   XEVE_ERR_INVALID_ARGUMENT);
+ 
+     if(param->disable_hgop == 0)
+     {
