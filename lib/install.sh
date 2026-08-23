@@ -223,7 +223,15 @@ _install_file() {
   For a privileged prefix this runs '$_priv sh -c' over
   $SCRIPT_DIR/lib/install-one-file.sh, which a sudoers policy permitting only
   mkdir/cp/rm will refuse — that is one cause. A missing or unreadable helper is
-  the other." ;;
+  the other.
+  A root install needs no per-file elevation at all and is the way past a
+  policy like that: re-run the whole command as root — from a root shell, or
+  through a sudoers entry for this script, since a policy that refuses sh
+  refuses 'sudo ./mediaforge.sh' just as readily. For example
+  'sudo ./mediaforge.sh install --prefix=$_install_prefix'. Do that only for a
+  SYSTEM prefix: as root into a user-owned one it leaves root-owned files
+  behind. Scoping an entry to the helper instead is not available — it reaches
+  sh as text, not as a path, so there is no command name to name." ;;
     *) die "internal: the install helper for '$_dest' exited $_install_rc" ;;
   esac
 
