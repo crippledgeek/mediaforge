@@ -9,14 +9,32 @@
 # prefix. Until #21 the containment check that refuses this lived only on the
 # CA-bundle path.
 #
-# Every assertion below is expected to FAIL against the merge base, and
-# tests/oracle-baseline.sh enforces that: it runs this file against a pristine
-# base export and fails if any assertion passes there, if none fails there, or
-# if the DONE sentinel at the bottom never printed. That constraint is why the
-# happy path is not asserted on its own here — "a plain install still places
-# files" passes on the base too, so it is folded into the first assertion, which
-# requires a legitimate binary to have landed AND the symlinked class to have
-# been refused.
+# Measured 2026-08-23 against pristine exports, with this file as it stands:
+# against the PRE-#21 base it was added on (5b3913f) five of its seven
+# assertions fail and two pass; against today's develop all seven pass.
+#
+# The two that pass on 5b3913f are the last pair — a symlinked leaf, and a
+# failed copy. Those guards are OLDER than that base: they arrived with #22, so
+# they were never what this file was written to catch. They live here because
+# they are properties of every installed file and their only other assertion is
+# phrased about the CA bundle; see the note above them.
+#
+# tests/oracle-baseline.sh no longer selects this file at all: it measures ADDED
+# files and this one is modified. Were it still selected, those two passing
+# assertions would fail the gate — which is the gate working, not a defect in
+# them.
+#
+# Nothing mechanical checks this paragraph; it is only as honest as its last
+# reader. It has carried a false sentence in several consecutive revisions, each
+# time because someone edited around a claim instead of re-measuring it. Re-run
+# the two exports before touching a word of it.
+#
+# While the gate did apply, it ran this file against a pristine base export and
+# failed if any assertion passed there, if none failed there, or if the DONE
+# sentinel at the bottom never printed. That constraint is why the happy path is
+# not asserted on its own here — "a plain install still places files" passed on
+# that base too, so it is folded into the first assertion, which requires a
+# legitimate binary to have landed AND the symlinked class to have been refused.
 #
 # No `set -e`: every check reports independently and the script exits with the
 # accumulated status, so one early failure does not hide the rest — and the
@@ -206,8 +224,9 @@ if awk '/^_needs_priv\(\)/,/^}/' lib/install.sh | grep -q '_resolve_existing'; t
   # Skipped where the fixture cannot bite: root ignores 0000, and without sudo
   # _needs_priv legitimately dies instead of answering.
   if [ "$(id -u)" = "0" ] || ! command -v sudo >/dev/null 2>&1; then
+    # SKIP alone — see the note on the copy-failure skip below for why no _pass
+    # accompanies it. This one predates that note and had the same defect.
     printf 'SKIP: unenterable-ancestor probe (root, or no sudo — the fixture cannot bite)\n'
-    _pass "_needs_priv and the containment guard share one ancestor walk"
   elif [ "$_np_answer" = "NEEDS-PRIV" ]; then
     _pass "one shared ancestor walk, and an unenterable prefix still escalates"
   else
@@ -217,6 +236,67 @@ elif awk '/^_needs_priv\(\)/,/^}/' lib/install.sh | grep -q 'while \[ ! -d'; the
   _bad "_needs_priv still carries its own ancestor walk instead of calling _resolve_existing"
 else
   _bad "_needs_priv neither walks nor resolves — the privilege decision has no ancestor at all"
+fi
+
+# ─── a symlinked LEAF is replaced, not followed ─────────────────────────────
+# The unlink-before-copy that makes this true is a property of every installed
+# file, and until now the only assertion on it lived in
+# tests/libressl-trust-store.sh, phrased about the CA bundle. Mutation-removing
+# `rm -f` from lib/install-one-file.sh failed that file and nothing else, so
+# retiring or reworking the LibreSSL feature would have quietly taken the sole
+# coverage of a privileged-write guard with it. The CA-bundle assertion stays
+# where it is — it is an end-to-end claim about that feature — and this is the
+# generic one, on the class that has no feature of its own.
+_s=$(mktemp -d) || exit 1
+_d=$(mktemp -d) || exit 1
+_sentinel=$(mktemp) || exit 1
+_make_stage "$_s"
+printf 'SENTINEL-UNTOUCHED\n' > "$_sentinel"
+mkdir -p "$_d/lib"
+ln -s "$_sentinel" "$_d/lib/libmediaforge-probe.a"
+
+_log=$(_run_install "$_s" "$_d") || true
+
+if [ "$(cat "$_sentinel" 2>/dev/null)" != "SENTINEL-UNTOUCHED" ]; then
+  _bad "a static lib was written THROUGH a leaf symlink onto $_sentinel"
+elif [ -L "$_d/lib/libmediaforge-probe.a" ]; then
+  _bad "the leaf is still a symlink — nothing was installed, so the sentinel surviving proves nothing"
+elif [ "$(cat "$_d/lib/libmediaforge-probe.a" 2>/dev/null)" != "STATIC-LIB" ]; then
+  _bad "no static lib at the leaf destination under $_d — nothing was installed"
+else
+  _pass "a symlinked leaf is replaced, not followed, by the privileged write"
+fi
+rm -rf "$_s" "$_d" "$_sentinel"
+
+# ─── a copy that fails aborts, and is not recorded as installed ─────────────
+# Same reasoning: the checked copy is generic, its only assertion was the
+# LibreSSL one. The source is made unreadable to fail the copy without touching
+# the destination tree, which is what distinguishes "the copy failed" from "the
+# destination was refused".
+if [ "$(id -u)" = "0" ]; then
+  # SKIP alone, with no _pass beside it: a PASS line for work that did not run
+  # tells a human something untrue, and tests/oracle-baseline.sh counts PASS
+  # lines — it would read this as an assertion genuinely passing on the base.
+  # Under root this file prints one fewer PASS, which is the honest count.
+  printf 'SKIP: copy-failure assertion (running as root; 0000 does not stop the read)\n'
+else
+  _s=$(mktemp -d) || exit 1
+  _d=$(mktemp -d) || exit 1
+  _make_stage "$_s"
+  chmod 000 "$_s/lib/libmediaforge-probe.a"
+
+  _log=$(_run_install "$_s" "$_d") || true
+  chmod 644 "$_s/lib/libmediaforge-probe.a" 2>/dev/null
+
+  if ! printf '%s' "$_log" | grep -q 'failed to install'; then
+    _bad "an unreadable source did not abort the install: $(printf '%s' "$_log" | tail -2)"
+  elif [ -f "$_d/.mediaforge-manifest" ] \
+    && grep -q 'libmediaforge-probe.a' "$_d/.mediaforge-manifest" 2>/dev/null; then
+    _bad "a copy that failed was recorded in the manifest — uninstall would claim to remove it"
+  else
+    _pass "a failed copy aborts and is not recorded as installed"
+  fi
+  rm -rf "$_s" "$_d"
 fi
 
 # Completion sentinel, read by tests/oracle-baseline.sh: it proves this file ran
