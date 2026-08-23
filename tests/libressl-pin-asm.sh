@@ -55,13 +55,7 @@ fi
 # sourceable at all, and that the assignment still holds at END of file. A later
 # reassignment, or a failure part-way through sourcing, defeats the grep and is
 # caught here.
-# PREFIX is set because the recipe expands it at TOP LEVEL now
-# (PKG_OPENSSLDIR_FALLBACK), and lib/updates.sh sources recipes from
-# mediaforge.sh, which always has PREFIX defined. Without it this probe dies
-# mid-source under set -u and reports an empty value — which is the probe doing
-# its job, but against an environment the real caller never has.
 _probe=$(
-  PREFIX="${PREFIX:-$_root/workspace}"
   PKG_GITHUB_REPO=""
   # shellcheck source=recipes/crypto/libressl.sh
   . "$_root/$_recipe" >/dev/null 2>&1

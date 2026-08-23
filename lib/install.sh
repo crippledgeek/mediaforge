@@ -191,23 +191,33 @@ do_install() {
   # unlike the openssl arm the compiled-in path is its only default. Without
   # this copy the bundle lives only in $PREFIX, which `clean` deletes.
   #
-  # WHICH arm built the prefix comes from .mediaforge-choices, the file that
-  # already persists every resolved choice — not from a trust-store-specific
-  # state file. WHERE the bundle goes is recomputed with the same resolver the
-  # recipe used: it is a pure function of --openssldir (also persisted there),
-  # the candidate list and the arm's fallback, so it returns the build's answer
-  # without anything needing to be kept in sync.
+  # BOTH inputs come from .mediaforge-choices, the file that already persists
+  # every resolved choice. The arm decides whether to ship a bundle at all; the
+  # openssldir decides where. Reading the openssldir is not optional: the
+  # resolver is a pure function, so it reproduces the build's answer only if it
+  # is given the build's inputs, and `install` is a separate process where
+  # nothing else carries them. cmd_install does not call load_stored_choices,
+  # so without this read OPENSSLDIR is empty here and the probe silently
+  # returns a different answer than the build baked.
+  #
+  # Parsed with sed rather than sourced. load_stored_choices sources it, but
+  # this function runs privileged commands, and sourcing build output into a
+  # process that shells out under sudo is a worse trust posture than parsing a
+  # value out of it.
   #
   # A stale bundle from a previous arm is ignored rather than deleted. Deleting
   # build state from the installer is what made an earlier design destructive on
   # --dry-run and silently lossy across an arm switch; reading the arm costs
   # nothing and cannot damage a workspace.
   _stored_tls=""
+  _stored_od=""
   if [ -f "$PREFIX/.mediaforge-choices" ]; then
     _stored_tls=$(sed -n 's/^STORED_TLS_BACKEND=//p' "$PREFIX/.mediaforge-choices")
+    # save_stored_choices single-quotes this one; strip the quotes.
+    _stored_od=$(sed -n "s/^STORED_OPENSSLDIR='\(.*\)'$/\1/p" "$PREFIX/.mediaforge-choices")
   fi
   if [ -f "$PREFIX/etc/ssl/cert.pem" ] && [ "$_stored_tls" = "libressl" ]; then
-    resolve_openssldir "$PREFIX/etc/ssl"
+    resolve_openssldir "$_stored_od" "$PREFIX/etc/ssl"
     _baked="$OPENSSLDIR_RESOLVED"
     case "$_baked" in
       "$_install_prefix"/*)
@@ -234,17 +244,30 @@ do_install() {
         ;;
     esac
     if [ -n "$_ca_dest" ]; then
-      # CANONICALIZE before the privileged copy. The case patterns above are
-      # lexical: `..` is rejected at validation, but a SYMLINK component is not
-      # visible to a string match and need not exist when --openssldir is
-      # validated. _install_file runs `cp` under $_priv (sudo for a system
-      # prefix), so a symlink planted under the install prefix during the
-      # unprivileged build could otherwise redirect a root-owned write anywhere.
+      # Validate BEFORE creating anything, and validate the nearest EXISTING
+      # ancestor rather than the leaf.
+      #
+      # The case patterns above are lexical: '..' is rejected at validation, but
+      # a SYMLINK is invisible to a string match and need not exist when
+      # --openssldir is validated. `mkdir -p` follows symlink components, so
+      # running it first — under $_priv, i.e. sudo for a system prefix — creates
+      # root-owned directories at the escaped target before any check can refuse
+      # the copy. No file content escapes, but the directories do, and nothing
+      # manifests them so `uninstall` cannot sweep them either.
+      #
+      # Walking to the nearest existing ancestor is the same technique
+      # _needs_priv already uses above, and for the same reason: `test`/`cd`
+      # answer questions about paths that exist, so resolve what is there and
+      # let mkdir create only the symlink-free remainder.
       #
       # `cd ... && pwd -P` rather than `readlink -f`: -f is a GNU extension that
       # macOS's readlink has historically lacked, and this must work on both.
-      $_priv mkdir -p "$(dirname "$_ca_dest")" 2>/dev/null
-      _ca_real=$(cd "$(dirname "$_ca_dest")" 2>/dev/null && pwd -P) || _ca_real=""
+      _ca_parent=$(dirname "$_ca_dest")
+      _ca_probe="$_ca_parent"
+      while [ ! -d "$_ca_probe" ] && [ "$_ca_probe" != "/" ]; do
+        _ca_probe=$(dirname "$_ca_probe")
+      done
+      _ca_real=$(cd "$_ca_probe" 2>/dev/null && pwd -P) || _ca_real=""
       _prefix_real=$(cd "$_install_prefix" 2>/dev/null && pwd -P) || _prefix_real=""
       if [ -z "$_ca_real" ] || [ -z "$_prefix_real" ]; then
         die "cannot resolve the CA bundle destination '$_ca_dest' — refusing to write."
@@ -255,7 +278,8 @@ do_install() {
   the install prefix '$_prefix_real'. Refusing a privileged write through a
   symlink. Check for a symlinked component under the prefix." ;;
       esac
-      _install_file "$PREFIX/etc/ssl/cert.pem" "$_ca_real/cert.pem" "$_manifest_tmp" "$_priv"
+      $_priv mkdir -p "$_ca_parent" 2>/dev/null
+      _install_file "$PREFIX/etc/ssl/cert.pem" "$_ca_dest" "$_manifest_tmp" "$_priv"
       log "  ${_ca_dest#"$_install_prefix"/} (CA bundle)"
     fi
   fi

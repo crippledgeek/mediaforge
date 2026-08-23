@@ -6,6 +6,9 @@
 # against the pre-fix tree; see the per-section comments for what each one is
 # guarding and why the evidence says so.
 #
+# Every assertion here fails against the pre-fix tree. Checks that would also
+# pass on develop have been removed rather than kept for reassurance.
+#
 # No `set -e`: every check reports independently and the script exits with the
 # accumulated status, so one early failure does not hide the rest.
 set -u
@@ -97,19 +100,13 @@ else
   _bad "recipes/crypto/openssl.sh ignores --openssldir, which help/README advertise"
 fi
 
-# No state file, and no helpers to keep three consumers agreeing. The recipe
-# and the installer each call resolve_openssldir, which is a pure function of
-# --openssldir, the candidate list and the fallback — so they agree by
-# construction rather than by synchronisation. Asserted negatively, because the
-# earlier design's defects all came from that machinery existing.
-for _gone in openssldir_record openssldir_recorded openssldir_assert_unchanged \
-             openssldir_clear_if_unused OPENSSLDIR_STATE_FILE PKG_USES_OPENSSLDIR; do
-  if grep -rq "$_gone" lib/ mediaforge.sh recipes/ 2>/dev/null; then
-    _bad "$_gone survives — the openssldir state layer was supposed to be gone"
-  else
-    _pass "no $_gone (state layer stays retired)"
-  fi
-done
+# The state layer that used to keep three consumers agreeing is gone; each now
+# calls resolve_openssldir and is handed the same inputs explicitly. There is
+# deliberately no assertion that the removed helpers stay removed: those names
+# are absent from develop too, so such a check passes on any tree that never had
+# them, and it would guard a retired design by NAME while a re-introduction
+# under different names walked straight past. The reasoning lives in
+# lib/resolve.sh, where it informs rather than merely forbids.
 
 # The patch is what makes a host openssldir SAFE. LibreSSL's install-exec-hook
 # writes cert.pem/openssl.cnf/x509v3.cnf into $(DESTDIR)@OPENSSLDIR@, ignoring
@@ -159,22 +156,23 @@ printf 'not-a-real-bundle\n' > "$_stage/etc/ssl/cert.pem"
 # openssldir, exactly as a real build would have left them.
 printf 'STORED_TLS_BACKEND=libressl\n' > "$_stage/.mediaforge-choices"
 printf "STORED_OPENSSLDIR='%s'\n" "$_dest/etc/ssl" >> "$_stage/.mediaforge-choices"
+# Single-quoted exactly as save_stored_choices writes it, because do_install
+# parses that shape. No OPENSSLDIR is exported: cmd_install does not set it, and
+# injecting it is what previously let both install tests pass while the real
+# workflow shipped no bundle at all.
 
 # A separate `sh` process rather than a ( ) subshell: install.sh's do_install
 # reads PREFIX/AUTOINSTALL from the environment, and shadowing this script's own
 # PREFIX inside a subshell would both confuse the reader and leak install.sh's
 # functions into the assertions that follow.
 PREFIX="$_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-  OPENSSLDIR="$_dest/etc/ssl" \
   sh -c '
-    _want="${OPENSSLDIR:-}"
     . "$SCRIPT_DIR/lib/utils.sh"
     # resolve.sh too: install.sh calls resolve_openssldir from that file.
     # mediaforge.sh sources it at :23, ahead of every install.sh source site,
     # so this mirrors the real load order.
     . "$SCRIPT_DIR/lib/resolve.sh"
     . "$SCRIPT_DIR/lib/install.sh"
-    OPENSSLDIR="$_want"
     do_install "$1"
     # `|| true`, not `|| echo 0`: grep -c already PRINTS 0 on no match and then
     # exits 1, so the fallback would append a second line and yield "0\n0".
@@ -190,7 +188,11 @@ else
   _bad "etc/ssl/cert.pem was not installed (manifest probe: $(cat "$_stage/probe" 2>/dev/null))"
 fi
 
-if [ -e "$_dest" ]; then
+# Gated on the install having happened: "no residue" is trivially true when
+# nothing was ever written, which is exactly the failure mode above.
+if [ "$(cat "$_stage/probe" 2>/dev/null)" != "MANIFESTED=1" ]; then
+  _bad "residue check skipped — nothing was installed, so it would pass vacuously"
+elif [ -e "$_dest" ]; then
   _bad "uninstall left residue at $_dest — etc/ssl is not swept pristinely"
 else
   _pass "install/uninstall round-trip leaves no residue"
@@ -210,24 +212,24 @@ _sym_out=$(mktemp -d) || exit 1
 mkdir -p "$_sym_stage/etc/ssl" "$_sym_stage/.logs"
 printf 'not-a-real-bundle\n' > "$_sym_stage/etc/ssl/cert.pem"
 printf 'STORED_TLS_BACKEND=libressl\n' > "$_sym_stage/.mediaforge-choices"
+printf "STORED_OPENSSLDIR='%s'\n" "$_sym_dest/escape/etc/ssl" >> "$_sym_stage/.mediaforge-choices"
 # 'escape' looks like it is under the install prefix and resolves outside it.
 ln -s "$_sym_out" "$_sym_dest/escape"
 
 _sym_log=$(
   PREFIX="$_sym_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-  OPENSSLDIR="$_sym_dest/escape/etc/ssl" \
   sh -c '
-    _want="${OPENSSLDIR:-}"
     . "$SCRIPT_DIR/lib/utils.sh"
     . "$SCRIPT_DIR/lib/resolve.sh"
     . "$SCRIPT_DIR/lib/install.sh"
-    OPENSSLDIR="$_want"
     do_install "$1"
   ' _ "$_sym_dest" 2>&1
 ) || true
 
 if [ -f "$_sym_out/etc/ssl/cert.pem" ]; then
   _bad "the CA bundle was written THROUGH a symlink to $_sym_out — privileged write escaped the prefix"
+elif [ -d "$_sym_out/etc/ssl" ] || [ -d "$_sym_out/etc" ]; then
+  _bad "mkdir -p created directories THROUGH the symlink at $_sym_out before the guard fired"
 elif printf '%s' "$_sym_log" | grep -q 'Refusing a privileged write'; then
   _pass "a symlinked destination is refused before the copy"
 else
@@ -257,8 +259,7 @@ else
   # Candidates are passed as an argument, not exported: the resolver takes them
   # as $2 precisely so a real build cannot have its trust store redirected by a
   # stray environment variable.
-  OPENSSLDIR=""
-  resolve_openssldir "/fallback/etc/ssl" "$_tmp/nope $_tmp/hit"
+  resolve_openssldir "" "/fallback/etc/ssl" "$_tmp/nope $_tmp/hit"
   if [ "$OPENSSLDIR_RESOLVED" = "$_tmp/hit" ] && [ "$OPENSSLDIR_FROM" = "host" ]; then
     _pass "probe selects the first candidate containing cert.pem"
   else
@@ -267,7 +268,7 @@ else
 
   # No candidate holds a cert.pem: the fallback is the staging prefix, backed by
   # LibreSSL's own shipped bundle.
-  resolve_openssldir "/fallback/etc/ssl" "$_tmp/nope"
+  resolve_openssldir "" "/fallback/etc/ssl" "$_tmp/nope"
   if [ "$OPENSSLDIR_RESOLVED" = "/fallback/etc/ssl" ] && [ "$OPENSSLDIR_FROM" = "fallback" ]; then
     _pass "probe falls back when no candidate has cert.pem"
   else
@@ -276,23 +277,21 @@ else
 
   # A directory that exists but holds no cert.pem must NOT be selected — the
   # boundary between "candidate exists" and "candidate is usable".
-  resolve_openssldir "/fallback/etc/ssl" "$_tmp"
+  resolve_openssldir "" "/fallback/etc/ssl" "$_tmp"
   if [ "$OPENSSLDIR_RESOLVED" = "/fallback/etc/ssl" ]; then
     _pass "probe rejects a candidate directory with no cert.pem"
   else
     _bad "probe selected '$OPENSSLDIR_RESOLVED', a directory with no cert.pem"
   fi
 
-  # An explicit --openssldir outranks a candidate that would otherwise match,
-  # and is reported as such.
-  OPENSSLDIR="/explicit/etc/ssl"
-  resolve_openssldir "/fallback/etc/ssl" "$_tmp/hit"
+  # An explicit value outranks a candidate that would otherwise match, and is
+  # reported as such. Passed positionally: the resolver no longer reads a global.
+  resolve_openssldir "/explicit/etc/ssl" "/fallback/etc/ssl" "$_tmp/hit"
   if [ "$OPENSSLDIR_RESOLVED" = "/explicit/etc/ssl" ] && [ "$OPENSSLDIR_FROM" = "cli" ]; then
     _pass "explicit --openssldir outranks the probe"
   else
     _bad "explicit --openssldir lost to the probe: '$OPENSSLDIR_RESOLVED' from '$OPENSSLDIR_FROM'"
   fi
-  OPENSSLDIR=""
 
   rm -rf "$_tmp"
 fi

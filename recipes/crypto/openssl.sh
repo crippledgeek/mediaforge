@@ -29,7 +29,7 @@ pkg_configure() {
   # Resolved here rather than recorded for other phases to read. The fallback is
   # $PREFIX, not $PREFIX/etc/ssl, because that is where OpenSSL expects its own
   # tree beneath the value.
-  resolve_openssldir "$PREFIX"
+  resolve_openssldir "$OPENSSLDIR" "$PREFIX"
 
   run ./Configure --prefix="$PREFIX" --openssldir="$OPENSSLDIR_RESOLVED" --libdir="lib" \
     --with-zlib-include="$PREFIX/include/" --with-zlib-lib="$PREFIX/lib" \

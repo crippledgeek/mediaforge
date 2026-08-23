@@ -63,10 +63,18 @@ tls_disable_companions() {
 # has no cross-compilation support at all, so there is no equivalent gate here.
 OPENSSLDIR_CANDIDATES_DEFAULT="/etc/ssl /etc/pki/tls /usr/local/etc/ssl /opt/homebrew/etc/ca-certificates /usr/local/etc/ca-certificates"
 
-# resolve_openssldir FALLBACK [CANDIDATES]
+# resolve_openssldir EXPLICIT FALLBACK [CANDIDATES]
 #
-# Resolve the compiled-in OPENSSLDIR: an explicit --openssldir wins, else the
-# first candidate directory that actually holds a cert.pem, else FALLBACK.
+# Resolve the compiled-in OPENSSLDIR: EXPLICIT (the --openssldir value) wins,
+# else the first candidate directory that actually holds a cert.pem, else
+# FALLBACK.
+#
+# EXPLICIT is a PARAMETER, not the $OPENSSLDIR global it used to read. The
+# global made the most important input invisible at the call site, and the
+# installer — a separate process that never loads it — silently resolved as
+# though the user had passed nothing, shipping a build that trusted a different
+# path than it baked. A parameter cannot be forgotten without the call looking
+# wrong.
 # Sets OPENSSLDIR_RESOLVED (the directory) and OPENSSLDIR_FROM (cli|host|
 # fallback). Never fails.
 #
@@ -79,11 +87,12 @@ OPENSSLDIR_CANDIDATES_DEFAULT="/etc/ssl /etc/pki/tls /usr/local/etc/ssl /opt/hom
 # driven from a synthetic root in tests without exposing a knob that a stray
 # environment variable could use to silently change a real build's trust store.
 resolve_openssldir() {
-  _fallback=$1
-  _candidates=${2:-$OPENSSLDIR_CANDIDATES_DEFAULT}
+  _explicit=$1
+  _fallback=$2
+  _candidates=${3:-$OPENSSLDIR_CANDIDATES_DEFAULT}
 
-  if [ -n "$OPENSSLDIR" ]; then
-    OPENSSLDIR_RESOLVED="$OPENSSLDIR"
+  if [ -n "$_explicit" ]; then
+    OPENSSLDIR_RESOLVED="$_explicit"
     OPENSSLDIR_FROM="cli"
     return 0
   fi
@@ -250,7 +259,10 @@ resolve_choices() {
   # libcrypto as X509_CERT_FILE, so a relative value would be resolved against
   # the working directory of whatever process links it — the arm would silently
   # trust nothing rather than fail loudly.
-  openssldir_warn_if_changed "${STORED_OPENSSLDIR:-}" "$OPENSSLDIR"
+  case "$TLS_BACKEND" in
+    openssl|libressl)
+      openssldir_warn_if_changed "${STORED_OPENSSLDIR:-}" "$OPENSSLDIR" ;;
+  esac
 
   _validate_openssldir "--openssldir" "$OPENSSLDIR" \
     "It is compiled into the TLS library as its default trust store."

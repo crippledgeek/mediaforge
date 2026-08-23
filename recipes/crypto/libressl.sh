@@ -34,7 +34,7 @@ pkg_configure() {
   # caller that asks the same question gets the same answer without a recorded
   # value to keep in sync — which is what the earlier state-file design existed
   # to do, and where all of its defects came from.
-  resolve_openssldir "$PREFIX/etc/ssl"
+  resolve_openssldir "$OPENSSLDIR" "$PREFIX/etc/ssl"
 
   # --with-pic: NOT because the objects would otherwise lack -fPIC. mediaforge.sh
   # exports `CFLAGS="$CFLAGS -fPIC"` for every recipe unconditionally
@@ -70,7 +70,7 @@ pkg_post_install() {
     warn "libressl: libtls.pc not found at $PREFIX/lib/pkgconfig/libtls.pc"
   fi
 
-  resolve_openssldir "$PREFIX/etc/ssl"
+  resolve_openssldir "$OPENSSLDIR" "$PREFIX/etc/ssl"
   _libressl_openssldir="$OPENSSLDIR_RESOLVED"
 
   # The install hook that used to place this bundle is patched out, so mediaforge
