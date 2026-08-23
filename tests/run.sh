@@ -19,5 +19,6 @@ sh tests/fetch-fail-no-cache.sh
 # assert against $PREFIX and stay manual.
 sh tests/lcevc-default-off.sh
 sh tests/libressl-pin-asm.sh
+sh tests/libressl-trust-store.sh
 
 printf 'All tests passed.\n'

@@ -14,7 +14,33 @@ PKG_FILENAME="libressl-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libtls"
 PKG_MUTEX_GROUP="tls"
 
+# libtls bakes <openssldir>/cert.pem into the library, so the openssldir is a
+# build input. Declared here rather than resolved in a phase: run_recipe must
+# see it BEFORE the stamp decides whether to skip us, or a rebuild with a
+# changed --openssldir silently keeps the old baked path.
+PKG_USES_OPENSSLDIR=true
+PKG_OPENSSLDIR_FALLBACK="$PREFIX/etc/ssl"
+
+pkg_prepare() {
+  # LibreSSL's install-exec-hook writes cert.pem/openssl.cnf/x509v3.cnf into
+  # @OPENSSLDIR@, ignoring --prefix, and default_install runs a bare
+  # `make install` with no DESTDIR to redirect it. With a host openssldir that
+  # fails outright as a user and overwrites the host trust store as root — the
+  # upstream no-overwrite guard is defeated by a `$i`/`$$i` typo. Removing the
+  # hook is what makes --openssldir safe to point anywhere.
+  # --fuzz=0 so a future tarball that drifts fails loudly instead of mis-applying.
+  if ! patch -p1 -f --fuzz=0 < "$SCRIPT_DIR/patches/libressl-no-openssldir-install.patch"; then
+    patch -p1 -R --fuzz=0 --dry-run < "$SCRIPT_DIR/patches/libressl-no-openssldir-install.patch" >/dev/null 2>&1 \
+      || die "libressl-no-openssldir-install.patch failed to apply and is not already applied"
+  fi
+}
+
 pkg_configure() {
+  # OPENSSLDIR_RESOLVED was resolved (and validated against any previous build)
+  # by run_recipe before the stamp check — see lib/framework.sh. Record it so
+  # pkg_post_install and lib/install.sh read one value instead of re-deriving.
+  openssldir_record "$OPENSSLDIR_RESOLVED"
+
   # --with-pic: NOT because the objects would otherwise lack -fPIC. mediaforge.sh
   # exports `CFLAGS="$CFLAGS -fPIC"` for every recipe unconditionally
   # (mediaforge.sh:251-257), so they already get it and these archives already
@@ -37,14 +63,8 @@ pkg_configure() {
   #                  recipes/other/srt.sh:16 and librtmp.sh:31 consume through
   #                  the OpenSSL API rather than through libtls.
   #
-  # The compiled-in trust store (--with-openssldir) is deliberately NOT set here:
-  # autotools' sysconfdir default bakes $PREFIX/etc/ssl/cert.pem and LibreSSL's
-  # own install puts a real CA bundle there. That default is fragile — the path
-  # is inside the build prefix, which `clean` removes and `install` does not copy
-  # — and fixing it properly needs a CLI surface, an install-hook patch and
-  # installer support. Tracked separately as #18; this recipe keeps the existing
-  # behaviour rather than half-changing it.
   run ./configure --prefix="$PREFIX" \
+    --with-openssldir="$OPENSSLDIR_RESOLVED" \
     --disable-shared --enable-static \
     --with-pic \
     --disable-tests
@@ -53,5 +73,34 @@ pkg_configure() {
 pkg_post_install() {
   if [ ! -f "$PREFIX/lib/pkgconfig/libtls.pc" ]; then
     warn "libressl: libtls.pc not found at $PREFIX/lib/pkgconfig/libtls.pc"
+  fi
+
+  _libressl_openssldir=$(openssldir_recorded) \
+    || die "libressl: no openssldir recorded — pkg_configure did not run"
+
+  # The install hook that used to place this bundle is patched out, so mediaforge
+  # stages it here instead — same file, chosen location.
+  #
+  # UNCONDITIONALLY, and always at $PREFIX/etc/ssl rather than at the baked path.
+  # Two reasons. It is this package's own file and $PREFIX is the tree the build
+  # already owns, so there is no guard to get wrong and no way to write outside
+  # the prefix — the earlier form tested the baked path against "$PREFIX"/* with
+  # a glob, which answered a filesystem question with a lexical one and would
+  # have followed a symlink out of the prefix. And lib/install.sh cannot deliver
+  # a bundle it does not have: when the baked path is under the INSTALL prefix
+  # (the documented way to get verification working after install) nothing exists
+  # at that path yet at build time, so staging must not be conditional on it.
+  run mkdir -p "$PREFIX/etc/ssl"
+  run cp cert.pem "$PREFIX/etc/ssl/cert.pem"
+
+  # A baked path with nothing behind it fails CLOSED at handshake time with no
+  # useful diagnostic — libtls has no SSL_CERT_FILE to fall back on — so say so
+  # here rather than leaving it to be discovered at runtime. Not an error: the
+  # installer places the bundle when the baked path lies under the install
+  # prefix, which is the recommended workflow.
+  if [ ! -f "$_libressl_openssldir/cert.pem" ]; then
+    log "libressl: baked trust store is $_libressl_openssldir/cert.pem, which does"
+    log "  not exist yet. 'install' places it there if that path is inside the"
+    log "  install prefix; otherwise https:// needs -ca_file."
   fi
 }

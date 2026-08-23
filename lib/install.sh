@@ -114,6 +114,17 @@ _select_prefix() {
     esac
   fi
 
+  # Strip a trailing slash. "$_install_prefix"/* is matched against the baked
+  # openssldir below; with a trailing slash the pattern becomes '<prefix>//*',
+  # which does not match '<prefix>/etc/ssl', and the CA bundle would be skipped
+  # silently on nothing worse than how the user typed --prefix.
+  while :; do
+    case "$_install_prefix" in
+      */) _install_prefix="${_install_prefix%/}" ;;
+      *)  break ;;
+    esac
+  done
+
   # Determine privilege escalation
   if _needs_priv "$_install_prefix"; then
     _priv="sudo"
@@ -173,6 +184,58 @@ do_install() {
     rm -f "$_tmppc"
     log "  lib/pkgconfig/$_name"
   done
+
+  # Trust store. Only the libressl arm stages one (recipes/crypto/libressl.sh),
+  # and it is the arm with no ENVIRONMENT override at all — libtls bakes an
+  # absolute TLS_DEFAULT_CA_FILE at compile time and reads no SSL_CERT_FILE, so
+  # unlike the openssl arm the compiled-in path is its only default. Without
+  # this copy the bundle lives only in $PREFIX, which `clean` deletes.
+  #
+  # WHERE it goes follows the path the build actually baked in, read from the
+  # prefix rather than re-derived here — the resolver's decision has one home
+  # (lib/resolve.sh, $PREFIX/.openssldir) and this is a reader of it, not a
+  # fourth independent guess at what the answer was.
+  if [ -f "$PREFIX/etc/ssl/cert.pem" ]; then
+    # Read through the accessor rather than cat-ing the filename: the state
+    # file's name and location belong to lib/resolve.sh, and re-deriving them
+    # here would be the fourth copy of a value this whole change exists to
+    # centralise.
+    if ! _baked=$(openssldir_recorded) || [ -z "$_baked" ]; then
+      warn "no usable openssldir recorded in $PREFIX — skipping the CA bundle."
+      warn "  Rebuild the TLS arm if https:// verification is expected to work."
+      _baked=""
+    fi
+    case "$_baked" in
+      "$_install_prefix"/*)
+        # The documented workflow: the user baked the install location, so put
+        # the bundle exactly where the binary will look for it.
+        _ca_dest="$_baked/cert.pem"
+        ;;
+      "$PREFIX"/*)
+        # Baked at the staging prefix, which `clean` removes. Ship the bundle so
+        # it survives, but it is NOT at the baked path — verification needs
+        # -ca_file, or a rebuild with --openssldir set to the install prefix.
+        _ca_dest="$_install_prefix/etc/ssl/cert.pem"
+        warn "CA bundle installed to $_ca_dest, but the binary looks for"
+        warn "  $_baked/cert.pem (the build prefix, which 'clean' deletes)."
+        warn "  Use -ca_file, or rebuild with --openssldir=$_install_prefix/etc/ssl"
+        ;;
+      "")
+        _ca_dest="" ;;
+      *)
+        # A host trust store (probed, or given explicitly). The host owns it —
+        # installing our snapshot over it is exactly what the libressl install
+        # hook was patched out for. Said out loud: silence here is
+        # indistinguishable from the bundle having been forgotten.
+        _ca_dest=""
+        log "  (CA bundle not installed: the build trusts $_baked, which the host owns)"
+        ;;
+    esac
+    if [ -n "$_ca_dest" ]; then
+      _install_file "$PREFIX/etc/ssl/cert.pem" "$_ca_dest" "$_manifest_tmp" "$_priv"
+      log "  ${_ca_dest#"$_install_prefix"/} (CA bundle)"
+    fi
+  fi
 
   # Headers
   if [ -d "$PREFIX/include" ]; then

@@ -63,17 +63,28 @@ library_exists() {
 # Build stamp gating — check stamp file in $PREFIX/.stamps/
 # Stamp filenames encode name and version: .stamps/x264-0.164
 # Returns 0 (true) if package should be built, 1 (false) if up to date
+# Path of a recipe's build stamp. One definition, because run_recipe needs to
+# ask whether a stamp exists before deciding to trust a recorded build input.
+stamp_path() {
+  printf '%s\n' "$PREFIX/.stamps/${1}-${2}"
+}
+
+# True when the recipe is already built.
+stamp_exists() {
+  [ -f "$(stamp_path "$1" "$2")" ]
+}
+
 stamp_check() {
   _pkg="$1"
   _ver="$2"
+  _stamp=$(stamp_path "$_pkg" "$_ver")
   _stampdir="$PREFIX/.stamps"
-  _stamp="$_stampdir/${_pkg}-${_ver}"
 
   log ""
   log "Building $_pkg - version $_ver"
   log "======================="
 
-  if [ -f "$_stamp" ]; then
+  if stamp_exists "$_pkg" "$_ver"; then
     log "$_pkg version $_ver already built. Remove $_stamp to rebuild."
     return 1
   fi

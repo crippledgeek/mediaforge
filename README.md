@@ -123,6 +123,9 @@ Codec / backend selectors (mutually exclusive within each group):
   --av1-enc=IMPL            AV1 encoder: svtav1|rav1e|av1 (default: svtav1)
   --flite-audio=BACKEND     flite audio output: none|alsa|pulseaudio|oss|sun
                             (default: none; FFmpeg filter does not invoke it)
+  --openssldir=PATH         Compiled-in trust store for the openssl/libressl
+                            arms (absolute). Default: probe the host for a
+                            directory holding cert.pem, else the build prefix.
 
 Recipe overrides:
   --disable=PKG             Disable a recipe by name (repeatable, comma-separated ok)
@@ -226,6 +229,64 @@ the install-time stop-list) or `[NEW SHADOW]` (not in the stop-list —
 review whether to add it). Exits 0 by default (warn-only, matches
 `rpmlint`/`lintian`/`brew audit` convention); `--strict` exits 1 for
 CI gating. The stop-list lives in `lib/install.sh:_PKGCONFIG_SHADOWERS`.
+
+### TLS trust stores
+
+What the built FFmpeg trusts for `https://` depends on which `--tls` arm you
+picked, and the four arms genuinely differ:
+
+| Arm | Default trust store | Runtime override |
+|---|---|---|
+| `gnutls` | Host store, found by gnutls's own configure probe | `-ca_file` |
+| `openssl` | Compiled-in `OPENSSLDIR` — the probed host store, else the build prefix (which ships no certs) | `-ca_file`, `SSL_CERT_FILE`, `SSL_CERT_DIR` |
+| `libressl` | Compiled-in `<openssldir>/cert.pem` | **`-ca_file` only** |
+| `mbedtls` | None at all | `-ca_file` only |
+
+`--openssldir=PATH` sets the compiled-in directory for the `openssl` and
+`libressl` arms. It must be absolute: the value is baked into the library, so a
+relative path would resolve against the working directory of whatever process
+links it, and the arm would silently trust nothing.
+
+Left unset, mediaforge probes the host for a directory that actually contains a
+`cert.pem` (`/etc/ssl`, `/etc/pki/tls`, `/usr/local/etc/ssl`, Homebrew's
+`etc/ca-certificates`) and falls back to the build prefix — the same
+try-a-list-then-fall-back shape curl and gnutls use in their own configure.
+Debian and Ubuntu ship `ca-certificates.crt` and no `cert.pem`, so they take the
+fallback; Fedora and RHEL are matched by the `/etc/pki/tls` entry.
+
+The `libressl` arm is the one to watch, because libtls has **no** environment
+escape — it reads no `SSL_CERT_FILE`, so the compiled-in path is the only
+default it will ever have, and `-ca_file` is the only way to override it at
+runtime. mediaforge always stages LibreSSL's own bundled CA list into the build
+prefix; `install` then places it at whichever path the build baked in, provided
+that path lies inside the install prefix. So the way to get verification working
+out of the box is to bake the install location at build time:
+
+```sh
+./mediaforge.sh build --tls=libressl --openssldir="$HOME/.local/mediaforge/etc/ssl"
+./mediaforge.sh install --prefix="$HOME/.local/mediaforge"
+```
+
+If the baked path is left at the build prefix and you install elsewhere, the
+bundle is still installed (so it survives `clean`) but *not* at the path the
+binary looks in — `install` says so explicitly, and you then need `-ca_file`.
+
+A build that resolved to a **host** trust store installs no bundle at all: that
+directory is the host's to manage, and writing mediaforge's build-time snapshot
+over it is exactly what `patches/libressl-no-openssldir-install.patch` exists to
+prevent.
+
+Note that the baked path is a build input the stamp does not capture, so
+re-running `build` with a different `--openssldir` on an existing workspace
+fails loudly and tells you which stamp to remove, rather than silently keeping
+the old path.
+
+Unlike the other dependencies, LibreSSL is pinned to the same current version in
+every version profile rather than an era-appropriate one. Holding an old
+LibreSSL to match an old FFmpeg would mean shipping known upstream security
+fixes back out of a build — for example the CMS enveloped-data out-of-bounds
+read/write fixed in 4.2.0 — and that is not a trade a version profile should be
+making on the user's behalf.
 
 ## Version Profiles
 

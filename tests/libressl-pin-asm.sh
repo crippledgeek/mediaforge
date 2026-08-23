@@ -55,7 +55,13 @@ fi
 # sourceable at all, and that the assignment still holds at END of file. A later
 # reassignment, or a failure part-way through sourcing, defeats the grep and is
 # caught here.
+# PREFIX is set because the recipe expands it at TOP LEVEL now
+# (PKG_OPENSSLDIR_FALLBACK), and lib/updates.sh sources recipes from
+# mediaforge.sh, which always has PREFIX defined. Without it this probe dies
+# mid-source under set -u and reports an empty value — which is the probe doing
+# its job, but against an environment the real caller never has.
 _probe=$(
+  PREFIX="${PREFIX:-$_root/workspace}"
   PKG_GITHUB_REPO=""
   # shellcheck source=recipes/crypto/libressl.sh
   . "$_root/$_recipe" >/dev/null 2>&1
@@ -117,21 +123,9 @@ else
   _bad "libressl does not pass --with-pic"
 fi
 
-# ─── scope guard ────────────────────────────────────────────────────────────
-# #18's trust-store surface belongs to a separate change. Swept across every
-# file that branch touches, not just the recipe: it changes lib/resolve.sh,
-# lib/install.sh, lib/framework.sh, mediaforge.sh and patches/, so a
-# recipe-only grep would let most of the surface through while reporting clean.
-#
-# Comment lines are excluded — the recipe explains in prose WHY the trust store
-# is deliberately not set here and names the flag while doing so, which a raw
-# sweep would read as the leak it is describing.
-if grep -rn -- '--with-openssldir\|OPENSSLDIR_RESOLVED\|PKG_USES_OPENSSLDIR\|openssldir_record' \
-     recipes/ lib/ mediaforge.sh patches/ 2>/dev/null \
-     | grep -qv ':[0-9][0-9]*:[[:space:]]*#'; then
-  _bad "the openssldir surface (#18) leaked into this branch"
-else
-  _pass "trust-store surface (#18) stays out of this change"
-fi
+# The #18 scope guard that used to live here has done its job and is retired:
+# the trust-store surface it watched for has landed on this branch, and
+# tests/libressl-trust-store.sh now asserts that surface directly. Keeping a
+# guard that fails on the thing the branch exists to add would be noise.
 
 exit "$_fail"

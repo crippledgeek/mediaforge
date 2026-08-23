@@ -13,6 +13,10 @@ H265_IMPL=""
 AV1_ENC_IMPL=""
 SPIRV_IMPL=""
 
+# Compiled-in OPENSSLDIR for the openssl and libressl arms (empty = "not chosen",
+# whereupon each recipe resolves its own default). Set from --openssldir.
+OPENSSLDIR=""
+
 # Conservative defaults (used when non-interactive and nothing else resolves).
 TLS_BACKEND_DEFAULT_BUILTIN="gnutls"
 AAC_IMPL_DEFAULT_BUILTIN="native"
@@ -42,6 +46,112 @@ tls_disable_companions() {
   esac
 }
 
+# Host trust-store directories probed when --openssldir is not given, in order.
+#
+# These are DIRECTORIES whose child is literally cert.pem, not bundle files:
+# libtls derives its compiled-in TLS_DEFAULT_CA_FILE as <openssldir>/cert.pem
+# (tls/Makefile.am:53). That makes the list narrower than curl's bundle-file
+# list — Debian/Ubuntu ship /etc/ssl/certs/ca-certificates.crt and no cert.pem,
+# so they fall through to the caller's fallback by design. Fedora/RHEL DO have
+# one at /etc/pki/tls/cert.pem, which is why that directory is listed second;
+# it is also the entry gnutls's own probe carries (configure.ac:1363).
+#
+# Probing the build host for a trust store is the ecosystem norm, not a
+# shortcut: curl does it (acinclude.m4, CURL_CHECK_CA_BUNDLE) and so does
+# gnutls (configure.ac:1359-1372), both with an explicit override and a warning
+# on a miss. curl additionally skips the probe when cross-compiling; mediaforge
+# has no cross-compilation support at all, so there is no equivalent gate here.
+OPENSSLDIR_CANDIDATES_DEFAULT="/etc/ssl /etc/pki/tls /usr/local/etc/ssl /opt/homebrew/etc/ca-certificates /usr/local/etc/ca-certificates"
+
+# resolve_openssldir FALLBACK [CANDIDATES]
+#
+# Resolve the compiled-in OPENSSLDIR: an explicit --openssldir wins, else the
+# first candidate directory that actually holds a cert.pem, else FALLBACK.
+# Sets OPENSSLDIR_RESOLVED (the directory) and OPENSSLDIR_FROM (cli|host|
+# fallback). Never fails.
+#
+# The SOURCE is reported, not just the path, because callers need to know how
+# the decision was made — "did we fall back to a directory mediaforge owns?" is
+# a question about provenance, and inferring it afterwards by string-matching
+# the path against $PREFIX answers a filesystem question with a lexical test.
+#
+# CANDIDATES is a parameter rather than an ambient variable so the probe can be
+# driven from a synthetic root in tests without exposing a knob that a stray
+# environment variable could use to silently change a real build's trust store.
+resolve_openssldir() {
+  _fallback=$1
+  _candidates=${2:-$OPENSSLDIR_CANDIDATES_DEFAULT}
+
+  if [ -n "$OPENSSLDIR" ]; then
+    OPENSSLDIR_RESOLVED="$OPENSSLDIR"
+    OPENSSLDIR_FROM="cli"
+    return 0
+  fi
+
+  for _cand in $_candidates; do
+    if [ -f "$_cand/cert.pem" ]; then
+      OPENSSLDIR_RESOLVED="$_cand"
+      OPENSSLDIR_FROM="host"
+      return 0
+    fi
+  done
+
+  OPENSSLDIR_RESOLVED="$_fallback"
+  OPENSSLDIR_FROM="fallback"
+}
+
+# The resolved openssldir, recorded in the prefix so the recipe's later phases
+# and the installer all read ONE value instead of each re-deriving it. Same
+# accumulator-file idiom the build already uses for .extra_cflags and
+# .pc-skip-queue, and for the same reason: build phases are separate function
+# calls and the installer is a separate process, so a shell variable cannot
+# carry the decision across all three.
+OPENSSLDIR_STATE_FILE=".openssldir"
+
+# Record the resolved openssldir for later phases and for the installer.
+openssldir_record() {
+  printf '%s\n' "$1" > "$PREFIX/$OPENSSLDIR_STATE_FILE"
+}
+
+# Read back the recorded openssldir; prints nothing when none was recorded
+# (no TLS arm built, or a workspace predating this file).
+openssldir_recorded() {
+  [ -f "$PREFIX/$OPENSSLDIR_STATE_FILE" ] || return 1
+  cat "$PREFIX/$OPENSSLDIR_STATE_FILE"
+}
+
+# Abort when a rebuild asks for a different openssldir than the workspace was
+# built with. The stamp is keyed on name+version only (lib/utils.sh
+# stamp_check), so a recipe whose ONLY changed input is the openssldir would be
+# skipped as "already built" and silently keep the previous baked path — the
+# common case being: build, discover https:// needs a trust store, re-run with
+# --openssldir. Failing loudly with the remedy beats baking a stale path.
+openssldir_assert_unchanged() {
+  _want=$1
+  _have=$(openssldir_recorded) || return 0
+  [ "$_have" = "$_want" ] && return 0
+  die "openssldir changed since this workspace was built ('$_have' -> '$_want').
+  The build stamp does not capture it, so the TLS recipe would be skipped and
+  the old path kept. Remove the stamp to rebuild against the new value:
+    rm -f $PREFIX/.stamps/${2}-* $PREFIX/$OPENSSLDIR_STATE_FILE"
+}
+
+# Drop trust-store state when the chosen TLS arm does not bake an openssldir.
+#
+# $PREFIX/etc/ssl/cert.pem and the .openssldir record are written by the
+# libressl arm and removed by nothing short of `clean`. Rebuilding the same
+# workspace with --tls=gnutls or --tls=none would otherwise leave both in place,
+# and do_install's `[ -f "$PREFIX/etc/ssl/cert.pem" ]` gate would still fire:
+# a CA bundle installed and manifest-tracked for a binary that no longer links
+# libtls, plus a warning about a library that is not there.
+openssldir_clear_if_unused() {
+  case "$1" in
+    openssl|libressl) return 0 ;;
+  esac
+  [ -d "$PREFIX" ] || return 0
+  rm -f "$PREFIX/$OPENSSLDIR_STATE_FILE" "$PREFIX/etc/ssl/cert.pem"
+}
+
 # Validate a value against a "|"-separated enum. Aborts on mismatch.
 _validate_enum() {
   _name=$1; _value=$2; _allowed=$3
@@ -49,6 +159,54 @@ _validate_enum() {
     *"|$_value|"*) return 0 ;;
   esac
   die "Invalid $_name: $_value. Allowed: $(printf '%s' "$_allowed" | tr '|' ',')"
+}
+
+# Validate a path that is compiled into a library, persisted across runs, and
+# used as a privileged write destination. Aborts on anything unsafe.
+#
+# Every other persisted choice (TLS_BACKEND, AAC_IMPL, ...) is constrained by
+# _validate_enum to a fixed literal set, so none of them can carry a shell
+# metacharacter or a traversal. This is the first free-form value in that
+# pipeline, and it reaches two places where unconstrained content is dangerous:
+#
+#   * save_stored_choices writes it to $PREFIX/.mediaforge-choices, which
+#     load_stored_choices SOURCES. Without a charset restriction,
+#     --openssldir='/tmp/x$(...)' is stored verbatim and then EXECUTED on the
+#     next build. The malformed-file guard there checks that sourcing succeeds,
+#     which a working payload does — it detects syntax errors, not code.
+#   * lib/install.sh matches it with `case "$_install_prefix"/*` and passes the
+#     result to _install_file, which runs mkdir -p and cp under $_priv (sudo,
+#     for a system prefix). The glob constrains the prefix but not the suffix,
+#     so '/usr/local/../../etc/ssl' matches and escapes — a privileged write to
+#     an arbitrary path, e.g. over the host's real trust store.
+#
+# Rejecting both classes here means neither consumer has to defend itself
+# against content that can no longer exist.
+_validate_openssldir() {
+  _name=$1; _value=$2; _why=$3
+  [ -z "$_value" ] && return 0
+
+  case "$_value" in
+    /*) : ;;
+    *) die "Invalid $_name: '$_value' is not an absolute path. $_why" ;;
+  esac
+
+  # Conservative allowlist rather than a metacharacter blocklist: a blocklist of
+  # shell-special characters is a list you can forget an entry from.
+  case "$_value" in
+    *[!A-Za-z0-9_./+-]*)
+      die "Invalid $_name: '$_value' contains characters that are not allowed.
+  Permitted: letters, digits, and _ . / + -
+  The value is stored in $PREFIX/.mediaforge-choices, which is read back as
+  shell on the next build, so it must not be able to carry shell syntax." ;;
+  esac
+
+  case "$_value" in
+    */../*|*/..)
+      die "Invalid $_name: '$_value' contains a '..' segment.
+  The value is used as an install destination that may be written with sudo, so
+  it must not be able to traverse out of the prefix it appears to be under." ;;
+  esac
 }
 
 # Top-level resolver. Mutates DISABLE_PKGS in place. Idempotent.
@@ -122,6 +280,13 @@ resolve_choices() {
   _validate_enum "--av1-enc" "$AV1_ENC_IMPL" "svtav1|rav1e|av1"
   _validate_enum "--spirv"   "$SPIRV_IMPL"   "glslang|shaderc"
 
+  # Compiled into libtls as TLS_DEFAULT_CA_FILE (tls/Makefile.am:53) and into
+  # libcrypto as X509_CERT_FILE, so a relative value would be resolved against
+  # the working directory of whatever process links it — the arm would silently
+  # trust nothing rather than fail loudly.
+  _validate_openssldir "--openssldir" "$OPENSSLDIR" \
+    "It is compiled into the TLS library as its default trust store."
+
   # TLS: disable companions of the chosen backend
   for _p in $(tls_disable_companions "$TLS_BACKEND"); do
     DISABLE_PKGS="$DISABLE_PKGS $_p"
@@ -174,6 +339,7 @@ load_stored_choices() {
   : "${H265_IMPL:=${STORED_H265_IMPL:-}}"
   : "${AV1_ENC_IMPL:=${STORED_AV1_ENC_IMPL:-}}"
   : "${SPIRV_IMPL:=${STORED_SPIRV_IMPL:-}}"
+  : "${OPENSSLDIR:=${STORED_OPENSSLDIR:-}}"
 }
 
 # Save resolved choices for next run.
@@ -189,6 +355,7 @@ STORED_H264_IMPL=$H264_IMPL
 STORED_H265_IMPL=$H265_IMPL
 STORED_AV1_ENC_IMPL=$AV1_ENC_IMPL
 STORED_SPIRV_IMPL=$SPIRV_IMPL
+STORED_OPENSSLDIR='$OPENSSLDIR'
 EOF
 }
 
