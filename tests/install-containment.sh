@@ -155,9 +155,13 @@ else
   _log=$(_run_install "$_s" "$_d") || true
   chmod 700 "$_d/.mediaforge-manifest" 2>/dev/null
 
+  # Newlines flattened before the second match: on a tree without the fix,
+  # `wc -l < <a directory>` prints its own error between the count and the word
+  # "files", so 'Installed .* files' spans two lines and the branch that names
+  # the real failure mode would be skipped for the vaguer one below it.
   if printf '%s' "$_log" | grep -q 'failed to write the manifest'; then
     _pass "a manifest write that fails aborts with the files it could not record"
-  elif printf '%s' "$_log" | grep -q 'Installed .* files'; then
+  elif printf '%s' "$_log" | tr '\n' ' ' | grep -q 'Installed .* files'; then
     _bad "a failed manifest write was reported as a successful install"
   else
     _bad "a failed manifest write neither aborted nor reported — unclear: $(printf '%s' "$_log" | tail -2)"
@@ -165,24 +169,52 @@ else
   rm -rf "$_s" "$_d"
 fi
 
-# ─── one ancestor walk, not three ──────────────────────────────────────────
-# A STRUCTURAL assertion, and labelled as one: _needs_priv's own walk and
-# _resolve_existing's answer the same question, and the two copies had already
-# drifted — _needs_priv tested the LEXICAL ancestor's writability while the
-# containment check resolved the physical one. There is no input that
-# distinguishes them behaviourally (`test -w` follows symlinks, and '..' is
-# rejected upstream), so the only thing left to assert is that the second copy
-# is gone.
+# ─── one ancestor walk, and it still answers for a prefix we cannot enter ───
+# Two claims in one assertion, because either alone is satisfiable by the wrong
+# code:
 #
-# '$' comes from printf (\044) rather than being written literally: a literal
-# '$' inside single quotes is SC2016, and inside double quotes the shell would
-# expand it — the same reason tests/libressl-trust-store.sh assembles its
-# payloads that way.
-_dollar=$(printf '\044')
-if grep -q "while \[ ! -d \"${_dollar}_np_ancestor\" \]" lib/install.sh; then
+#  * STRUCTURAL, and labelled as one — _needs_priv used to carry its own copy of
+#    the walk, answering on the LEXICAL ancestor while the containment check
+#    resolved the physical one. No input distinguishes those behaviourally
+#    (`test -w` follows symlinks, and '..' is rejected upstream), so "the second
+#    copy is gone" is the only thing left to assert about the dedup itself.
+#  * BEHAVIOURAL, and it is the regression guard for the dedup: _resolve_existing
+#    answers with `cd`, which fails for an ancestor this user cannot enter.
+#    _needs_priv is the one caller that cannot pass a privilege — it is what
+#    decides the privilege — so an empty answer there must mean "needs
+#    privilege", not "abort". Delegating without that fallthrough turns every
+#    install into a root-owned 0700 prefix into a fatal error.
+#
+# The structural half is scoped to _needs_priv's BODY rather than matched
+# line-for-line: an exact-line grep turns a reformat (adding quotes around the
+# substitution) into a loud false failure.
+if awk '/^_needs_priv\(\)/,/^}/' lib/install.sh | grep -q '_resolve_existing'; then
+  _np_probe=$(mktemp -d) || exit 1
+  mkdir -p "$_np_probe/locked"
+  chmod 000 "$_np_probe/locked"
+  _np_answer=$(
+    SCRIPT_DIR="$_root" sh -c '
+      . "$SCRIPT_DIR/lib/utils.sh"
+      . "$SCRIPT_DIR/lib/resolve.sh"
+      . "$SCRIPT_DIR/lib/install.sh"
+      if _needs_priv "$1"; then echo NEEDS-PRIV; else echo NO-PRIV; fi
+    ' _ "$_np_probe/locked/pfx" 2>&1
+  ) || true
+  chmod 700 "$_np_probe/locked"
+  rm -rf "$_np_probe"
+
+  # Skipped where the fixture cannot bite: root ignores 0000, and without sudo
+  # _needs_priv legitimately dies instead of answering.
+  if [ "$(id -u)" = "0" ] || ! command -v sudo >/dev/null 2>&1; then
+    printf 'SKIP: unenterable-ancestor probe (root, or no sudo — the fixture cannot bite)\n'
+    _pass "_needs_priv and the containment guard share one ancestor walk"
+  elif [ "$_np_answer" = "NEEDS-PRIV" ]; then
+    _pass "one shared ancestor walk, and an unenterable prefix still escalates"
+  else
+    _bad "_needs_priv delegates but no longer answers for an unenterable ancestor: '$_np_answer'"
+  fi
+elif awk '/^_needs_priv\(\)/,/^}/' lib/install.sh | grep -q 'while \[ ! -d'; then
   _bad "_needs_priv still carries its own ancestor walk instead of calling _resolve_existing"
-elif grep -q "_np_ancestor=${_dollar}(_resolve_existing" lib/install.sh; then
-  _pass "_needs_priv and the containment guard share one ancestor walk"
 else
   _bad "_needs_priv neither walks nor resolves — the privilege decision has no ancestor at all"
 fi

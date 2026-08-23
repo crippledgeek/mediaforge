@@ -11,9 +11,30 @@
 
 # ─── Helpers ──────────────────────────────────────────────────────────
 
-# Resolve a path to its PHYSICAL location by walking to the nearest EXISTING
-# ancestor and resolving that. `cd`/`pwd -P` only answer for paths that exist,
-# and install destinations frequently do not yet.
+# Nearest EXISTING ancestor of $1, probed under the optional privilege $2
+# ("sudo", or empty). Lexical: the answer is a path that exists, not a resolved
+# one — _resolve_existing does that part.
+#
+# The privilege matters to the PROBE, not just to the resolution. `test -d`
+# answers as whoever runs it, so asked unprivileged about a component inside a
+# root-owned 0700 prefix it says "not a directory" for a directory that is
+# there, and the walk stops one or more levels too high. The caller then vets an
+# ancestor and learns nothing about the symlink below it.
+_nearest_existing() {
+  while ! ${2-} test -d "$1" && [ "$1" != "/" ]; do
+    set -- "$(dirname "$1")" "${2-}"
+  done
+  printf '%s\n' "$1"
+}
+
+# Resolve a path ($1) to its PHYSICAL location, under the optional privilege $2,
+# by walking to the nearest existing ancestor and resolving that. `cd`/`pwd -P`
+# only answer for paths that exist, and install destinations frequently do not
+# yet.
+#
+# Ask under the SAME privilege the write will use, or the answer does not
+# describe the write: a prefix this user cannot traverse resolves to nothing
+# unprivileged, and `cd` is as blind to it as `test -d` is above.
 #
 # Prints nothing (and returns non-zero) when nothing in the chain resolves, so
 # callers must treat an empty result as "unknown", never as "matches".
@@ -21,11 +42,25 @@
 # `cd ... && pwd -P` rather than `readlink -f`: -f is a GNU extension that
 # macOS's readlink has historically lacked, and this must work on both.
 _resolve_existing() {
-  _re_path="$1"
-  while [ ! -d "$_re_path" ] && [ "$_re_path" != "/" ]; do
-    _re_path=$(dirname "$_re_path")
-  done
-  (cd "$_re_path" 2>/dev/null && pwd -P)
+  _re_priv="${2-}"
+  case "$_re_priv" in
+    ''|sudo) ;;
+    # The branch below names sudo literally, so anything else would silently be
+    # escalated as sudo. _select_prefix only ever produces these two.
+    *) die "internal: _resolve_existing given an unsupported privilege prefix '$_re_priv'" ;;
+  esac
+
+  _re_dir=$(_nearest_existing "$1" "$_re_priv")
+
+  if [ -n "$_re_priv" ]; then
+    # `sudo` written literally rather than as "$_re_priv": ShellCheck parses the
+    # script of an `sh -c` only when the command word is a literal, and an
+    # unparsed one is reported as SC2016 instead of being checked. The `case`
+    # above is what keeps the literal honest.
+    sudo sh -c 'cd "$1" 2>/dev/null && pwd -P' _ "$_re_dir"
+  else
+    (cd "$_re_dir" 2>/dev/null && pwd -P)
+  fi
 }
 
 # Detect if we need privilege escalation to install into $1.
@@ -62,14 +97,15 @@ _needs_priv() {
   # Already root: sudo would reset env for no benefit.
   [ "$(id -u)" = "0" ] && return 1
 
+  # Deliberately UNPRIVILEGED — this function is what decides whether privilege
+  # is needed, so it cannot borrow it. An ancestor that exists but cannot be
+  # entered therefore resolves to nothing, and that is the "not mine to write"
+  # answer rather than an error: a root-owned 0700 prefix is precisely what the
+  # sudo path below is for. Answering "no privilege needed" is the one thing it
+  # must not do.
   _np_ancestor=$(_resolve_existing "$_np_target")
-  # Empty means nothing in the chain resolved — not even '/'. Treating that as
-  # "no privilege needed" would hand an unresolvable prefix to the install as
-  # though it were the user's own.
-  [ -n "$_np_ancestor" ] \
-    || die "Cannot resolve any existing ancestor of '$_np_target'."
 
-  if [ -w "$_np_ancestor" ]; then
+  if [ -n "$_np_ancestor" ] && [ -w "$_np_ancestor" ]; then
     return 1
   fi
 
@@ -124,10 +160,20 @@ _install_file() {
   # The nearest EXISTING ancestor is what gets resolved: `cd`/`pwd -P` answer
   # only for paths that exist, and install destinations mostly do not yet. That
   # leaves mkdir to create only the symlink-free remainder.
-  _dest_real=$(_resolve_existing "$(dirname "$_dest")")
+  # Under $_priv: the mkdir and the cp below run under it, so a check that ran
+  # unprivileged would be answering about a different filesystem view than the
+  # one the write gets.
+  _dest_real=$(_resolve_existing "$(dirname "$_dest")" "$_priv")
   if [ -z "$_dest_real" ] || [ -z "${_install_prefix_real:-}" ]; then
     die "cannot resolve the install destination '$_dest' — refusing to write."
   fi
+  # The trailing '/' on the subject is what separates a sibling from a child:
+  # without it '/opt/mf-evil' matches the pattern for '/opt/mf'.
+  #
+  # The expansion is QUOTED, which makes its content literal rather than a
+  # pattern — a prefix containing '*' or '?' cannot widen the match. Measured
+  # 2026-08-23 with prefix '/opt/mf*' against '/opt/mfEVIL/': no match under
+  # both dash 0.5.12 and bash, per POSIX quote removal in case patterns.
   case "$_dest_real/" in
     "$_install_prefix_real"/*) : ;;
     *) die "install destination '$_dest' resolves to '$_dest_real', outside the
@@ -267,7 +313,12 @@ do_install() {
   # Resolved once, here, and read by every _install_file call as the containment
   # boundary. After the mkdir above, so the prefix itself always resolves and a
   # first install is not measured against its parent.
-  _install_prefix_real=$(_resolve_existing "$_install_prefix")
+  #
+  # Resolved under $_priv, like every per-destination resolution below it: the
+  # copies run under that privilege, so the check has to see what they will see.
+  # A root-owned 0700 prefix is invisible to an unprivileged `cd`, and vetting
+  # it unprivileged would refuse a legitimate install rather than protect it.
+  _install_prefix_real=$(_resolve_existing "$_install_prefix" "$_priv")
   [ -n "$_install_prefix_real" ] \
     || die "Cannot resolve the install prefix '$_install_prefix' after creating it."
 
@@ -389,9 +440,21 @@ do_install() {
     # destination refused by the containment guard would abort the loop and the
     # install would carry on to finalize a manifest and report success. The
     # refusal has to be able to end the run, like it does for every other class.
-    _hdrlist=$(mktemp /tmp/mediaforge-headers.XXXXXX) \
-      || die "Cannot create the header list in /tmp"
-    (cd "$PREFIX/include" && find . -type f) > "$_hdrlist"
+    #
+    # The list lives in the build prefix's .logs, alongside the pkgconfig
+    # rewrite temp below, NOT in /tmp: a containment refusal mid-loop exits the
+    # process through die(), so the rm below is unreachable on exactly the path
+    # that matters, and a leak inside $PREFIX is one `clean` removes. A trap is
+    # not the answer here — mediaforge.sh installs on_exit as the EXIT handler
+    # (lib/cleanup.sh:37) and a local trap would replace it.
+    #
+    # Unlike the manifest accumulator, this file never outlives the build
+    # prefix's own ownership: $PREFIX is the tree we just built as this user,
+    # while the manifest's destination may be root-owned.
+    mkdir -p "$PREFIX/.logs" || die "Cannot create $PREFIX/.logs"
+    _hdrlist="$PREFIX/.logs/_install_headers_$$"
+    (cd "$PREFIX/include" && find . -type f) > "$_hdrlist" \
+      || die "Cannot list the headers under $PREFIX/include"
     while IFS= read -r _hdr; do
       _hdr="${_hdr#./}"
       _install_file "$PREFIX/include/$_hdr" "$_install_prefix/include/$_hdr" "$_manifest_tmp" "$_priv"
