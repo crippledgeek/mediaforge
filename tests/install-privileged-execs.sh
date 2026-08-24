@@ -345,8 +345,10 @@ elif ! printf '%s' "$_out" | grep -q 'could not run the install helper'; then
   _bad "a refused sudo was not diagnosed: $(printf '%s' "$_out" | tail -3)"
 elif ! printf '%s' "$_out" | grep -q 'sudoers'; then
   _bad "the refusal was reported without naming the sudoers policy that causes it"
+elif ! printf '%s' "$_out" | grep -q 'as root'; then
+  _bad "the refusal named the cause but not the way out — installing as root needs no per-file sudo"
 else
-  _pass "a sudoers policy that refuses sh is named, not reported as an internal error"
+  _pass "a sudoers policy that refuses sh is named, along with the root install that avoids it"
 fi
 rm -rf "$_s" "$_d"
 
