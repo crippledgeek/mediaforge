@@ -2,8 +2,18 @@
 # PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="librtmp"
 PKG_VERSION="${PKG_VERSION_LIBRTMP:-2.6}"
+# Pinned by COMMIT, not by the v2.6 tag. Two reasons, and the first is a bug
+# this recipe used to have: every profile set PKG_VERSION_LIBRTMP to a commit
+# SHA, which the old `--branch "v${PKG_VERSION}"` turned into the unresolvable
+# ref `v<sha>`, so every `--profile=` build died here. The second is integrity:
+# rtmpdump's v2.6 tag is a mutable server-side pointer, and this commit is the
+# object it named on 2026-08-24.
+PKG_COMMIT="${PKG_COMMIT_LIBRTMP:-138fdb258d9fc26f1843fd1b891180416c9dc575}"
 PKG_URL=""
 PKG_SKIP_EXTRACT=true
+# Declared because pkg_prepare shells out to git; check_guards then reports a
+# missing git against this package rather than letting the clone fail mid-phase.
+PKG_REQUIRES_CMD="git"
 PKG_FFMPEG_OPT="--enable-librtmp"
 
 # librtmp has old C code incompatible with C23 (GCC 15+)
@@ -11,11 +21,8 @@ pkg_prepare() {
   CFLAGS="$CFLAGS -std=gnu11"
   export CFLAGS
 
-  # No tarball available — clone from official git repo
-  if [ ! -d "$DISTDIR/rtmpdump" ]; then
-    run git clone --depth 1 --branch "v${PKG_VERSION}" \
-      https://git.ffmpeg.org/rtmpdump.git "$DISTDIR/rtmpdump"
-  fi
+  # No tarball available — fetch the pinned commit from the official git repo.
+  fetch_git https://git.ffmpeg.org/rtmpdump.git "$DISTDIR/rtmpdump" "$PKG_COMMIT"
   cd "$DISTDIR/rtmpdump" || die "Failed to cd to rtmpdump"
 }
 
