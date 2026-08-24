@@ -36,6 +36,7 @@ reset_recipe() {
   PKG_NAME=""
   PKG_VERSION=""
   PKG_URL=""
+  PKG_COMMIT=""
   PKG_FILENAME=""
   PKG_DIRNAME=""
   PKG_FFMPEG_OPT=""

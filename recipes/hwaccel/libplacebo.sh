@@ -11,6 +11,11 @@
 # mirroring recipes/other/librtmp.sh.
 PKG_NAME="libplacebo"
 PKG_VERSION="${PKG_VERSION_LIBPLACEBO:-7.360.1}"
+# Pinned by COMMIT rather than by the v7.360.1 tag: a tag is a mutable
+# server-side pointer, so pinning one authenticates nothing. This is the object
+# v7.360.1 named on 2026-08-24. The commit also pins the six submodules, since
+# it records their SHAs.
+PKG_COMMIT="${PKG_COMMIT_LIBPLACEBO:-cee9b076f2c63104ccfd497fa79c39a867293ec4}"
 PKG_URL=""                       # cloned (recursive) — mirror has empty submodules
 PKG_SKIP_EXTRACT=true
 PKG_REQUIRES_CMD="git python3"
@@ -29,13 +34,16 @@ else
 fi
 
 pkg_prepare() {
-  # Reuse an existing clone if present (same idiom as librtmp.sh). A clone that
-  # failed partway would leave a stale dir; remove $DISTDIR/libplacebo to re-clone.
-  if [ ! -d "$DISTDIR/libplacebo" ]; then
-    run git clone --recursive --depth 1 --branch "v${PKG_VERSION}" \
-      https://code.videolan.org/videolan/libplacebo.git "$DISTDIR/libplacebo"
-  fi
+  # Same helper as librtmp.sh: fetch the pinned commit, reusing an existing tree
+  # only when it is already AT that commit. The old form reused $DISTDIR/libplacebo
+  # whenever the directory merely existed, so a clone left behind by an
+  # interrupted run, or by a different pin, was compiled without complaint.
+  fetch_git https://code.videolan.org/videolan/libplacebo.git \
+    "$DISTDIR/libplacebo" "$PKG_COMMIT"
   cd "$DISTDIR/libplacebo" || die "Failed to cd to libplacebo"
+  # fetch_git deliberately does not do submodules — librtmp has none. The six
+  # here are pinned by the commit above, so this inherits its guarantee.
+  run git submodule update --init --recursive --depth 1
   # libplacebo is a C library but statically embeds glslang (C++); its
   # meson-generated .pc omits the C++ runtime, so FFmpeg's static link probe
   # fails with undefined std::locale / C++ symbols. Patch pkg.generate() to add

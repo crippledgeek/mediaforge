@@ -20,6 +20,7 @@ sh tests/fetch-fail-no-cache.sh
 sh tests/lcevc-default-off.sh
 sh tests/libressl-pin-asm.sh
 sh tests/libressl-trust-store.sh
+sh tests/git-commit-pinning.sh
 sh tests/install-containment.sh
 sh tests/install-privileged-execs.sh
 # Runs the unmerged test files against the merge base and fails if any assertion
