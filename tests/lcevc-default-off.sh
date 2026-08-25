@@ -44,7 +44,7 @@ fi
 #
 # Linux-only, and skipped rather than failed elsewhere. recipes/other/lcevc.sh
 # sets PKG_LINUX_ONLY=true (added in 829b927 alongside the archive merge, which
-# uses GNU ar/ranlib), and check_guards (lib/framework.sh:140) returns 1 for
+# uses GNU ar/ranlib), and check_guards (lib/framework.sh) returns 1 for
 # that on a non-Linux host BEFORE the force-enable branch can matter — so
 # --enable=lcevc legitimately emits nothing on macOS. Asserting unconditionally
 # would make `tests/run.sh` Linux-only for a project that supports macOS

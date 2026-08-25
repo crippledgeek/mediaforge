@@ -270,27 +270,6 @@ ffmpeg_hash_file() {
   printf '%s/recipes/ffmpeg.hash' "$SCRIPT_DIR"
 }
 
-# checksum_skip_key
-# The name --skip-checksum=NAME must use to reach the current recipe: its
-# recipe filename, derived from the sidecar path.
-#
-# Not PKG_NAME. That is neither the identifier the CLI validates against nor
-# one that is reliably set here: recipes/ffmpeg.sh is sourced directly by
-# cmd_build rather than through reset_recipe(), so it used to carry whichever
-# name the last _order.conf recipe left behind, and three recipes declare a
-# PKG_NAME that is not their filename (FreeType2, FreeType2-hb, VapourSynth),
-# whose names the CLI accepts and the match then never saw.
-#
-# PKG_HASH_FILE is derived by load_recipe for every recipe, set explicitly by
-# recipes/ffmpeg.sh, and inherited unchanged by nested fetch() calls — so it is
-# always present and always agrees with the registry.
-checksum_skip_key() {
-  _csk="${PKG_HASH_FILE:-}"
-  [ -n "$_csk" ] || return 0
-  _csk="${_csk##*/}"
-  printf '%s' "${_csk%.hash}"
-}
-
 # checksum_skipped
 # True when verification is disabled for the current recipe.
 #
@@ -300,11 +279,15 @@ checksum_skip_key() {
 # (lv2's seven, for instance).
 checksum_skipped() {
   [ "${SKIP_CHECKSUM:-false}" = true ] && return 0
-  _cs_key=$(checksum_skip_key)
-  # An empty key is not a recipe, and matching one would bypass verification
-  # for every fetch the moment any --skip-checksum=NAME was given: the list is
-  # searched as a substring of a space-padded window, and the empty string is a
-  # substring of every window.
+  # recipe_key (lib/registry.sh) is the one identity function for every
+  # CLI-facing recipe name; --skip-checksum= is validated against the same
+  # registry as --disable=, so it has to resolve the current recipe the same
+  # way. It returns non-zero rather than an empty string when there is no
+  # recipe to name, which matters here: an empty key would otherwise bypass
+  # verification for every fetch the moment any --skip-checksum=NAME was
+  # given, because the list is searched as a substring of a space-padded
+  # window and the empty string is a substring of every window.
+  _cs_key=$(recipe_key) || return 1
   [ -n "$_cs_key" ] || return 1
   case " ${SKIP_CHECKSUM_PKGS:-} " in
     *" $_cs_key "*) return 0 ;;
@@ -440,14 +423,15 @@ fetch() {
   # makesum --build (#19): record what was just fetched instead of verifying
   # it. PKG_HASH_FILE is ordinary shell state (see lib/framework.sh's
   # load_recipe), so a fetch() called from inside pkg_install() -- lv2's
-  # seven sub-tarballs, opencl's ICD-Loader, libcdio's paranoia sub-package --
-  # still lands in the enclosing recipe's sidecar. The verification gate above
+  # sub-tarballs, opencl's ICD-Loader, libcdio's paranoia sub-package,
+  # vid_stab's cmake-quoting patch -- still lands in the enclosing recipe's
+  # sidecar. The verification gate above
   # is guarded by the inverse condition, so recording and verifying never both
   # run for the same fetch().
   if [ "${MAKESUM_MODE:-false}" = true ]; then
     # Read by hash_record_write() in lib/makesum.sh, which this file does not
     # source; per-file shellcheck can't see the cross-file consumer (same
-    # shape as lib/framework.sh:2).
+    # shape as lib/framework.sh's file-header SC2034 disable).
     # shellcheck disable=SC2034
     MAKESUM_PROVENANCE="Locally calculated $(date +%Y-%m-%d)"
     hash_record_write "$PKG_HASH_FILE" "$_file" "$DISTDIR/$_file"

@@ -410,8 +410,11 @@ _reject_case() {
   fi
 }
 
-# Command substitution: would be written verbatim into .mediaforge-choices and
-# executed by load_stored_choices' `.` on the next run.
+# Command substitution: rejected at the flag. It was once written verbatim into
+# .mediaforge-choices and executed by load_stored_choices' `.` on the next run;
+# _stored_choice's by-name parser removed that route, and this check is what
+# keeps the value harmless for the reader that DID not change -- lib/install.sh
+# passing it to a privileged mkdir/cp.
 # The two metacharacters are assembled via printf (\044 = '$', \140 = '`')
 # rather than written literally: a literal '$(' or backtick inside single quotes
 # is SC2016, and these payloads must reach the parser UNEXPANDED to be the test
@@ -458,12 +461,52 @@ else
   _bad "spurious openssldir-changed warning: '$_w' '$_w2'"
 fi
 
+# ...and the PREVIOUS value actually reaches the comparison. The three
+# assertions above call openssldir_warn_if_changed directly, so all three stay
+# green while the caller passes it nothing -- which is exactly what happened:
+# STORED_OPENSSLDIR used to be populated as a side effect of load_stored_choices
+# SOURCING the choices file, and when that was replaced with a by-name parser
+# the variable stopped being assigned anywhere. resolve_choices kept passing
+# "${STORED_OPENSSLDIR:-}", which was now always empty, so the guard's
+# "nothing to compare" branch returned immediately and the warning could never
+# fire for any user.
+#
+# Driven through load_stored_choices and resolve_choices rather than by calling
+# the warning, because the wiring between them IS the defect; a direct call
+# cannot see it. AUTOINSTALL=yes makes is_interactive false so resolve_choices
+# takes its non-prompting path.
+_wire=$(mktemp -d) || exit 1
+printf "STORED_TLS_BACKEND=libressl\n" > "$_wire/.mediaforge-choices"
+printf "STORED_OPENSSLDIR='%s'\n" /previously/etc/ssl >> "$_wire/.mediaforge-choices"
+_wireout=$(
+  PREFIX="$_wire"
+  AUTOINSTALL=yes
+  USE_MENU=false
+  DRY_RUN=false
+  DISABLE_PKGS=""
+  DISABLE_PKGS_INPUT=""
+  ENABLE_GPL=false
+  ENABLE_NONFREE=false
+  FLITE_AUDIO=none
+  TLS_BACKEND=libressl
+  AAC_IMPL=""; H264_IMPL=""; H265_IMPL=""; AV1_ENC_IMPL=""; SPIRV_IMPL=""
+  OPENSSLDIR=/now/etc/ssl
+  load_stored_choices
+  resolve_choices 2>&1
+) || true
+rm -rf "$_wire"
+if printf '%s' "$_wireout" | grep -q -- "--openssldir changed ('/previously/etc/ssl' -> '/now/etc/ssl')"; then
+  _pass "a stored openssldir reaches the change warning through load_stored_choices"
+else
+  _bad "load_stored_choices did not populate STORED_OPENSSLDIR — the change warning is dead: [$_wireout]"
+fi
+
 # ─── CLI surface ────────────────────────────────────────────────────────────
 # Absolute is the boundary, asserted on BOTH sides: the value is compiled into
 # libtls, so a relative path would be resolved against the working directory of
 # whatever process links it — the arm would silently trust nothing.
-# Matched against the exact die text, not the word "absolute": the help output
-# now contains "absolute" (mediaforge.sh:95), so anything that prints usage —
+# Matched against the exact die text, not the word "absolute": cmd_help's
+# --openssldir line now contains "absolute", so anything that prints usage —
 # including an unrelated parse failure — would satisfy a looser grep.
 _out=$(./mediaforge.sh build --openssldir=relative/etc/ssl --dry-run --yes 2>&1) || true
 if printf '%s' "$_out" | grep -q 'is not an absolute path'; then

@@ -3,8 +3,9 @@
 PKG_NAME="libressl"
 PKG_VERSION="${PKG_VERSION_LIBRESSL:-4.3.2}"
 # Upstream publishes GitHub releases with v-prefixed tags, which
-# _strip_tag_prefix already normalises. Without this, lib/updates.sh:72 takes the
-# no-repo branch and reports "(not on GitHub)" instead of querying — which is how
+# _strip_tag_prefix already normalises. Without this, check_updates
+# (lib/updates.sh) takes its no-PKG_GITHUB_REPO branch and reports "(not on
+# GitHub)" instead of querying — which is how
 # the previous 4.0.0 pin went 22 months and five releases stale without
 # check-updates ever saying so. The tarball still comes from cdn.openbsd.org;
 # this is for version discovery only.
@@ -38,8 +39,8 @@ pkg_configure() {
 
   # --with-pic: NOT because the objects would otherwise lack -fPIC. mediaforge.sh
   # exports `CFLAGS="$CFLAGS -fPIC"` for every recipe unconditionally
-  # (mediaforge.sh:251-257), so they already get it and these archives already
-  # linked into libavcodec/libavformat correctly on develop.
+  # (cmd_build's `export CFLAGS CXXFLAGS`), so they already get it and these
+  # archives already linked into libavcodec/libavformat correctly on develop.
   #
   # What the flag adds is libtool's own -DPIC on the objects it compiles, which
   # LibreSSL's C and perlasm paths read to select position-independent
@@ -55,7 +56,7 @@ pkg_configure() {
   #                  -fPIC builds clean with asm on and libcrypto.a carries
   #                  aesni_encrypt / sha256_block_data_order.
   #   --enable-libtls-only  it would stop installing libssl/libcrypto, which
-  #                  recipes/other/srt.sh:16 and librtmp.sh:31 consume through
+  #                  recipes/other/srt.sh and librtmp.sh consume through
   #                  the OpenSSL API rather than through libtls.
   #
   run ./configure --prefix="$PREFIX" \

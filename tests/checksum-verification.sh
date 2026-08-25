@@ -188,6 +188,13 @@ case "$_msg" in
 esac
 
 # -- PKG_HASH_FILE plumbing (Task 4, #19) -------------------------------------
+# registry.sh before framework.sh, the order mediaforge.sh itself uses:
+# check_guards resolves the recipe's CLI name through recipe_key, which lives
+# in the registry. Sourcing framework alone left that call unresolved, and the
+# `|| _guard_key="$PKG_NAME"` fallback swallowed it into a `command not found`
+# on stderr and a silently pre-fix comparison.
+# shellcheck disable=SC1091
+. "$ROOT/lib/registry.sh"
 # shellcheck disable=SC1091
 . "$ROOT/lib/framework.sh"
 
@@ -372,12 +379,13 @@ EOF
 fi
 
 # -- fetch() records under MAKESUM_MODE=true (Task 6, #19) -------------------
-# `makesum --build` (mediaforge.sh) is the only way to reach the nine fetch()
-# calls nested inside a recipe phase function -- lv2's seven sub-tarballs plus
-# opencl's ICD-Loader and libcdio's paranoia sub-package -- so the property to
-# pin here is not "fetch records a file" but "a fetch called from inside a
-# pkg_install()-like context records into the ENCLOSING recipe's
-# PKG_HASH_FILE", since that is exactly what those nine calls depend on.
+# `makesum --build` (mediaforge.sh) is the only way to reach the fetch() calls
+# nested inside a recipe phase function -- see
+# nested-fetch-recipes-are-the-documented-set below for the recipes that have
+# them -- so the property to pin here is not "fetch records a file" but "a
+# fetch called from inside a pkg_install()-like context records into the
+# ENCLOSING recipe's PKG_HASH_FILE", since that is exactly what those calls
+# depend on.
 # (recipes/ffmpeg.sh's own fetch is at that file's top level, not inside a
 # phase function; `makesum` reaches it without --build, via
 # makesum_fetch_and_record.) No `hash_record_write`/`fetch` _require_fn guard
@@ -1218,6 +1226,30 @@ else
   _bad skip-checksum-list-is-normalized "banner line was: [$_normout]"
 fi
 
+# Same class as the empty-key match, and it reaches the same place: a separator
+# the parser does not normalize but the SHELL does. The parser collapsed commas
+# and spaces only, while validate_pkg_names word-splits on $IFS -- which
+# includes tab and newline -- so a tab-separated pair validated cleanly, both
+# names were reported skipped in the banner, and neither ever matched: the
+# lookup wraps the list in spaces and searches for " name ", a window a tab
+# never opens. Validates-but-never-matches is the worst shape for a
+# verification bypass, because the user is told the bypass happened.
+#
+# Asserted through the CLI on exact equality, not on the names being present:
+# the pre-fix banner CONTAINS both names, so a substring check passes on the
+# defect. The tab is built with printf rather than written literally, since an
+# editor or a stray reformat would turn a literal one back into spaces and the
+# test would silently stop being about anything.
+_tab=$(printf '\t')
+_wsout=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes \
+  "--skip-checksum=zlib,${_tab}giflib" 2>&1 \
+  | grep 'Named recipes:' | head -1)
+if [ "${_wsout##*Named recipes: }" = "zlib giflib" ]; then
+  _pass skip-checksum-normalizes-non-space-whitespace
+else
+  _bad skip-checksum-normalizes-non-space-whitespace "a tab survived into the skip list; banner line was: [$_wsout]"
+fi
+
 # S-F7: an empty value arms the banner with nothing after "Named recipes:" and
 # is the shortest route to the empty-key match above.
 _emptyout=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes --skip-checksum= 2>&1)
@@ -1234,13 +1266,13 @@ fi
 # Every recipe's skip key must be a name the CLI accepts, or --skip-checksum
 # can report a bypass it did not perform. Derived from _order.conf rather than
 # hand-listed, so a recipe added later is covered without anyone remembering.
-if _require_fn checksum_skip_key skip-key-always-a-valid-cli-name; then
+if _require_fn recipe_key skip-key-always-a-valid-cli-name; then
   registry_init
   _keybad=""
   while IFS= read -r _kr || [ -n "$_kr" ]; do
     case "$_kr" in ""|\#*) continue ;; esac
     PKG_HASH_FILE="$ROOT/${_kr%.sh}.hash"
-    _kk=$(checksum_skip_key)
+    _kk=$(recipe_key)
     is_known_pkg "$_kk" || _keybad="$_keybad $_kr"
   done < "$ROOT/recipes/_order.conf"
   if [ -z "$_keybad" ]; then
@@ -1302,21 +1334,17 @@ fi
 # --dry-run, the same idiom tests/dry-run-matrix.sh uses, because cmd_build
 # isn't a function this file can call in-process without running a build.
 #
-# Matched on the "Named recipes:" banner LINE, not on the names appearing
-# anywhere in the output: --dry-run emits "Would build zlib-1.3.1" for every
-# recipe regardless of the banner, so a whole-output grep for `zlib` passed on
-# any tree that parses the flag at all and was measuring nothing.
-_cliline=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes \
-  --skip-checksum=zlib,giflib --skip-checksum=opus 2>&1 \
-  | grep 'Named recipes:' | head -1)
-if printf '%s' "$_cliline" | grep -q 'zlib' \
-   && printf '%s' "$_cliline" | grep -q 'giflib' \
-   && printf '%s' "$_cliline" | grep -q 'opus'; then
-  _pass skip-checksum-cli-comma-and-repeated
-else
-  _bad skip-checksum-cli-comma-and-repeated "banner line missing one of zlib/giflib/opus: [$_cliline]"
-fi
-
+# The comma-and-repeat half is asserted by skip-checksum-list-is-normalized
+# above, which runs the identical command and compares the banner's name list
+# for EXACT equality. A per-name grep here would be a strict subset of that
+# comparison -- a second full dry-run subprocess measuring one property already
+# measured more strictly -- so only the bare-flag banner, which that assertion
+# does not reach, is exercised below.
+#
+# What both match on is the "Named recipes:" banner LINE, not the names
+# appearing anywhere in the output: --dry-run emits "Would build zlib-1.3.1"
+# for every recipe regardless of the banner, so a whole-output grep for `zlib`
+# passed on any tree that parses the flag at all and was measuring nothing.
 _cliout2=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes --skip-checksum 2>&1)
 if printf '%s' "$_cliout2" | grep -qi 'ALL recipes'; then
   _pass skip-checksum-cli-global-banner
@@ -1404,8 +1432,8 @@ SKIP_CHECKSUM_PKGS=""
 # bypass: the next build would skip verification with nothing on the command
 # line to say so. Exercises save_stored_choices() directly with DRY_RUN unset
 # (the brief's own --dry-run recipe never reaches the writer at all --
-# save_stored_choices returns early under DRY_RUN, lib/resolve.sh:332 -- so
-# that shape asserts nothing and is not used here).
+# save_stored_choices returns early under DRY_RUN -- so that shape asserts
+# nothing and is not used here).
 #
 # Guarded the same way as the checksum_skipped block above: on the baseline,
 # neither SKIP_CHECKSUM nor checksum_skipped exists, so save_stored_choices
@@ -1516,14 +1544,36 @@ fi
 # digest either. Enforced as a tree-wide property rather than fixed in one
 # recipe and asserted about that recipe, because the next one to be written
 # this way would not be caught by a vid_stab-shaped test.
+#
+# THE ORACLE IS WORD-LEVEL, and deliberately so. It splits each non-comment
+# line on the characters that can precede a command word and asks whether any
+# resulting word IS curl or wget. Three shapes it now catches that a plain
+# `grep -w curl` or the first version of this scan did not:
+#
+#   `curl ...`            backticks are separators here, not text
+#   $(curl ...)           so are '$' and '('
+#   /usr/bin/curl ...     a leading-'/' or './' word is reduced to its basename
+#
+# The basename reduction is applied ONLY to words that begin with '/' or './',
+# which is what an executable path looks like and what a URL does not: a token
+# like "https://github.com/curl/curl-8.tar.gz" keeps its whole spelling and
+# cannot be mistaken for an invocation.
+#
+# STILL NOT CAUGHT, stated rather than implied: a here-doc body piped into a
+# shell, and a command word assembled at runtime ($CMD, ${TOOL}url). Both are
+# several steps removed from anything in this tree and neither can be settled
+# without a real parser; the honest claim is that this covers every shape a
+# recipe has ever been written in here, not every shape shell permits.
 _rawnet=$(awk '
   /^[[:space:]]*#/ { next }
   {
     _l = $0
-    gsub(/[;&|()]/, " ", _l)
+    gsub(/[;&|()`$<>]/, " ", _l)
     _n = split(_l, _w, /[[:space:]]+/)
     for (_i = 1; _i <= _n; _i++) {
-      if (_w[_i] == "curl" || _w[_i] == "wget") {
+      _t = _w[_i]
+      if (_t ~ /^\.?\//) sub(/^.*\//, "", _t)
+      if (_t == "curl" || _t == "wget") {
         if (!seen[FILENAME]++) print FILENAME
         break
       }
@@ -1534,6 +1584,38 @@ if [ -z "$_rawnet" ]; then
   _pass no-recipe-fetches-outside-fetch
 else
   _bad no-recipe-fetches-outside-fetch "recipes invoking curl/wget directly: $_rawnet"
+fi
+
+# -- the nested-fetch set is derived, not counted in prose --------------------
+# Four comments (mediaforge.sh's --build case, lib/download.sh's MAKESUM_MODE
+# block, README.md, and this file) tell the reader which recipes fetch from
+# inside a phase function, because that set is the whole reason `makesum
+# --build` exists. Each used to state a COUNT as well, and the count was wrong
+# twice: corrected from ten to nine, then made ten again by routing vid_stab's
+# patch through fetch() in this very branch. A number no gate reads drifts on
+# the next edit, so the number is gone from all four and the SET is derived
+# here instead -- adding or removing a nested fetch() fails this assertion and
+# points at the prose that has to change with it.
+#
+# Comment lines are excluded before the scan: recipes/hwaccel/libplacebo.sh and
+# recipes/other/librtmp.sh both describe fetching in prose without calling
+# fetch(), and counting them would make the oracle agree with a set that is not
+# the code's.
+_nestedset=$(awk '
+  /^[[:space:]]*#/ { next }
+  /^[a-zA-Z_][a-zA-Z0-9_]*\(\)/ { _in = 1 }
+  _in && /^}/ { _in = 0 }
+  _in && /(^|[ \t;&|(])fetch[ \t]/ {
+    if (!seen[FILENAME]++) {
+      _n = split(FILENAME, _p, "/"); _b = _p[_n]; sub(/\.sh$/, "", _b); print _b
+    }
+  }
+' "$ROOT"/recipes/*.sh "$ROOT"/recipes/*/*.sh | sort | tr '\n' ' ')
+_nestedset=${_nestedset% }
+if [ "$_nestedset" = "libcdio lv2 opencl vid_stab" ]; then
+  _pass nested-fetch-recipes-are-the-documented-set
+else
+  _bad nested-fetch-recipes-are-the-documented-set "recipes with a fetch() inside a phase function are now [$_nestedset]; update the prose in mediaforge.sh, lib/download.sh, README.md and this file to match"
 fi
 
 # ...and the file that used to be fetched that way now has a recorded digest,

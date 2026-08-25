@@ -180,7 +180,14 @@ _skip_checksum_banner() {
 # empty VALUE is rejected outright for the same reason, and because it arms the
 # banner with a bypass that names nothing.
 _add_skip_checksum() {
-  _asc=$(printf '%s' "$1" | tr ',' ' ' | tr -s ' ')
+  # Every separator the SHELL would accept, not just the two a user is likely
+  # to type. validate_pkg_names word-splits this list on $IFS, which includes
+  # tab and newline, so a tab-separated pair validated cleanly and was reported
+  # skipped in the banner -- while checksum_skipped, which searches a
+  # space-padded window for " name ", never matched either of them. A separator
+  # that validates but cannot match is the worst outcome for a verification
+  # bypass, because the user is told it happened.
+  _asc=$(printf '%s' "$1" | tr -s '[:space:],' ' ')
   _asc="${_asc# }"
   _asc="${_asc% }"
   [ -n "$_asc" ] || die "--skip-checksum= requires at least one recipe name (use bare --skip-checksum to disable verification everywhere)"
@@ -594,10 +601,14 @@ cmd_makesum() {
         PROFILE_NAME="$1"; shift; _mk_argc=$((_mk_argc - 1))
         ;;
       --update)    MAKESUM_UPDATE=true ;;
-      # --build reaches the nine fetch() calls nested inside a recipe phase
-      # function (lv2's seven sub-tarballs, opencl's ICD-Loader, libcdio's
-      # paranoia sub-package) that a fetch-only pass never sources far enough
-      # to see. recipes/ffmpeg.sh is not among them: its fetch is at that
+      # --build reaches the fetch() calls nested inside a recipe phase
+      # function (lv2's sub-tarballs, opencl's ICD-Loader, libcdio's paranoia
+      # sub-package, vid_stab's cmake-quoting patch) that a fetch-only pass
+      # never sources far enough to see. That set is pinned by
+      # tests/checksum-verification.sh's nested-fetch-recipes-are-the-documented-set;
+      # no count is stated here, because the count in this comment has already
+      # been wrong twice.
+      # recipes/ffmpeg.sh is not among them: its fetch is at that
       # file's top level, and plain `makesum` records it via
       # makesum_fetch_and_record. Consumed, never forwarded: cmd_build has no
       # such flag of its own.

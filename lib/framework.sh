@@ -1,6 +1,8 @@
 #!/bin/sh
 # shellcheck disable=SC1090,SC2034
 # Build engine — recipe loading and phase execution.
+# Requires lib/registry.sh to be sourced first: check_guards resolves a
+# recipe's CLI-facing name through recipe_key, which lives there.
 # SC2034: PKG_* defaults below are read by recipe pkg_* functions after this
 # file is sourced; shellcheck can't see the cross-file consumer.
 
@@ -39,7 +41,7 @@ reset_recipe() {
   PKG_COMMIT=""
   # Framework-derived, never recipe-set: the path of this recipe's .hash file.
   # Nested fetch calls inside pkg_install() inherit it as ordinary shell state,
-  # which is how lv2's seven sub-tarballs land in one lv2.hash.
+  # which is how lv2's sub-tarballs all land in one lv2.hash.
   PKG_HASH_FILE=""
   PKG_FILENAME=""
   PKG_DIRNAME=""
@@ -78,9 +80,22 @@ reset_recipe() {
 # Check whether a recipe should be skipped based on guards
 # Returns 0 if recipe should run, 1 if it should be skipped
 check_guards() {
+  # Every name the user can type -- --disable=, --enable=, and the mutex
+  # exclusions lib/resolve.sh writes into DISABLE_PKGS -- is a recipe FILENAME,
+  # because that is what the registry validates against. PKG_NAME is the
+  # display name and three recipes diverge from their filename, so comparing
+  # against it made --disable=vapoursynth validate, warn nothing, and do
+  # nothing. recipe_key (lib/registry.sh) is that one identity; PKG_NAME stays
+  # in the log lines, which is what it is for.
+  #
+  # The fallback keeps a recipe reachable rather than unmatchable if it is ever
+  # loaded without a hash-file path: load_recipe derives one for every recipe,
+  # so it is not expected to fire.
+  _guard_key=$(recipe_key) || _guard_key="$PKG_NAME"
+
   # Generic CLI disable list (drives --disable= and --tls=/--aac=/etc.)
   for _d in $DISABLE_PKGS; do
-    if [ "$_d" = "$PKG_NAME" ]; then
+    if [ "$_d" = "$_guard_key" ]; then
       log "Skipping $PKG_NAME (disabled via CLI)"
       return 1
     fi
@@ -90,13 +105,13 @@ check_guards() {
   if [ "$PKG_DISABLED" = true ]; then
     _force=false
     for _e in $ENABLE_PKGS; do
-      [ "$_e" = "$PKG_NAME" ] && _force=true && break
+      [ "$_e" = "$_guard_key" ] && _force=true && break
     done
     if [ "$_force" != true ]; then
       log "Skipping $PKG_NAME (disabled)"
       return 1
     fi
-    log "Force-enabling $PKG_NAME via --enable=$PKG_NAME"
+    log "Force-enabling $PKG_NAME via --enable=$_guard_key"
   fi
 
   # GPL guard
@@ -119,7 +134,7 @@ check_guards() {
   if [ -n "$PKG_REQUIRES_CMD" ]; then
     for _cmd in $PKG_REQUIRES_CMD; do
       if ! command_exists "$_cmd"; then
-        die "$PKG_NAME requires '$_cmd', which is not installed. Install it, or skip this package with --disable=$PKG_NAME."
+        die "$PKG_NAME requires '$_cmd', which is not installed. Install it, or skip this package with --disable=$_guard_key."
       fi
     done
   fi
@@ -129,7 +144,7 @@ check_guards() {
   # recipes were disabled or failed to build. Fail loud rather than skip.
   if [ "$PKG_REQUIRES_MESON" = true ]; then
     if ! command_exists meson || ! command_exists ninja; then
-      die "$PKG_NAME requires meson and ninja, which mediaforge builds in recipes/tools/. They are missing — the meson/ninja recipe was disabled or failed. Re-enable it, or skip this package with --disable=$PKG_NAME."
+      die "$PKG_NAME requires meson and ninja, which mediaforge builds in recipes/tools/. They are missing — the meson/ninja recipe was disabled or failed. Re-enable it, or skip this package with --disable=$_guard_key."
     fi
   fi
 
@@ -205,8 +220,12 @@ run_recipe() {
     # guards (missing cmd/meson, platform, arch) still re-accumulate, since the
     # stamped lib is present, linkable, and carries no license objection.
     _excluded=false
+    # Same registry identity check_guards used to decide the skip; comparing a
+    # different name here would let a --disable=d recipe re-accumulate the very
+    # FFmpeg flag the skip exists to suppress.
+    _excl_key=$(recipe_key) || _excl_key="$PKG_NAME"
     for _d in $DISABLE_PKGS; do
-      [ "$_d" = "$PKG_NAME" ] && _excluded=true && break
+      [ "$_d" = "$_excl_key" ] && _excluded=true && break
     done
     [ "$PKG_GPL" = true ] && [ "$ENABLE_GPL" != true ] && _excluded=true
     [ "$PKG_NONFREE" = true ] && [ "$ENABLE_NONFREE" != true ] && _excluded=true

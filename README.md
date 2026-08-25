@@ -365,9 +365,10 @@ re-published before trusting the new value, and ends the run with a summary
 block listing every digest it re-pinned. `--build` forwards every other
 argument straight to the `build` subcommand's own parser and does not accept
 a package filter — it exists to reach the `fetch()` calls nested inside a
-recipe's `pkg_install()` (lv2's seven sub-tarballs, opencl's ICD-Loader,
-libcdio's paranoia sub-package) that a fetch-only pass over `_order.conf`
-never sources far enough to see. Plain `makesum` (no `--build`) still
+recipe's `pkg_install()` (lv2's sub-tarballs, opencl's ICD-Loader, libcdio's
+paranoia sub-package, vid_stab's cmake-quoting patch) that a fetch-only pass
+over `_order.conf` never sources far enough to see. Plain `makesum` (no
+`--build`) still
 reaches the FFmpeg tarball itself, even though `recipes/ffmpeg.sh` isn't
 listed in `_order.conf` — `cmd_makesum` records it as an explicit extra step
 whenever no package filter was given.

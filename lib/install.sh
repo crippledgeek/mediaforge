@@ -476,7 +476,7 @@ do_install() {
     # process through die(), so the rm below is unreachable on exactly the path
     # that matters, and a leak inside $PREFIX is one `clean` removes. A trap is
     # not the answer here — mediaforge.sh installs on_exit as the EXIT handler
-    # (lib/cleanup.sh:37) and a local trap would replace it.
+    # (lib/cleanup.sh's setup_traps) and a local trap would replace it.
     #
     # Unlike the manifest accumulator, this file never outlives the build
     # prefix's own ownership: $PREFIX is the tree we just built as this user,
