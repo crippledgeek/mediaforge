@@ -88,6 +88,7 @@ Commands:
   install            Install built binaries and libraries
   uninstall          Remove installed files
   check-updates      Check for newer dependency versions
+  makesum            Fetch recipe sources and record their sha256/size sidecars
   check-shadowers    Audit workspace .pc files for system-version shadowing
   list-profiles      List available version profiles
   help               Show help
@@ -133,6 +134,18 @@ Recipe overrides:
   --list-pkgs               Print every recipe with category and mutex group
   --clean-choices           Delete the stored choice matrix and exit
 
+Makesum options (used by the makesum subcommand):
+  --profile=X.Y             Record digests against a specific version profile
+  --update                  Overwrite an existing digest that no longer matches
+  --build                   Run a real build with recording enabled, to reach
+                            sub-build downloads (forwards remaining args to
+                            build; no package filter)
+
+Checksum verification (loud; never persisted to the stored choice matrix):
+  --skip-checksum           Disable verification for EVERY recipe
+  --skip-checksum=PKG       Disable verification for one recipe by name
+                            (repeatable, comma-separated ok)
+
 Install/uninstall options:
   --prefix=PATH             Install/uninstall location (default: interactive prompt)
   -y, --yes                 Non-interactive mode
@@ -166,6 +179,12 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 # Audit pkgconfig drift (after build, before release)
 ./mediaforge.sh check-shadowers              # warn-only, exit 0
 ./mediaforge.sh check-shadowers --strict     # exit 1 on new shadowers (CI)
+
+# Record/update checksum sidecars
+./mediaforge.sh makesum                      # every recipe, plus the FFmpeg tarball
+./mediaforge.sh makesum zlib openssl         # just these recipes
+./mediaforge.sh makesum --profile=7.1        # against a specific profile's pinned versions
+./mediaforge.sh makesum --update             # overwrite a digest that no longer matches
 
 # Clean
 ./mediaforge.sh clean
@@ -290,6 +309,84 @@ fixes back out of a build — for example the CMS enveloped-data out-of-bounds
 read/write fixed in 4.2.0 — and that is not a trade a version profile should be
 making on the user's behalf.
 
+## Checksum Verification
+
+Every recipe that fetches a tarball keeps a sidecar next to its own `.sh`
+file — `recipes/video/x264.hash` beside `recipes/video/x264.sh` — recording
+what was actually downloaded. `fetch()` verifies against it before
+extraction, whether the file was just downloaded or was already sitting in
+`packages/`; a cache hit is re-checked, not trusted forever, because a
+tarball corrupted or swapped after landing there would otherwise never be
+examined again.
+
+**Sidecar grammar**: one record per line, `<keyword>  <value>  <filename>`
+(whitespace-separated). `#` comments and blank lines are ignored.
+
+```
+# Locally calculated 2026-08-25
+sha256  ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e  lame-3.100.tar.gz
+size    1524133  lame-3.100.tar.gz
+```
+
+`sha256` and `size` are both **mandatory** — a record missing either does
+not count as verifiable, and the file is treated as unattested rather than
+silently passed. Size is checked first (cheap, catches truncation before any
+hashing); `sha512` and `sha1` are optional extra records, checked when
+present. `md5`, `sha224` and `sha384` are rejected by the parser outright —
+there is no code path that accepts them. The comment above each block
+records how the digest was obtained; `makesum` always writes
+`Locally calculated <date>`.
+
+Three recipes carry no `.hash` sidecar, by design: `librtmp`, `libplacebo`
+and `av1` pin an exact 40-character git commit SHA instead
+(`fetch_git()` in `lib/download.sh`) — a commit hash authenticates the
+fetched tree directly, which a tarball digest can only approximate one step
+removed. `vaapi` fetches nothing at all (`PKG_URL=""`) and has neither.
+
+### Recording digests: `makesum`
+
+```sh
+./mediaforge.sh makesum                     # fetch + record every recipe, plus the FFmpeg tarball
+./mediaforge.sh makesum zlib openssl        # just these recipes
+./mediaforge.sh makesum --profile=7.1       # against a specific profile's pinned versions
+./mediaforge.sh makesum --update            # overwrite a digest that no longer matches
+./mediaforge.sh makesum --build --enable-nonfree   # real build with recording on, to reach
+                                                     # sub-build downloads (lv2, opencl, libcdio, ...)
+```
+
+A cached tarball is re-downloaded rather than trusted, unless it already has
+a recorded `sha256` that matches the bytes on disk — `makesum`'s own output
+*becomes* the pin, so trusting an unattested cache entry would mint a pin
+from bytes of unknown age. Without `--update`, a digest that no longer
+matches an existing record is reported and left untouched; `--update`
+overwrites it and prints a reminder to confirm upstream genuinely
+re-published before trusting the new value. `--build` forwards every other
+argument straight to the `build` subcommand's own parser and does not accept
+a package filter — it exists to reach the `fetch()` calls nested inside a
+recipe's `pkg_install()` (lv2's seven sub-tarballs, opencl's ICD-Loader,
+libcdio's paranoia sub-package) that a fetch-only pass over `_order.conf`
+never sources far enough to see. Plain `makesum` (no `--build`) still
+reaches the FFmpeg tarball itself, even though `recipes/ffmpeg.sh` isn't
+listed in `_order.conf` — `cmd_makesum` records it as an explicit extra step
+whenever no package filter was given.
+
+### Bypassing verification: `--skip-checksum`
+
+```sh
+./mediaforge.sh build --skip-checksum           # disable verification for every recipe
+./mediaforge.sh build --skip-checksum=openssl   # disable it for one recipe only (repeatable, comma-separated ok)
+```
+
+Both forms print a loud warning banner at build start and again at build
+end, and neither is ever written to the stored choice matrix
+(`$PREFIX/.mediaforge-choices`) — a bypass is a one-run decision, not
+something that should silently persist into the next build.
+`--skip-checksum=PKG` is keyed by recipe name (`PKG_NAME`, validated against
+the recipe registry the same way `--enable=`/`--disable=` are), not by
+tarball filename — that also covers a recipe's own sub-build downloads
+without the caller needing to know their filenames (lv2's seven, for
+instance).
+
 ## Version Profiles
 
 Profiles pin all ~80 dependency versions to a known-good set for a specific FFmpeg release:
@@ -311,7 +408,8 @@ lib/
   utils.sh                 Core utilities (logging, stamp gating, run)
   platform.sh              OS/arch detection (Linux, macOS, Apple Silicon)
   framework.sh             Recipe lifecycle (run_recipe, reset, guards, phases)
-  download.sh              Tarball fetch with cache and exponential backoff
+  download.sh              Tarball fetch, hash verification, cache and exponential backoff
+  makesum.sh               makesum: fetch-and-record digests into .hash sidecars
   cleanup.sh               Signal trap handler
   install.sh               Install/uninstall with manifest tracking
   updates.sh               GitHub API update checker
@@ -328,6 +426,8 @@ profiles/
 recipes/
   _order.conf              Declarative build order
   ffmpeg.sh                Final FFmpeg build
+  <name>.hash              Recorded sha256/size (+ optional sha512/sha1) sidecar,
+                           one per recipe with a PKG_URL (see Checksum Verification)
   tools/                   Build tools (cmake, nasm, pkg-config, zlib, ...)
   crypto/                  Crypto libraries (openssl, gnutls, gmp, nettle)
   video/                   Video codecs (x264, x265, libvpx, dav1d, svtav1, ...)
