@@ -414,5 +414,83 @@ else
 fi
 unset MAKESUM_MODE
 
+# -- makesum --build forwards two-token flags verbatim (review fix, #19) -----
+# `-*)` used to catch only a flag's own token; its separate-token VALUE (the
+# "4" in `-j 4`, the "openssl" in `--tls openssl`) does not start with "-",
+# so it fell through to the `*)` arm and landed in _mk_pkgs -- which then
+# made --build die with "does not support filtering to specific packages",
+# silently dropping the value. Fixed by forwarding every non-makesum token to
+# cmd_build verbatim, whether or not it starts with "-", rather than teaching
+# cmd_makesum which of cmd_build's flags take a value (that would duplicate
+# cmd_build's own grammar and drift the next time a flag is added).
+#
+# Verified against the argument vector cmd_build actually receives, not an
+# error string, per the fix's own ruling. cmd_build is shadowed with a stub
+# that records argc and each argument to a fixture file rather than running
+# a build -- recipes/ffmpeg.sh's real network fetch bypasses --dry-run
+# entirely (a separate, already-flagged bug; not this fix), so invoking the
+# real cmd_build here would make this test dependent on the network.
+#
+# mediaforge.sh cannot be `.`-sourced directly: its own tail runs a
+# subcommand dispatch (case "$_cmd" in ... esac; exit 0) against THIS
+# script's argv, which would terminate the whole test file. Extracting
+# everything above the "Subcommand Dispatch" marker sources just the
+# function definitions. SCRIPT_DIR is set before sourcing (with its own
+# reassignment line filtered out) because the extracted preamble's `.
+# "$SCRIPT_DIR/lib/..."` lines run immediately and need the repo root, not
+# this test file's own directory.
+_mf_defs="$_fx/mediaforge-defs.sh"
+awk '/^# ─── Subcommand Dispatch ───/{exit} !/^SCRIPT_DIR=/{print}' "$ROOT/mediaforge.sh" > "$_mf_defs"
+# Read by the `. "$SCRIPT_DIR/lib/..."` lines inside $_mf_defs, sourced from
+# a dynamic path shellcheck does not follow.
+# shellcheck disable=SC2034
+SCRIPT_DIR="$ROOT"
+NUMJOBS="${NUMJOBS:-1}"
+. "$_mf_defs"
+
+_mkbuild_capture="$_fx/mkbuild-capture.txt"
+# Invoked from cmd_makesum(), defined in the dynamically-sourced $_mf_defs
+# above; shellcheck's static call graph does not reach into it.
+# shellcheck disable=SC2329
+cmd_build() {
+  {
+    printf 'argc=%s\n' "$#"
+    for _cb_a in "$@"; do
+      printf 'arg=%s\n' "$_cb_a"
+    done
+  } > "$_mkbuild_capture"
+}
+
+# Calling cmd_makesum() inside a subshell means a `die` (which calls `exit`)
+# only ends the subshell, not this whole test file -- load-bearing on the
+# baseline, where cmd_makesum doesn't exist yet at all and the call would
+# otherwise be "command not found" rather than a clean, contained failure.
+_assert_build_forward() {
+  _desc="$1"; shift
+  _want="$1"; shift
+  rm -f "$_mkbuild_capture"
+  ( cmd_makesum "$@" ) >/dev/null 2>&1
+  _got=$(cat "$_mkbuild_capture" 2>/dev/null || printf '')
+  if [ "$_got" = "$_want" ]; then
+    _pass "$_desc"
+  else
+    _bad "$_desc" "want: [$_want] got: [$_got]"
+  fi
+}
+
+_assert_build_forward makesum-build-forwards-short-flag-value \
+  "$(printf 'argc=2\narg=-j\narg=4')" \
+  --build -j 4
+
+_assert_build_forward makesum-build-forwards-long-flag-value \
+  "$(printf 'argc=2\narg=--tls\narg=openssl')" \
+  --build --tls openssl
+
+# Positive: the already-working single-token "=" form must still forward
+# unchanged after the fix.
+_assert_build_forward makesum-build-forwards-equals-form \
+  "$(printf 'argc=1\narg=--tls=openssl')" \
+  --build --tls=openssl
+
 printf 'DONE:\n'
 exit "$_fail"

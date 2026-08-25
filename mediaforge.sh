@@ -504,24 +504,36 @@ cmd_makesum() {
       # --build reaches the fetch() calls nested inside pkg_install() (lv2's
       # seven sub-tarballs, ffmpeg.sh, opencl, libcdio) that a fetch-only pass
       # never sources far enough to see -- already accounted for by the
-      # pre-scan above, nothing left to do here.
+      # pre-scan above, nothing left to do here. Takes no package list of its
+      # own: cmd_build owns that grammar (see the `*)` arm below).
       --build)     ;;
-      -*)
+      # Everything else -- flag or bare value, whether or not it starts with
+      # "-" -- is forwarded to cmd_build verbatim when --build is set, rather
+      # than re-parsed here. cmd_makesum does not know which of cmd_build's
+      # flags take a separate-token value (-j 4, --tls openssl,
+      # --openssldir /etc/ssl); teaching it that grammar would duplicate
+      # cmd_build's own parser and the two would drift the next time a flag
+      # is added (see ~/.claude/rules/extract-before-you-duplicate.md). A
+      # value token like "openssl" is also a real recipe name, so it cannot
+      # be told apart from a package filter here either -- only cmd_build,
+      # which already validates its own grammar, can tell a stray value from
+      # a bad flag. Outside --build mode a bare token is still a package
+      # filter and an unrecognized "-*" still dies here, exactly as before.
+      *)
         if [ "$_mk_build" = true ]; then
           _mk_buildargs="$_mk_buildargs $1"
         else
-          die "Unknown option for makesum: $1"
+          case "$1" in
+            -*) die "Unknown option for makesum: $1" ;;
+            *)  _mk_pkgs="$_mk_pkgs $1" ;;
+          esac
         fi
         ;;
-      *)           _mk_pkgs="$_mk_pkgs $1" ;;
     esac
     shift
   done
 
   if [ "$_mk_build" = true ]; then
-    if [ -n "$_mk_pkgs" ]; then
-      die "makesum --build runs a full build and does not support filtering to specific packages ($_mk_pkgs); drop them or use --disable= to narrow the build."
-    fi
     # MAKESUM_MODE makes fetch() (lib/download.sh) record instead of its
     # ordinary behavior; every fetch() call this build reaches, including
     # ones nested inside a recipe's pkg_install(), runs in this same shell
@@ -530,9 +542,11 @@ cmd_makesum() {
     MAKESUM_MODE=true
     export MAKESUM_MODE
     log "makesum: running a real build with checksum recording enabled (--build)"
-    # _mk_buildargs accumulates separate flags (e.g. --enable-nonfree
-    # --tls=openssl); word-splitting is required here, the same pattern
-    # cmd_build itself uses for $PKG_CMAKE_FLAGS.
+    # _mk_buildargs accumulates every forwarded token verbatim (flags and
+    # their separate-token values alike, e.g. --tls openssl); word-splitting
+    # is required here, the same pattern cmd_build itself uses for
+    # $PKG_CMAKE_FLAGS. A stray package name (`makesum --build zlib`) is
+    # forwarded too and rejected by cmd_build's own parser, not this one.
     # shellcheck disable=SC2086
     cmd_build $_mk_buildargs
     return
