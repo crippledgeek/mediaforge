@@ -427,9 +427,9 @@ unset MAKESUM_MODE
 # Verified against the argument vector cmd_build actually receives, not an
 # error string, per the fix's own ruling. cmd_build is shadowed with a stub
 # that records argc and each argument to a fixture file rather than running
-# a build -- recipes/ffmpeg.sh's real network fetch bypasses --dry-run
-# entirely (a separate, already-flagged bug; not this fix), so invoking the
-# real cmd_build here would make this test dependent on the network.
+# a build -- the real cmd_build runs the full recipe loop even under
+# --dry-run, so invoking it here would make this test dependent on the
+# workspace and network regardless.
 #
 # mediaforge.sh cannot be `.`-sourced directly: its own tail runs a
 # subcommand dispatch (case "$_cmd" in ... esac; exit 0) against THIS
@@ -513,6 +513,32 @@ _assert_build_forward makesum-build-consumes-profile-not-forwarded \
 # this is currently the last section, but the discipline holds regardless of
 # ordering.
 unset -f cmd_build
+
+# -- --dry-run must not fetch/extract/build/install FFmpeg (#19) -------------
+# recipes/ffmpeg.sh is sourced directly by cmd_build rather than through
+# run_recipe(), so lib/framework.sh's DRY_RUN short-circuit never reached it:
+# a dry run downloaded and re-extracted the FFmpeg tarball regardless of
+# --dry-run. Asserted on process output, not the filesystem -- pointing
+# DISTDIR at a temp dir and asserting it stays empty would be stronger, but
+# tests/oracle-baseline.sh runs every added test against the unpatched merge
+# base, where that assertion would download a real tarball on every
+# tests/run.sh.
+_out=$(./mediaforge.sh build --dry-run --yes 2>&1) || true
+
+if printf '%s' "$_out" | grep -qF -- 'Would build FFmpeg'; then
+  _pass dry-run-logs-would-build-ffmpeg
+else
+  _bad dry-run-logs-would-build-ffmpeg "no 'Would build FFmpeg' line in dry-run output"
+fi
+
+# fetch() (lib/download.sh) logs "Extracted $_file" only after a real
+# tar-extract succeeds -- its presence here means recipes/ffmpeg.sh actually
+# ran despite --dry-run.
+if printf '%s' "$_out" | grep -qF -- 'Extracted '; then
+  _bad dry-run-does-not-extract-ffmpeg "dry-run output shows a real extraction"
+else
+  _pass dry-run-does-not-extract-ffmpeg
+fi
 
 printf 'DONE:\n'
 exit "$_fail"
