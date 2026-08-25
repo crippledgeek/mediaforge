@@ -40,6 +40,52 @@ file_size() {
   wc -c < "$1" | tr -d ' '
 }
 
+# hash_file_validate HASHFILE
+# Die unless every record in HASHFILE is well formed. A parser that skipped a
+# line it could not read would silently skip a digest, so every defect is
+# fatal: wrong field count, unknown keyword, non-hex digest, non-numeric size,
+# or a duplicated (keyword, filename) pair.
+#
+# Grammar: `<keyword>  <value>  <filename>`, blanks-separated. `#` comments and
+# blank lines are ignored. md5/sha224/sha384 are deliberately absent -- a
+# divergence from Buildroot's check-hash, which accepts md5 but undocuments
+# it; keeping a weak-hash code path out of the tree entirely is the point.
+hash_file_validate() {
+  _hf="$1"
+  _err=$(awk '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    {
+      if (NF != 3) { printf("line %d: expected 3 fields, got %d\n", NR, NF); next }
+      k = $1; v = $2; f = $3
+      if (k == "size") {
+        if (v !~ /^[0-9]+$/) { printf("line %d: size %s is not a decimal count\n", NR, v) }
+      } else if (k == "sha256" || k == "sha512" || k == "sha1") {
+        if (v !~ /^[0-9a-f]+$/) { printf("line %d: %s value %s is not lowercase hex\n", NR, k, v) }
+      } else {
+        printf("line %d: unknown keyword %s\n", NR, k)
+        next
+      }
+      if (seen[k SUBSEP f]++) { printf("line %d: duplicate %s record for %s\n", NR, k, f) }
+    }
+  ' "$_hf")
+
+  if [ -n "$_err" ]; then
+    die "Malformed hash file $_hf:
+$_err"
+  fi
+}
+
+# hash_lookup HASHFILE FILENAME KEYWORD
+# Print the recorded value for that (filename, keyword) pair, or nothing.
+hash_lookup() {
+  awk -v want="$2" -v key="$3" '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    NF == 3 && $1 == key && $3 == want { print $2; exit }
+  ' "$1"
+}
+
 # fetch_git URL DEST COMMIT
 # Obtain a source tree at exactly COMMIT, for packages with no usable release
 # tarball: recipes/other/librtmp.sh, recipes/hwaccel/libplacebo.sh, and

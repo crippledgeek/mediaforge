@@ -74,5 +74,61 @@ if _require_fn digest_file digest-rejects-md5; then
   fi
 fi
 
+# -- Hash-file parser ---------------------------------------------------------
+cat > "$_fx/good.hash" <<'EOF'
+# From https://example.invalid/openssl-3.5.4.tar.gz.sha256
+sha256  9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08  openssl-3.5.4.tar.gz
+size    4  openssl-3.5.4.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  aaaa  other.tar.gz
+size    7  other.tar.gz
+EOF
+
+_got=$(hash_lookup "$_fx/good.hash" openssl-3.5.4.tar.gz sha256)
+if [ "$_got" = "$_KAT" ]; then _pass lookup-sha256; else _bad lookup-sha256 "got '$_got'"; fi
+
+_got=$(hash_lookup "$_fx/good.hash" openssl-3.5.4.tar.gz size)
+if [ "$_got" = 4 ]; then _pass lookup-size; else _bad lookup-size "got '$_got'"; fi
+
+# On the baseline tree hash_lookup is undefined, so $_got is empty and this
+# assertion would pass on a tree that has no such function -- exactly what
+# tests/oracle-baseline.sh rejects. Guarded per the Task 2 brief correction.
+if _require_fn hash_lookup lookup-absent-empty; then
+  _got=$(hash_lookup "$_fx/good.hash" absent.tar.gz sha256)
+  if [ -z "$_got" ]; then _pass lookup-absent-empty; else _bad lookup-absent-empty "got '$_got'"; fi
+fi
+
+if ( hash_file_validate "$_fx/good.hash" ) >/dev/null 2>&1; then
+  _pass validate-accepts-good
+else
+  _bad validate-accepts-good "well-formed file was rejected"
+fi
+
+# Each malformed shape must be rejected. A parser that silently skips a line it
+# cannot read would silently skip a digest.
+#
+# On the baseline tree hash_file_validate is undefined, the subshell exits 127,
+# and every case below would read as "rejected" -- a passing assertion on a
+# tree with no such function, which tests/oracle-baseline.sh rejects. Guarded
+# per the Task 2 brief correction.
+if _require_fn hash_file_validate validate-rejects-guard; then
+  for _case in wrong-fields unknown-keyword non-hex non-numeric-size duplicate md5-keyword; do
+    case "$_case" in
+      wrong-fields)      printf 'sha256 abc\n' > "$_fx/bad.hash" ;;
+      unknown-keyword)   printf 'sha999  abc  f.tar.gz\n' > "$_fx/bad.hash" ;;
+      non-hex)           printf 'sha256  zzzz  f.tar.gz\n' > "$_fx/bad.hash" ;;
+      non-numeric-size)  printf 'size  many  f.tar.gz\n' > "$_fx/bad.hash" ;;
+      duplicate)         printf 'sha256  aa  f.tar.gz\nsha256  bb  f.tar.gz\n' > "$_fx/bad.hash" ;;
+      md5-keyword)       printf 'md5  aa  f.tar.gz\n' > "$_fx/bad.hash" ;;
+    esac
+    if ( hash_file_validate "$_fx/bad.hash" ) >/dev/null 2>&1; then
+      _bad "validate-rejects-$_case" "malformed file was accepted"
+    else
+      _pass "validate-rejects-$_case"
+    fi
+  done
+fi
+
 printf 'DONE:\n'
 exit "$_fail"
