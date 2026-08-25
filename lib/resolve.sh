@@ -246,7 +246,6 @@ resolve_choices() {
   : "${H265_IMPL:=${H265_IMPL_DEFAULT:-$H265_IMPL_DEFAULT_BUILTIN}}"
   : "${AV1_ENC_IMPL:=${AV1_ENC_IMPL_DEFAULT:-$AV1_ENC_IMPL_DEFAULT_BUILTIN}}"
   : "${SPIRV_IMPL:=${SPIRV_IMPL_DEFAULT:-$SPIRV_IMPL_DEFAULT_BUILTIN}}"
-  : "${FLITE_AUDIO:=none}"
 
   _validate_enum "--tls"     "$TLS_BACKEND"  "openssl|gnutls|mbedtls|libressl|none"
   _validate_enum "--aac"     "$AAC_IMPL"     "fdk_aac|native"
