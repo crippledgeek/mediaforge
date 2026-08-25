@@ -2,14 +2,15 @@
 # Download and extract helpers
 
 # fetch_git URL DEST COMMIT
-# Obtain a source tree at exactly COMMIT, for packages that have no usable
-# release tarball (recipes/other/librtmp.sh, recipes/hwaccel/libplacebo.sh).
+# Obtain a source tree at exactly COMMIT, for packages with no usable release
+# tarball: recipes/other/librtmp.sh, recipes/hwaccel/libplacebo.sh, and
+# recipes/video/av1.sh (whose gitiles archive is regenerated per request).
 #
 # Pinned by commit rather than by tag on purpose. A git tag is a MUTABLE
 # server-side pointer: whoever controls the remote can retarget it, and every
 # later build silently compiles different source. A commit name is the hash of
-# the commit's content, so git itself rejects a substituted tree — the integrity
-# guarantee no tarball digest can give these two recipes.
+# the commit's content, so git itself rejects a substituted tree. That is the
+# integrity guarantee no tarball digest can give these recipes.
 #
 # An existing DEST is reused only when it is already AT that commit. Merely
 # existing is not evidence of its contents, which is the same reason fetch()'s
@@ -34,6 +35,14 @@ fetch_git() {
       return 0
     fi
     warn "$_dest is at ${_have:-an unreadable HEAD}, wanted $_commit — re-fetching"
+    rm -rf "${_dest:?}"
+  elif [ -e "$_dest" ] || [ -L "$_dest" ]; then
+    # Exists but is not a clone. This is the tarball-to-git conversion case: a recipe
+    # that used to `fetch` an archive left its extracted tree here, and every
+    # workspace that ever built it still has one. `git init` over that debris
+    # succeeds, and the checkout below then aborts on every file the archive and
+    # the commit share ("untracked working tree files would be overwritten").
+    warn "$_dest exists but is not a git clone, replacing it"
     rm -rf "${_dest:?}"
   fi
 
