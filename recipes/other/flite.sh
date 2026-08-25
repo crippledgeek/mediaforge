@@ -21,10 +21,6 @@ pkg_configure() {
   # Override via --flite-audio=alsa|pulseaudio|oss|sun if you also want a
   # working standalone libflite-audio with the chosen backend; FFmpeg will
   # then need the matching audio library available at link time.
-  case "$FLITE_AUDIO" in
-    none|alsa|pulseaudio|oss|sun) ;;
-    *) die "Invalid --flite-audio=$FLITE_AUDIO (allowed: none|alsa|pulseaudio|oss|sun)" ;;
-  esac
   run ./configure --prefix="$PREFIX" --with-pic --with-audio="$FLITE_AUDIO"
 }
 

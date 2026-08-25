@@ -11,7 +11,6 @@ if [ "$OS_LINUX" = true ] && [ -f "$PREFIX/lib/libflite.a" ]; then
     oss)         ;; # OSS uses kernel ioctl, no -l flag
     sun)         ;; # Sun audio is in libc on Solaris-likes
     none)        ;;
-    *)           die "Invalid FLITE_AUDIO=$FLITE_AUDIO (allowed: none|alsa|pulseaudio|oss|sun)" ;;
   esac
 fi
 
