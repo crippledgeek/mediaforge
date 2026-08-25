@@ -149,6 +149,33 @@ fetch_git() {
   fi
 }
 
+# download_file URL DEST
+# Fetch URL to DEST with bounded exponential backoff. Dies after 3 attempts,
+# leaving no partial file behind -- `curl -f` exits non-zero on HTTP >= 400 so
+# an error-page body is never mistaken for an archive (tests/fetch-fail-no-cache.sh).
+download_file() {
+  _dl_url="$1"
+  _dl_dest="$2"
+
+  log "Downloading $_dl_url"
+  _retry_wait=1
+  _attempts=0
+  while [ "$_attempts" -lt 3 ]; do
+    if curl -fL -sS -o "$_dl_dest" "$_dl_url"; then
+      log "Download complete"
+      return 0
+    fi
+    rm -f "$_dl_dest"
+    _attempts=$((_attempts + 1))
+    if [ "$_attempts" -lt 3 ]; then
+      warn "Download failed. Retrying in ${_retry_wait}s..."
+      sleep "$_retry_wait"
+      _retry_wait=$((_retry_wait * 2))
+    fi
+  done
+  die "Failed to download $_dl_url after 3 attempts"
+}
+
 # fetch [URL [FILENAME [DIRNAME]]]
 # Reads PKG_URL, PKG_FILENAME, PKG_DIRNAME by default.
 # Positional args override for non-recipe downloads (ffmpeg.sh, sub-packages).
@@ -170,27 +197,7 @@ fetch() {
 
   # Download if not cached
   if [ ! -f "$DISTDIR/$_file" ]; then
-    log "Downloading $_url"
-    _retry_wait=1
-    _ok=false
-    _attempts=0
-    while [ "$_attempts" -lt 3 ]; do
-      if curl -fL -sS -o "$DISTDIR/$_file" "$_url"; then
-        _ok=true
-        break
-      fi
-      rm -f "$DISTDIR/$_file"
-      _attempts=$((_attempts + 1))
-      if [ "$_attempts" -lt 3 ]; then
-        warn "Download failed. Retrying in ${_retry_wait}s..."
-        sleep "$_retry_wait"
-        _retry_wait=$((_retry_wait * 2))
-      fi
-    done
-    if [ "$_ok" != true ]; then
-      die "Failed to download $_url after 3 attempts"
-    fi
-    log "Download complete"
+    download_file "$_url" "$DISTDIR/$_file"
   else
     log "$_file already cached"
   fi
