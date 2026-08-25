@@ -274,5 +274,60 @@ if _require_fn hash_record_write makesum-rejects-space; then
   fi
 fi
 
+# -- makesum cache-reuse decision ---------------------------------------------
+# Task 7 runs makesum five times (defaults + four profiles) over ~107 recipes;
+# most of those re-invocations should be cache hits, not re-downloads. But the
+# skip must be earned: makesum's output becomes the pin, so only a cache entry
+# that already matches an attested digest is safe to trust.
+if _require_fn makesum_needs_fetch makesum-cache-hit-skips; then
+  printf 'test' > "$_fx/cache-match.tar.gz"   # sha256 == $_KAT
+  cat > "$_fx/cache.hash" <<EOF
+sha256  $_KAT  cache-match.tar.gz
+size    4  cache-match.tar.gz
+EOF
+
+  if makesum_needs_fetch "$_fx/cache.hash" cache-match.tar.gz "$_fx/cache-match.tar.gz"; then
+    _bad makesum-cache-hit-skips "a cache entry matching its recorded digest still asked to be re-fetched"
+  else
+    _pass makesum-cache-hit-skips
+  fi
+
+  # No recorded digest yet for this filename -- must fetch, regardless of
+  # what bytes happen to already be on disk.
+  if makesum_needs_fetch "$_fx/cache.hash" unrecorded.tar.gz "$_fx/cache-match.tar.gz"; then
+    _pass makesum-cache-miss-no-record
+  else
+    _bad makesum-cache-miss-no-record "a file with no recorded digest was treated as cached"
+  fi
+
+  # The cached bytes were corrupted/replaced after being recorded -- must
+  # re-fetch rather than trust stale bytes that no longer match their pin.
+  printf 'corrupted' > "$_fx/cache-match.tar.gz"
+  if makesum_needs_fetch "$_fx/cache.hash" cache-match.tar.gz "$_fx/cache-match.tar.gz"; then
+    _pass makesum-cache-miss-mismatch
+  else
+    _bad makesum-cache-miss-mismatch "a cache entry that no longer matches its recorded digest was skipped"
+  fi
+fi
+
+# -- makesum update-path never leaves an orphaned sha256-without-size --------
+# A hand-edited or externally-authored sidecar can carry a sha256 record with
+# no matching size record. size is mandatory (hash_file_validate), so
+# --update rewriting the digest must not leave that shape still broken.
+if _require_fn hash_record_write makesum-update-adds-missing-size; then
+  printf 'test' > "$_fx/nosize-src.tar.gz"   # sha256 == $_KAT, size 4
+  cat > "$_fx/nosize.hash" <<'EOF'
+sha256  1111  nosize.tar.gz
+EOF
+  MAKESUM_UPDATE=true
+  hash_record_write "$_fx/nosize.hash" nosize.tar.gz "$_fx/nosize-src.tar.gz"
+  MAKESUM_UPDATE=false
+  if [ "$(hash_lookup "$_fx/nosize.hash" nosize.tar.gz size)" = 4 ]; then
+    _pass makesum-update-adds-missing-size
+  else
+    _bad makesum-update-adds-missing-size "size record still missing/wrong after --update rewrote the digest"
+  fi
+fi
+
 printf 'DONE:\n'
 exit "$_fail"

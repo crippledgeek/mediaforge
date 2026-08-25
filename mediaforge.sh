@@ -513,7 +513,9 @@ cmd_makesum() {
   fi
 
   if [ "$_mk_build" = true ]; then
-    log "makesum: --build is not wired to a real build yet — running the fetch-only pass instead"
+    # stderr, not stdout: a user piping makesum's output to a file must still
+    # see that --build did something other than what it asked for.
+    warn "makesum: --build is not wired to a real build yet — running the fetch-only pass instead"
   fi
 
   # Validate every requested package name against the recipe registry, same
@@ -559,10 +561,16 @@ cmd_makesum() {
     fi
 
     _mk_file="${PKG_FILENAME:-${PKG_URL##*/}}"
-    download_file "$PKG_URL" "$DISTDIR/$_mk_file"
+    _mk_dest="$DISTDIR/$_mk_file"
+
+    if makesum_needs_fetch "$PKG_HASH_FILE" "$_mk_file" "$_mk_dest"; then
+      download_file "$PKG_URL" "$_mk_dest"
+    else
+      log "makesum: $_mk_file already matches its recorded digest, skipping download"
+    fi
 
     MAKESUM_PROVENANCE="Locally calculated $(date +%Y-%m-%d)"
-    hash_record_write "$PKG_HASH_FILE" "$_mk_file" "$DISTDIR/$_mk_file"
+    hash_record_write "$PKG_HASH_FILE" "$_mk_file" "$_mk_dest"
   done < "$SCRIPT_DIR/recipes/_order.conf"
 }
 

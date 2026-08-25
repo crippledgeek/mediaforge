@@ -6,6 +6,33 @@
 # Buildroot deliberately ships no equivalent -- see the design spec for that
 # counter-argument and why it is answered differently here.
 
+# makesum_needs_fetch HASHFILE FILENAME FILEPATH
+# Return 0 (needs fetching) unless FILENAME already has a recorded sha256 in
+# HASHFILE AND the bytes at FILEPATH still match it.
+#
+# Deliberately not a plain `[ -f FILEPATH ]` cache check. makesum's output
+# BECOMES the pin -- an unconditional skip would mint a pin from a cache
+# entry of unknown age (a months-old truncated tarball recorded as
+# canonical), and every later build would then verify happily against the
+# corrupt bytes. That is the exact failure #19 exists to close, arriving
+# through the tool meant to prevent it. Only a cache entry that already
+# matches an attested digest is safe to skip; a missing record, a missing
+# file, or a mismatch all mean the bytes are unverified and must be
+# re-fetched before they can be hashed. Composed entirely from the existing
+# hash_lookup/digest_file primitives -- no new comparison logic.
+makesum_needs_fetch() {
+  _mnf_file="$1"
+  _mnf_name="$2"
+  _mnf_path="$3"
+
+  [ -f "$_mnf_file" ] || return 0
+  _mnf_recorded=$(hash_lookup "$_mnf_file" "$_mnf_name" sha256)
+  [ -n "$_mnf_recorded" ] || return 0
+  [ -f "$_mnf_path" ] || return 0
+  [ "$(digest_file sha256 "$_mnf_path")" = "$_mnf_recorded" ] && return 1
+  return 0
+}
+
 # hash_record_write HASHFILE FILENAME FILEPATH
 # Compute FILEPATH's sha256 and size, and merge both records into HASHFILE.
 #
@@ -60,13 +87,25 @@ hash_record_write() {
     return 0
   fi
 
+  # A hand-edited or externally-authored sidecar could carry a sha256 record
+  # with no matching size record (hash_record_write itself never produces
+  # that shape, but nothing stops one arriving as input). size is mandatory
+  # per hash_file_validate, so track whether we actually rewrote one and
+  # synthesize it at EOF if not -- otherwise the digest gets updated and the
+  # file is left invalid with no warning.
+  _hw_had_size=$(hash_lookup "$_hw_file" "$_hw_name" size)
+
   # Rewrite in place, preserving position and the provenance comment above it.
   awk -v want="$_hw_name" -v sha="$_hw_sha" -v sz="$_hw_size" '
     NF == 3 && $1 == "sha256" && $3 == want { printf("sha256  %s  %s\n", sha, want); next }
-    NF == 3 && $1 == "size"   && $3 == want { printf("size    %s  %s\n", sz,  want); next }
+    NF == 3 && $1 == "size"   && $3 == want { printf("size    %s  %s\n", sz,  want); saw_size=1; next }
     { print }
+    END { if (!saw_size) printf("size    %s  %s\n", sz, want) }
   ' "$_hw_file" > "$_hw_file.tmp" && mv "$_hw_file.tmp" "$_hw_file"
 
   warn "makesum: UPDATED $_hw_name ($_hw_old -> $_hw_sha)"
   warn "  If that block's provenance comment names an upstream digest URL, confirm upstream really republished."
+  if [ -z "$_hw_had_size" ]; then
+    warn "makesum: $_hw_name had no size record -- synthesized one ($_hw_size) so the sidecar stays valid (size is mandatory)."
+  fi
 }
