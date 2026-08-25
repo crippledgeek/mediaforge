@@ -37,6 +37,10 @@ reset_recipe() {
   PKG_VERSION=""
   PKG_URL=""
   PKG_COMMIT=""
+  # Framework-derived, never recipe-set: the path of this recipe's .hash file.
+  # Nested fetch calls inside pkg_install() inherit it as ordinary shell state,
+  # which is how lv2's seven sub-tarballs land in one lv2.hash.
+  PKG_HASH_FILE=""
   PKG_FILENAME=""
   PKG_DIRNAME=""
   PKG_FFMPEG_OPT=""
@@ -154,6 +158,12 @@ run_recipe() {
 
   # Reset state
   reset_recipe
+
+  # Every recipe's checksums live in a sidecar beside its own .sh file, so the
+  # lookup is derived from the path the caller already gave us rather than
+  # threaded through fetch()'s argument list (which is already at its
+  # three-argument ceiling).
+  PKG_HASH_FILE="${_recipe_path%.sh}.hash"
 
   # Source the recipe to load its variables and phase overrides
   . "$_recipe_path"

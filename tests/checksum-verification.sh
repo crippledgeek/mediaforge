@@ -145,5 +145,60 @@ case "$_msg" in
   *) _bad validate-bad-value-not-duplicate "missing hex/format error: $_msg" ;;
 esac
 
+# -- PKG_HASH_FILE plumbing (Task 4, #19) -------------------------------------
+# shellcheck disable=SC1091
+. "$ROOT/lib/framework.sh"
+
+# reset_recipe() runs between every recipe; a stale value from the previous
+# recipe must not leak into the next one's fetch/makesum lookups.
+PKG_HASH_FILE="/sentinel/should-be-cleared.hash"
+reset_recipe
+if [ -z "$PKG_HASH_FILE" ]; then
+  _pass reset-clears-hash-file
+else
+  _bad reset-clears-hash-file "got '$PKG_HASH_FILE'"
+fi
+
+# run_recipe() must derive PKG_HASH_FILE from the recipe path it was actually
+# given -- exercised through run_recipe itself (not a re-implementation of the
+# %.sh strip) so the assertion fails if the framework never assigns it, not
+# just if the formula is wrong. DRY_RUN short-circuits after the derivation
+# but before fetch/build, so this needs no network and no host build tools.
+_hf_dir="$_fx/hf-fixture"
+mkdir -p "$_hf_dir/recipes/audio" "$_hf_dir/prefix/.stamps"
+cat > "$_hf_dir/recipes/audio/lv2.sh" <<'EOF'
+PKG_NAME="lv2fixture"
+PKG_VERSION="1.0"
+PKG_URL="https://example.invalid/lv2fixture-1.0.tar.gz"
+EOF
+PREFIX="$_hf_dir/prefix"
+DISABLE_PKGS=""
+ENABLE_PKGS=""
+DRY_RUN=true
+PKG_HASH_FILE=""
+run_recipe "$_hf_dir/recipes/audio/lv2.sh" >/dev/null
+_expected="$_hf_dir/recipes/audio/lv2.hash"
+if [ "$PKG_HASH_FILE" = "$_expected" ]; then
+  _pass run-recipe-derives-hash-file
+else
+  _bad run-recipe-derives-hash-file "got '$PKG_HASH_FILE', want '$_expected'"
+fi
+unset DRY_RUN
+
+# PKG_HASH_FILE is framework-derived and must never be assigned inside a
+# recipe -- a recipe that set it would silently point fetch/makesum at the
+# wrong sidecar. recipes/ffmpeg.sh is the sanctioned exception: it is sourced
+# directly by mediaforge.sh rather than through run_recipe(), so it derives
+# its own PKG_HASH_FILE. Framed as one comparison (framework derives it AND
+# no ordinary recipe does) so the assertion fails on a tree where the
+# framework doesn't derive it yet, rather than passing vacuously there.
+_hf_recipe_offenders=$(grep -rl 'PKG_HASH_FILE=' "$ROOT/recipes" --include='*.sh' 2>/dev/null \
+  | grep -v '^'"$ROOT"'/recipes/ffmpeg\.sh$' || true)
+if grep -q 'PKG_HASH_FILE=' "$ROOT/lib/framework.sh" 2>/dev/null && [ -z "$_hf_recipe_offenders" ]; then
+  _pass hash-file-not-recipe-set
+else
+  _bad hash-file-not-recipe-set "framework derives it: $(grep -q 'PKG_HASH_FILE=' "$ROOT/lib/framework.sh" && echo yes || echo no); offenders: ${_hf_recipe_offenders:-none}"
+fi
+
 printf 'DONE:\n'
 exit "$_fail"

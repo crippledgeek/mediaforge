@@ -21,6 +21,12 @@ log ""
 log "Building FFmpeg $FFMPEG_VERSION"
 log "======================="
 
+# Sourced directly by mediaforge.sh rather than through run_recipe(), so
+# unlike every other recipe it must derive its own PKG_HASH_FILE. Read by
+# fetch()/makesum in lib/download.sh, a cross-file consumer shellcheck can't see.
+# shellcheck disable=SC2034
+PKG_HASH_FILE="$SCRIPT_DIR/recipes/ffmpeg.hash"
+
 fetch "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" \
   "FFmpeg-release-${FFMPEG_VERSION}.tar.gz"
 
