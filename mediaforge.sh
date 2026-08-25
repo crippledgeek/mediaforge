@@ -484,7 +484,6 @@ cmd_makesum() {
   MAKESUM_UPDATE=false
   _mk_build=false
   _mk_pkgs=""
-  _mk_buildargs=""
 
   # Pre-scan for --build before the real parse below. Once --build is
   # present, every other flag on the line belongs to cmd_build's own option
@@ -495,17 +494,35 @@ cmd_makesum() {
     [ "$_mk_scan" = --build ] && _mk_build=true
   done
 
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --profile=*) PROFILE_NAME="${1#--profile=}" ;;
-      --profile)   shift; _need_arg "$#" --profile; PROFILE_NAME="$1" ;;
-      -p)          shift; _need_arg "$#" -p; PROFILE_NAME="$1" ;;
+  # Rebuild "$@" itself into the forward list when --build is set, rather
+  # than accumulating a string: a string accumulator's later unquoted
+  # expansion word-splits on whitespace inside a value, so
+  # --openssldir "/path with space" would reach cmd_build as two arguments.
+  # "$@" is POSIX sh's one whitespace-safe argument-vector primitive, and
+  # `set -- "$@" "$_mk_arg"` moves a token to the back of it intact. $_mk_argc
+  # drives the loop instead of $#, because $# does not shrink when a token is
+  # re-appended -- looping on $# would never terminate for a forwarded token.
+  _mk_argc=$#
+  while [ "$_mk_argc" -gt 0 ]; do
+    _mk_arg="$1"
+    shift
+    _mk_argc=$((_mk_argc - 1))
+    case "$_mk_arg" in
+      --profile=*) PROFILE_NAME="${_mk_arg#--profile=}" ;;
+      --profile)
+        _need_arg "$_mk_argc" --profile
+        PROFILE_NAME="$1"; shift; _mk_argc=$((_mk_argc - 1))
+        ;;
+      -p)
+        _need_arg "$_mk_argc" -p
+        PROFILE_NAME="$1"; shift; _mk_argc=$((_mk_argc - 1))
+        ;;
       --update)    MAKESUM_UPDATE=true ;;
       # --build reaches the fetch() calls nested inside pkg_install() (lv2's
       # seven sub-tarballs, ffmpeg.sh, opencl, libcdio) that a fetch-only pass
       # never sources far enough to see -- already accounted for by the
-      # pre-scan above, nothing left to do here. Takes no package list of its
-      # own: cmd_build owns that grammar (see the `*)` arm below).
+      # pre-scan above, nothing left to do here. Consumed, never forwarded:
+      # cmd_build has no such flag of its own.
       --build)     ;;
       # Everything else -- flag or bare value, whether or not it starts with
       # "-" -- is forwarded to cmd_build verbatim when --build is set, rather
@@ -521,16 +538,15 @@ cmd_makesum() {
       # filter and an unrecognized "-*" still dies here, exactly as before.
       *)
         if [ "$_mk_build" = true ]; then
-          _mk_buildargs="$_mk_buildargs $1"
+          set -- "$@" "$_mk_arg"
         else
-          case "$1" in
-            -*) die "Unknown option for makesum: $1" ;;
-            *)  _mk_pkgs="$_mk_pkgs $1" ;;
+          case "$_mk_arg" in
+            -*) die "Unknown option for makesum: $_mk_arg" ;;
+            *)  _mk_pkgs="$_mk_pkgs $_mk_arg" ;;
           esac
         fi
         ;;
     esac
-    shift
   done
 
   if [ "$_mk_build" = true ]; then
@@ -542,13 +558,12 @@ cmd_makesum() {
     MAKESUM_MODE=true
     export MAKESUM_MODE
     log "makesum: running a real build with checksum recording enabled (--build)"
-    # _mk_buildargs accumulates every forwarded token verbatim (flags and
-    # their separate-token values alike, e.g. --tls openssl); word-splitting
-    # is required here, the same pattern cmd_build itself uses for
-    # $PKG_CMAKE_FLAGS. A stray package name (`makesum --build zlib`) is
-    # forwarded too and rejected by cmd_build's own parser, not this one.
-    # shellcheck disable=SC2086
-    cmd_build $_mk_buildargs
+    # "$@" now holds exactly the tokens the loop above re-appended (flags and
+    # their separate-token values alike, e.g. --tls openssl), each with its
+    # word boundaries intact -- no word-splitting, so no SC2086 to suppress.
+    # A stray package name (`makesum --build zlib`) is forwarded too and
+    # rejected by cmd_build's own parser, not this one.
+    cmd_build "$@"
     return
   fi
 

@@ -492,5 +492,27 @@ _assert_build_forward makesum-build-forwards-equals-form \
   "$(printf 'argc=1\narg=--tls=openssl')" \
   --build --tls=openssl
 
+# Regression (review fix, #19): a string accumulator's unquoted expansion
+# word-splits a forwarded value containing whitespace, so this reached
+# cmd_build as TWO arguments before the "$@" rotate fix. Pinning it at
+# argc=2, both boundaries intact, is the assertion the previous round's
+# accumulator-based fix could not have passed.
+_assert_build_forward makesum-build-forwards-value-with-space \
+  "$(printf 'argc=2\narg=--openssldir\narg=/path with space')" \
+  --build --openssldir "/path with space"
+
+# --profile is one of makesum's OWN options (consumed to set PROFILE_NAME,
+# same as before --build existed) and must never reach cmd_build's argument
+# vector at all -- the case the loop's counter arithmetic can silently break
+# by mis-tracking how many tokens a value-taking option actually consumed.
+_assert_build_forward makesum-build-consumes-profile-not-forwarded \
+  "$(printf 'argc=2\narg=--tls\narg=openssl')" \
+  --build --profile 7.1 --tls openssl
+
+# Restored so the stub cannot leak into any later assertion in this file --
+# this is currently the last section, but the discipline holds regardless of
+# ordering.
+unset -f cmd_build
+
 printf 'DONE:\n'
 exit "$_fail"
