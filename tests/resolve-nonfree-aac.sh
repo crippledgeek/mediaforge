@@ -12,7 +12,8 @@ _fail=0
 
 _reset() {  # valid values for the other groups so _validate_enum passes
   TLS_BACKEND=gnutls; H264_IMPL=x264; H265_IMPL=x265
-  AV1_ENC_IMPL=svtav1; SPIRV_IMPL=glslang; DISABLE_PKGS=""; DISABLE_PKGS_INPUT=""
+  AV1_ENC_IMPL=svtav1; SPIRV_IMPL=glslang; FLITE_AUDIO=none
+  DISABLE_PKGS=""; DISABLE_PKGS_INPUT=""
 }
 
 _expect() {  # _expect <label> <expected> <actual>
