@@ -2,3 +2,15 @@
 # Locally calculated 2026-08-25
 sha256  06d1523955fb6ed9cf9992eace772121067cca7e8926988a1ee16492febbe01e  v0.8.1.tar.gz
 size    3040879  v0.8.1.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  4e445bc63818dbacb7c1a312a95cee2d44285310dc24ecb8f4d7a6111fc58efa  p20231128.tar.gz
+size    3045136  p20231128.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  a4c2c542a06dcc4ea64a67056c0e27fc2f9ed0cfc11bdec6158c95f57b7f07ad  p20240430.tar.gz
+size    3050000  p20240430.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  b9018d6bfdb290faebfa16b42e4cb081b8756df7f50a7c419e451dacd78f3cb8  p20240924.tar.gz
+size    3049067  p20240924.tar.gz
