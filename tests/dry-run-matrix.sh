@@ -145,7 +145,7 @@ _run "libcdio on (gpl)"     "--enable-libcdio"      ./mediaforge.sh build --enab
 # Only the OFF-by-default half lives here, paired with the 7.0 row below it.
 # The opt-in half (--enable=lcevc emits the flag) belongs to
 # tests/lcevc-default-off.sh, which owns that contract with a better oracle: it
-# greps the assembled `$ ./configure` line specifically, where _run/_run_no grep
+# greps the `Would configure FFmpeg with:` line specifically, where _run/_run_no grep
 # the whole log — and that log mentions lcevc for other reasons. Asserting it
 # here as well would also make this matrix Linux-only, since lcevc.sh sets
 # PKG_LINUX_ONLY=true and check_guards (lib/framework.sh:140) skips it on macOS
