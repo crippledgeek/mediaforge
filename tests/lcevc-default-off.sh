@@ -11,11 +11,10 @@
 #      PKG_DISABLED recipe as a policy exclusion (no flag re-accumulation).
 #   2. --enable=lcevc must pass --enable-liblcevc-dec.
 #
-# Uses --dry-run, which prints the assembled `$ ./configure ...` line. We assert
-# against that line specifically (not the whole log, which also mentions lcevc).
-# NB: dry-run currently runs FFmpeg's configure for real; an unrelated configure
-# failure (e.g. a missing optional dep) is tolerated — the configure line is
-# logged before configure runs, so the assertion still holds. Hence no `set -e`.
+# Uses --dry-run, which logs the accumulated FFMPEG_CONFIGURE_OPTS via the
+# "Would configure FFmpeg with:" line (mediaforge.sh cmd_build's DRY_RUN
+# guard) rather than running FFmpeg's real configure. We assert against that
+# line specifically (not the whole log, which also mentions lcevc elsewhere).
 set -u
 
 _here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -24,9 +23,9 @@ cd "$_root" || exit 1
 
 _fail=0
 
-# Extract the assembled FFmpeg configure command line from a dry-run.
+# Extract the accumulated FFmpeg configure-opts line from a dry-run.
 _configure_line() {
-  ./mediaforge.sh build --dry-run "$@" 2>&1 | grep -- '\$ ./configure' || true
+  ./mediaforge.sh build --dry-run "$@" 2>&1 | grep -- 'Would configure FFmpeg with:' || true
 }
 
 # 1) default build: flag absent

@@ -396,6 +396,16 @@ cmd_build() {
     FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --disable-ffnvcodec"
   fi
 
+  # recipes/ffmpeg.sh is sourced directly rather than through run_recipe(),
+  # so the DRY_RUN short-circuit above (mirrored from lib/framework.sh) never
+  # reaches it. Stop here to keep a dry run from fetching/extracting FFmpeg
+  # and falling through to the install step.
+  if [ "${DRY_RUN:-false}" = true ]; then
+    log "Would build FFmpeg $FFMPEG_VERSION"
+    log "Would configure FFmpeg with:$FFMPEG_CONFIGURE_OPTS"
+    return 0
+  fi
+
   # Build FFmpeg
   . "$SCRIPT_DIR/recipes/ffmpeg.sh"
 

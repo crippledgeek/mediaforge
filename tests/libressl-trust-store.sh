@@ -475,13 +475,6 @@ fi
 # Acceptance is asserted POSITIVELY — the run must reach the resolved-choice log,
 # which is only printed once option parsing and validation have both succeeded.
 # Absence of "unknown option" alone would pass on a crash or an unrelated die.
-#
-# Exit status is NOT usable as the oracle here, and that is a property of the
-# harness rather than of this flag: --dry-run runs FFmpeg's configure for real
-# (tests/lcevc-default-off.sh documents the same thing), so on a workspace with
-# no built dependencies EVERY dry-run exits 1, including a bare
-# `./mediaforge.sh build --dry-run` — measured. Requiring rc=0 would fail
-# permanently for a reason unrelated to what is being tested.
 _out=$(./mediaforge.sh build --openssldir=/etc/ssl --dry-run --yes 2>&1) || true
 if printf '%s' "$_out" | grep -q 'tls=' \
    && ! printf '%s' "$_out" | grep -qi 'unknown option' \
