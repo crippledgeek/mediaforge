@@ -1,6 +1,45 @@
 #!/bin/sh
 # Download and extract helpers
 
+# digest_file ALGO FILE
+# Print FILE's lowercase hex digest. ALGO is sha256, sha512 or sha1.
+#
+# Backends are fed the file on STDIN, not by path, for two reasons: a path makes
+# the filename appear in the output, and `openssl dgst` labels the stream
+# differently across versions -- `SHA2-256(stdin)=` on OpenSSL 3.x versus
+# `SHA256(stdin)=` on LibreSSL and OpenSSL 1.1.x. Taking the last whitespace
+# field is correct for all three.
+#
+# macOS does not ship sha256sum; it ships shasum (a Perl Digest::SHA front end).
+# The fallback chain is what makes this work there, not a convenience.
+digest_file() {
+  _algo="$1"
+  _dfile="$2"
+
+  case "$_algo" in
+    sha256|sha512|sha1) ;;
+    *) die "digest_file: unsupported algorithm '$_algo' (sha256, sha512, sha1 only)" ;;
+  esac
+
+  if command_exists "${_algo}sum"; then
+    "${_algo}sum" < "$_dfile" | awk '{print $1}'
+  elif command_exists shasum; then
+    shasum -a "${_algo#sha}" < "$_dfile" | awk '{print $1}'
+  elif command_exists openssl; then
+    openssl dgst "-$_algo" < "$_dfile" | awk '{print $NF}'
+  else
+    die "No digest backend found. Install coreutils (${_algo}sum), perl (shasum), or openssl."
+  fi
+}
+
+# file_size FILE
+# Print FILE's size in bytes. POSIX specifies `wc -c` as the byte count and
+# specifies that no pathname is written when reading standard input, so this
+# avoids the GNU `stat -c %s` versus BSD `stat -f %z` split entirely.
+file_size() {
+  wc -c < "$1" | tr -d ' '
+}
+
 # fetch_git URL DEST COMMIT
 # Obtain a source tree at exactly COMMIT, for packages with no usable release
 # tarball: recipes/other/librtmp.sh, recipes/hwaccel/libplacebo.sh, and
