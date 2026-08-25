@@ -329,5 +329,90 @@ EOF
   fi
 fi
 
+# -- fetch() records under MAKESUM_MODE=true (Task 6, #19) -------------------
+# `makesum --build` (mediaforge.sh) is the only way to reach the ten fetch()
+# calls nested inside pkg_install() -- lv2's seven sub-tarballs plus
+# ffmpeg.sh/opencl.sh/libcdio.sh -- so the property to pin here is not "fetch
+# records a file" but "a fetch called from inside a pkg_install()-like
+# context records into the ENCLOSING recipe's PKG_HASH_FILE", since that is
+# exactly what those ten calls depend on. No `hash_record_write`/`fetch`
+# _require_fn guard is needed below: fetch() already exists on the baseline
+# tree (Task 5 and earlier), so an unguarded comparison against $_KAT already
+# fails naturally there -- no record is written pre-patch, hash_lookup
+# returns empty, and "" != $_KAT reports FAIL, exactly as it must.
+_mk_dist="$_fx/makesum-distdir"
+mkdir -p "$_mk_dist"
+
+# Positive: fetch() with MAKESUM_MODE=true records a cached file's digest
+# into PKG_HASH_FILE. Pre-seeding DISTDIR takes fetch()'s "already cached"
+# branch, so no network call is exercised; the *.patch filename makes
+# fetch() return before extraction, matching the recording hook's placement
+# (after the file is on disk, before extraction).
+DISTDIR="$_mk_dist"
+PKG_HASH_FILE="$_fx/fetch-record.hash"
+printf 'test' > "$_mk_dist/fetch-fixture.patch"
+MAKESUM_MODE=true
+( fetch "https://example.invalid/fetch-fixture.patch" "fetch-fixture.patch" ) >/dev/null 2>&1
+if [ "$(hash_lookup "$_fx/fetch-record.hash" fetch-fixture.patch sha256)" = "$_KAT" ]; then
+  _pass fetch-records-when-makesum-mode
+else
+  _bad fetch-records-when-makesum-mode "no matching sha256 record written"
+fi
+
+# Negative: an ordinary build's fetch() calls run with MAKESUM_MODE unset,
+# and must behave exactly as before -- no record written. Also exercises the
+# `${MAKESUM_MODE:-false}` default under this file's `set -u`: a bare
+# `[ "$MAKESUM_MODE" = true ]` would abort the whole script here instead of
+# reporting one failure.
+#
+# "No record was written" is trivially true on ANY tree lacking the recording
+# feature at all, baseline included -- so on its own this assertion would pass
+# there for the wrong reason (tests/oracle-baseline.sh rejects exactly that).
+# ANDed with a grep for the MAKESUM_MODE literal in lib/download.sh, the same
+# shape as the hash-file-not-recipe-set check above: the grep fails on the
+# baseline (the literal isn't there yet), so the whole assertion fails there,
+# and only a tree that both HAS the feature and does not fire it when unset
+# passes.
+DISTDIR="$_mk_dist"
+PKG_HASH_FILE="$_fx/fetch-no-record.hash"
+printf 'test' > "$_mk_dist/fetch-fixture-2.patch"
+unset MAKESUM_MODE
+( fetch "https://example.invalid/fetch-fixture-2.patch" "fetch-fixture-2.patch" ) >/dev/null 2>&1
+if grep -q 'MAKESUM_MODE' "$ROOT/lib/download.sh" \
+   && { [ ! -f "$_fx/fetch-no-record.hash" ] || [ -z "$(hash_lookup "$_fx/fetch-no-record.hash" fetch-fixture-2.patch sha256)" ]; }; then
+  _pass fetch-no-record-without-makesum-mode
+else
+  _bad fetch-no-record-without-makesum-mode "record was written though MAKESUM_MODE was unset, or lib/download.sh doesn't reference MAKESUM_MODE at all"
+fi
+
+# Nested: a function that itself calls fetch() -- mirroring how
+# recipes/audio/lv2.sh, recipes/hwaccel/opencl.sh and
+# recipes/other/libcdio.sh call fetch() from inside their pkg_install()/
+# pkg_post_install() -- must still record into the PKG_HASH_FILE the
+# ENCLOSING recipe set, since PKG_HASH_FILE reaches fetch() as ordinary
+# shell state (lib/framework.sh's load_recipe), not as one of fetch()'s own
+# arguments.
+#
+# The expected digest is a known-answer constant (sha256("nested")), not
+# computed via digest_file: on the pre-Task-2 baseline digest_file is
+# undefined, so a computed expectation and the equally-undefined hash_lookup
+# both silently return empty, and empty equals empty -- a false PASS on a
+# tree with none of this feature, same trap $_KAT above already avoids.
+_fetch_nested_fixture() {
+  fetch "https://example.invalid/nested-fixture.patch" "nested-fixture.patch"
+}
+DISTDIR="$_mk_dist"
+PKG_HASH_FILE="$_fx/enclosing-recipe.hash"
+printf 'nested' > "$_mk_dist/nested-fixture.patch"
+_NESTED_KAT=233562de1a0288b139c4fa40b7d189f806e906eeb048517aeb67f34ac0e2faf1
+MAKESUM_MODE=true
+( _fetch_nested_fixture ) >/dev/null 2>&1
+if [ "$(hash_lookup "$_fx/enclosing-recipe.hash" nested-fixture.patch sha256)" = "$_NESTED_KAT" ]; then
+  _pass fetch-nested-records-into-enclosing-hash-file
+else
+  _bad fetch-nested-records-into-enclosing-hash-file "record missing/mismatched in enclosing PKG_HASH_FILE"
+fi
+unset MAKESUM_MODE
+
 printf 'DONE:\n'
 exit "$_fail"

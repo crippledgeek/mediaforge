@@ -202,6 +202,22 @@ fetch() {
     log "$_file already cached"
   fi
 
+  # makesum --build (#19): record what was just fetched instead of verifying
+  # it. PKG_HASH_FILE is ordinary shell state (see lib/framework.sh's
+  # load_recipe), so a fetch() called from inside pkg_install() -- lv2's
+  # seven sub-tarballs, opencl's ICD-Loader, libcdio's paranoia sub-package --
+  # still lands in the enclosing recipe's sidecar. Task 8 adds the
+  # verification gate right here too, guarded by the inverse condition, so
+  # recording and verifying never both run for the same fetch().
+  if [ "${MAKESUM_MODE:-false}" = true ]; then
+    # Read by hash_record_write() in lib/makesum.sh, which this file does not
+    # source; per-file shellcheck can't see the cross-file consumer (same
+    # shape as lib/framework.sh:2).
+    # shellcheck disable=SC2034
+    MAKESUM_PROVENANCE="Locally calculated $(date +%Y-%m-%d)"
+    hash_record_write "$PKG_HASH_FILE" "$_file" "$DISTDIR/$_file"
+  fi
+
   # Skip extraction for patch files
   case "$_file" in
     *patch*) return 0 ;;

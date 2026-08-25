@@ -484,6 +484,16 @@ cmd_makesum() {
   MAKESUM_UPDATE=false
   _mk_build=false
   _mk_pkgs=""
+  _mk_buildargs=""
+
+  # Pre-scan for --build before the real parse below. Once --build is
+  # present, every other flag on the line belongs to cmd_build's own option
+  # parser (e.g. --enable-nonfree) rather than makesum's, and cmd_build's
+  # parser hasn't run yet to validate them -- checking "is --build anywhere
+  # in $@" up front means the order the user typed the flags in doesn't matter.
+  for _mk_scan in "$@"; do
+    [ "$_mk_scan" = --build ] && _mk_build=true
+  done
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -493,15 +503,40 @@ cmd_makesum() {
       --update)    MAKESUM_UPDATE=true ;;
       # --build reaches the fetch() calls nested inside pkg_install() (lv2's
       # seven sub-tarballs, ffmpeg.sh, opencl, libcdio) that a fetch-only pass
-      # never sources far enough to see. The flag is accepted here so it is
-      # not "unknown option" on a tree that has this task and not the next;
-      # wiring it to a real build is a separate task (#19).
-      --build)     _mk_build=true ;;
-      -*)          die "Unknown option for makesum: $1" ;;
+      # never sources far enough to see -- already accounted for by the
+      # pre-scan above, nothing left to do here.
+      --build)     ;;
+      -*)
+        if [ "$_mk_build" = true ]; then
+          _mk_buildargs="$_mk_buildargs $1"
+        else
+          die "Unknown option for makesum: $1"
+        fi
+        ;;
       *)           _mk_pkgs="$_mk_pkgs $1" ;;
     esac
     shift
   done
+
+  if [ "$_mk_build" = true ]; then
+    if [ -n "$_mk_pkgs" ]; then
+      die "makesum --build runs a full build and does not support filtering to specific packages ($_mk_pkgs); drop them or use --disable= to narrow the build."
+    fi
+    # MAKESUM_MODE makes fetch() (lib/download.sh) record instead of its
+    # ordinary behavior; every fetch() call this build reaches, including
+    # ones nested inside a recipe's pkg_install(), runs in this same shell
+    # process, so a plain assignment already suffices. Exported anyway per
+    # the task brief, to stay visible to a subshell if one is ever added.
+    MAKESUM_MODE=true
+    export MAKESUM_MODE
+    log "makesum: running a real build with checksum recording enabled (--build)"
+    # _mk_buildargs accumulates separate flags (e.g. --enable-nonfree
+    # --tls=openssl); word-splitting is required here, the same pattern
+    # cmd_build itself uses for $PKG_CMAKE_FLAGS.
+    # shellcheck disable=SC2086
+    cmd_build $_mk_buildargs
+    return
+  fi
 
   if [ -n "$PROFILE_NAME" ]; then
     _profile_file="$SCRIPT_DIR/profiles/ffmpeg-${PROFILE_NAME}.conf"
@@ -510,12 +545,6 @@ cmd_makesum() {
     fi
     . "$_profile_file"
     log "Using profile: ffmpeg-${PROFILE_NAME}"
-  fi
-
-  if [ "$_mk_build" = true ]; then
-    # stderr, not stdout: a user piping makesum's output to a file must still
-    # see that --build did something other than what it asked for.
-    warn "makesum: --build is not wired to a real build yet — running the fetch-only pass instead"
   fi
 
   # Validate every requested package name against the recipe registry, same
