@@ -59,9 +59,9 @@ hash_file_validate() {
       if (NF != 3) { printf("line %d: expected 3 fields, got %d\n", NR, NF); next }
       k = $1; v = $2; f = $3
       if (k == "size") {
-        if (v !~ /^[0-9]+$/) { printf("line %d: size %s is not a decimal count\n", NR, v) }
+        if (v !~ /^[0-9]+$/) { printf("line %d: size %s is not a decimal count\n", NR, v); next }
       } else if (k == "sha256" || k == "sha512" || k == "sha1") {
-        if (v !~ /^[0-9a-f]+$/) { printf("line %d: %s value %s is not lowercase hex\n", NR, k, v) }
+        if (v !~ /^[0-9a-f]+$/) { printf("line %d: %s value %s is not lowercase hex\n", NR, k, v); next }
       } else {
         printf("line %d: unknown keyword %s\n", NR, k)
         next
