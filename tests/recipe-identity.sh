@@ -145,5 +145,30 @@ else
   _bad enable-by-filename-forces-divergent-recipe "--enable=<filename> did not force-enable an opt-in recipe with a divergent PKG_NAME"
 fi
 
+# ...and an underivable identity is FATAL, not a quiet fall back to the display
+# name. This guard originally read `$(recipe_key) || _guard_key="$PKG_NAME"`,
+# and that fallback is precisely what hid a real defect: a test file sourced
+# lib/framework.sh without lib/registry.sh, recipe_key was undefined, the
+# fallback fired, and check_guards compared against the very identity this
+# branch removed -- with the suite green throughout. A path documented as
+# unreachable must prove it by stopping, not by degrading to the wrong answer.
+#
+# Run in a subshell because die() calls exit; without it a regression here would
+# terminate this file rather than report.
+_synth_reset
+PKG_HASH_FILE=""
+DISABLE_PKGS="synth-file"
+_fatalout=$( check_guards 2>&1 )
+_fatalrc=$?
+# Both halves matter. A non-zero status alone passes on the pre-fix tree for the
+# wrong reason -- there, check_guards with an empty PKG_HASH_FILE simply returns
+# 0 or 1 from its ordinary guards and never says anything about identity -- so
+# the message is what distinguishes a deliberate abort from a routine skip.
+if [ "$_fatalrc" -ne 0 ] && printf '%s' "$_fatalout" | grep -qF 'Cannot derive a CLI identity'; then
+  _pass underivable-identity-is-fatal
+else
+  _bad underivable-identity-is-fatal "expected a fatal identity error; rc=$_fatalrc output=[$_fatalout]"
+fi
+
 printf 'DONE:\n'
 exit "$_fail"

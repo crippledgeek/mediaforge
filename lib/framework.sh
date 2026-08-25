@@ -88,10 +88,15 @@ check_guards() {
   # nothing. recipe_key (lib/registry.sh) is that one identity; PKG_NAME stays
   # in the log lines, which is what it is for.
   #
-  # The fallback keeps a recipe reachable rather than unmatchable if it is ever
-  # loaded without a hash-file path: load_recipe derives one for every recipe,
-  # so it is not expected to fire.
-  _guard_key=$(recipe_key) || _guard_key="$PKG_NAME"
+  # FATAL rather than a fallback to PKG_NAME. load_recipe derives a hash-file
+  # path for every recipe, so this cannot fire in a well-formed run -- and when
+  # something structural IS wrong, degrading quietly to the identity we just
+  # removed is the worst available answer. That is not hypothetical: this guard
+  # was written with a `|| _guard_key="$PKG_NAME"` fallback, and it silently
+  # absorbed a test file that sourced this module without lib/registry.sh --
+  # recipe_key was undefined, the fallback fired, the comparison ran against the
+  # wrong identity, and the suite stayed green.
+  _guard_key=$(recipe_key) || die "Cannot derive a CLI identity for '$PKG_NAME': no hash-file path is set for this recipe, so --disable=/--enable= cannot be matched against it. load_recipe (lib/framework.sh) sets PKG_HASH_FILE for every recipe -- reaching here means this recipe was loaded some other way, or lib/registry.sh was never sourced."
 
   # Generic CLI disable list (drives --disable= and --tls=/--aac=/etc.)
   for _d in $DISABLE_PKGS; do
@@ -222,8 +227,11 @@ run_recipe() {
     _excluded=false
     # Same registry identity check_guards used to decide the skip; comparing a
     # different name here would let a --disable=d recipe re-accumulate the very
-    # FFmpeg flag the skip exists to suppress.
-    _excl_key=$(recipe_key) || _excl_key="$PKG_NAME"
+    # FFmpeg flag the skip exists to suppress. Fatal on the same terms, and for
+    # the stronger reason: this line is only reached after check_guards returned,
+    # which means it already derived the key -- so a failure here is a state
+    # change between the two, not a missing value.
+    _excl_key=$(recipe_key) || die "Cannot derive a CLI identity for '$PKG_NAME' while deciding whether to re-accumulate its FFmpeg flag, though check_guards derived one moments earlier. PKG_HASH_FILE changed mid-recipe."
     for _d in $DISABLE_PKGS; do
       [ "$_d" = "$_excl_key" ] && _excluded=true && break
     done
