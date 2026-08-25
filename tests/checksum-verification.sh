@@ -1087,6 +1087,86 @@ else
   _bad skip-checksum-cli-global-banner "no ALL-recipes banner line: $_cliout2"
 fi
 
+# -- --skip-checksum=PKG validates against the recipe registry (review) ------
+# mediaforge.sh:222 folded SKIP_CHECKSUM_PKGS into the same validation loop
+# that already checks DISABLE_PKGS/ENABLE_PKGS -- a typo must die loudly
+# rather than silently never skip (silently never-skip would still be safe,
+# but a fail-fast, clearly-worded typo report is the better failure mode, and
+# it's the one --disable=/--enable= already give).
+#
+# Matched on the specific "Unknown package:" wording the registry-validation
+# loop uses, NOT merely on "doesnotexist" appearing in the output: a
+# pre-Task-9 tree also dies here, with "Unknown option: --skip-checksum=
+# doesnotexist" -- which contains the literal substring "doesnotexist" too,
+# so a filename-only match would false-PASS on the base exactly like
+# skip-checksum-warns-filename's die-message trap above. "Unknown package:"
+# only appears once this task's registry-validation loop exists.
+_cliout3=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes --skip-checksum=doesnotexist 2>&1)
+_clirc3=$?
+if [ "$_clirc3" -ne 0 ] && printf '%s' "$_cliout3" | grep -qF 'Unknown package: doesnotexist'; then
+  _pass skip-checksum-unknown-pkg-dies
+else
+  _bad skip-checksum-unknown-pkg-dies "rc=$_clirc3, output: $_cliout3"
+fi
+
+# -- --skip-checksum's PKG_NAME keying survives a nested fetch() (review) ----
+# lv2's pkg_install() calls fetch() seven times for its sub-tarballs without
+# ever reassigning PKG_NAME -- checksum_skipped() rereads $PKG_NAME fresh on
+# every call, so the same shell-state mechanism fetch()'s own comment already
+# relies on for PKG_HASH_FILE also keys the skip decision. Nothing enforces
+# "a recipe never reassigns PKG_NAME inside pkg_install()" -- it holds today
+# by construction, not by any type or contract -- so this pins it as a
+# regression guard rather than leaving it an unverified assumption. Hermetic:
+# two local tar.gz fixtures fetched via file://, no network, no PKG_HASH_FILE
+# record for either (so a call that reaches verify_file at all is
+# unambiguous: it dies on the missing record).
+_nestedsrc="$_fx/nestedsrc"; mkdir -p "$_nestedsrc"
+printf 'nested-a' > "$_nestedsrc/a.txt"
+printf 'nested-b' > "$_nestedsrc/b.txt"
+_nesteddist="$_fx/nesteddist"; mkdir -p "$_nesteddist"
+( cd "$_nestedsrc" && tar -czf "$_nesteddist/nested-a.tar.gz" a.txt )
+( cd "$_nestedsrc" && tar -czf "$_nesteddist/nested-b.tar.gz" b.txt )
+DISTDIR="$_nesteddist"
+PKG_HASH_FILE="$_fx/does-not-exist-nested.hash"
+SKIP_CHECKSUM=false
+SKIP_CHECKSUM_PKGS=" nestedpkg "
+
+if _require_fn checksum_skipped skip-checksum-nested-fetch-inherits-pkg-name; then
+  PKG_NAME=nestedpkg
+  if ( fetch "file://$_nesteddist/nested-a.tar.gz" nested-a.tar.gz nested-a-dir \
+       && fetch "file://$_nesteddist/nested-b.tar.gz" nested-b.tar.gz nested-b-dir \
+     ) >/dev/null 2>&1; then
+    _pass skip-checksum-nested-fetch-inherits-pkg-name
+  else
+    _bad skip-checksum-nested-fetch-inherits-pkg-name "a second fetch() under the same unchanged PKG_NAME was not skipped"
+  fi
+fi
+
+# Regression-guard companion, proving the assertion above is actually
+# sensitive to the invariant it claims to protect (per review: a test that
+# would pass either way tests nothing). Same fixture, but PKG_NAME is
+# reassigned between the two fetch() calls -- simulating a hypothetical
+# recipe that breaks the "never reassigns PKG_NAME mid-pkg_install()"
+# invariant. The second file is then keyed to a name absent from
+# SKIP_CHECKSUM_PKGS, so it must NOT be skipped and must die on its missing
+# hash record. If this assertion could not fail (i.e. the second fetch
+# succeeded anyway), skip-checksum-nested-fetch-inherits-pkg-name above would
+# not be testing PKG_NAME-keying at all -- it would just be testing that two
+# fetches under --skip-checksum=nestedpkg succeed, true for reasons unrelated
+# to the keying.
+if _require_fn checksum_skipped skip-checksum-nested-fetch-would-catch-pkg-name-reassignment; then
+  PKG_NAME=nestedpkg
+  if ( fetch "file://$_nesteddist/nested-a.tar.gz" nested-a2.tar.gz nested-a2-dir \
+       && PKG_NAME=someotherpkg \
+       && fetch "file://$_nesteddist/nested-b.tar.gz" nested-b2.tar.gz nested-b2-dir \
+     ) >/dev/null 2>&1; then
+    _bad skip-checksum-nested-fetch-would-catch-pkg-name-reassignment "reassigning PKG_NAME mid-pkg_install did not break the skip -- the guard above proves nothing"
+  else
+    _pass skip-checksum-nested-fetch-would-catch-pkg-name-reassignment
+  fi
+fi
+SKIP_CHECKSUM_PKGS=""
+
 # -- --skip-checksum is never persisted (Task 9, #19) -------------------------
 # A security bypass that silently survives into a later build is worse than no
 # bypass: the next build would skip verification with nothing on the command
