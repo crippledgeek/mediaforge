@@ -540,5 +540,103 @@ else
   _pass dry-run-does-not-extract-ffmpeg
 fi
 
+# -- amf pkg_install probes for whichever known header layout landed --------
+# THE BUG THIS PINS (#7b). pkg_install() hardcoded `cp -r AMF/components
+# AMF/core`, which is only 1.5.0's post-strip-components-1 shape. 1.4.33 and
+# 1.4.34 land at the tarball root (components/, core/); 1.4.32 has no
+# published headers asset at all and falls back to the source archive, whose
+# post-strip root is amf/public/include/{components,core}. Three real
+# layouts, one hardcoded copy -- so 1.4.33 downloaded fine (it already had a
+# recorded digest) and still failed at install, which is exactly what
+# `makesum` recording alone could never catch: it never runs pkg_install().
+#
+# Hermetic: each fixture reproduces one upstream layout under $_fx, verified
+# against the real tarballs during this task (see task-7b-report.md) rather
+# than invented. recipes/hwaccel/amf.sh is sourced directly for its
+# pkg_install function -- sourcing it only assigns PKG_* variables and defines
+# functions, the same precondition tests/git-commit-pinning.sh already relies
+# on for its three recipes.
+if _require_fn digest_file amf-install-shape-nested; then
+  # shellcheck disable=SC1091
+  . "$ROOT/recipes/hwaccel/amf.sh"
+
+  _amf_run_probe() {
+    # $1: fixture dir holding one upstream layout at its root (post-strip).
+    _amf_src="$1"
+    _amf_prefix="$_amf_src-prefix"
+    mkdir -p "$_amf_prefix"
+    ( PREFIX="$_amf_prefix"; cd "$_amf_src" && pkg_install >/dev/null 2>&1 )
+    _amf_rc=$?
+    printf '%s %s\n' "$_amf_rc" "$_amf_prefix"
+  }
+
+  # 1.5.0 shape: AMF/components, AMF/core.
+  _amf_150="$_fx/amf-1.5.0"
+  mkdir -p "$_amf_150/AMF/components" "$_amf_150/AMF/core"
+  printf 'h' > "$_amf_150/AMF/components/Component.h"
+  printf 'h' > "$_amf_150/AMF/core/Interface.h"
+  read -r _rc _prefix <<EOF
+$(_amf_run_probe "$_amf_150")
+EOF
+  if [ "$_rc" = 0 ] && [ -f "$_prefix/include/AMF/components/Component.h" ] \
+     && [ -f "$_prefix/include/AMF/core/Interface.h" ]; then
+    _pass amf-install-shape-nested
+  else
+    _bad amf-install-shape-nested "rc=$_rc, expected headers not found under $_prefix/include/AMF"
+  fi
+fi
+
+if _require_fn digest_file amf-install-shape-bare; then
+  # 1.4.33/1.4.34 shape: components, core at the tarball root.
+  _amf_bare="$_fx/amf-1.4.33"
+  mkdir -p "$_amf_bare/components" "$_amf_bare/core"
+  printf 'h' > "$_amf_bare/components/Component.h"
+  printf 'h' > "$_amf_bare/core/Interface.h"
+  read -r _rc _prefix <<EOF
+$(_amf_run_probe "$_amf_bare")
+EOF
+  if [ "$_rc" = 0 ] && [ -f "$_prefix/include/AMF/components/Component.h" ] \
+     && [ -f "$_prefix/include/AMF/core/Interface.h" ]; then
+    _pass amf-install-shape-bare
+  else
+    _bad amf-install-shape-bare "rc=$_rc, expected headers not found under $_prefix/include/AMF"
+  fi
+fi
+
+if _require_fn digest_file amf-install-shape-source-archive; then
+  # 1.4.32 shape: amf/public/include/{components,core} (no headers asset was
+  # ever published for this version; falls back to the GitHub source archive).
+  _amf_src_archive="$_fx/amf-1.4.32"
+  mkdir -p "$_amf_src_archive/amf/public/include/components" \
+           "$_amf_src_archive/amf/public/include/core"
+  printf 'h' > "$_amf_src_archive/amf/public/include/components/Component.h"
+  printf 'h' > "$_amf_src_archive/amf/public/include/core/Interface.h"
+  read -r _rc _prefix <<EOF
+$(_amf_run_probe "$_amf_src_archive")
+EOF
+  if [ "$_rc" = 0 ] && [ -f "$_prefix/include/AMF/components/Component.h" ] \
+     && [ -f "$_prefix/include/AMF/core/Interface.h" ]; then
+    _pass amf-install-shape-source-archive
+  else
+    _bad amf-install-shape-source-archive "rc=$_rc, expected headers not found under $_prefix/include/AMF"
+  fi
+fi
+
+if _require_fn digest_file amf-install-shape-unknown-dies; then
+  # None of the three known layouts -- pkg_install must die() rather than
+  # silently install nothing, so the failure surfaces here instead of at
+  # FFmpeg's unrelated configure error.
+  _amf_unknown="$_fx/amf-unknown"
+  mkdir -p "$_amf_unknown/some/other/layout"
+  read -r _rc _prefix <<EOF
+$(_amf_run_probe "$_amf_unknown")
+EOF
+  if [ "$_rc" != 0 ]; then
+    _pass amf-install-shape-unknown-dies
+  else
+    _bad amf-install-shape-unknown-dies "pkg_install exited 0 for an unrecognized layout"
+  fi
+fi
+
 printf 'DONE:\n'
 exit "$_fail"
