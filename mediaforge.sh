@@ -18,6 +18,7 @@ PREFIX="$TOPDIR/workspace"
 . "$SCRIPT_DIR/lib/registry.sh"
 . "$SCRIPT_DIR/lib/platform.sh"
 . "$SCRIPT_DIR/lib/download.sh"
+. "$SCRIPT_DIR/lib/makesum.sh"
 . "$SCRIPT_DIR/lib/cleanup.sh"
 . "$SCRIPT_DIR/lib/framework.sh"
 . "$SCRIPT_DIR/lib/resolve.sh"
@@ -62,6 +63,7 @@ cmd_help() {
   printf '  install            Install built binaries and libraries\n'
   printf '  uninstall          Remove installed files\n'
   printf '  check-updates      Check for newer dependency versions\n'
+  printf '  makesum            Fetch recipe sources and record their sha256/size sidecars\n'
   printf '  check-shadowers    Audit workspace .pc files for system-version shadowing\n'
   printf '  list-profiles      List available version profiles\n'
   printf '  help               Show this help\n'
@@ -476,6 +478,94 @@ cmd_check_updates() {
   check_updates
 }
 
+# ─── Makesum ─────────────────────────────────────────────────────────
+
+cmd_makesum() {
+  MAKESUM_UPDATE=false
+  _mk_build=false
+  _mk_pkgs=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --profile=*) PROFILE_NAME="${1#--profile=}" ;;
+      --profile)   shift; _need_arg "$#" --profile; PROFILE_NAME="$1" ;;
+      -p)          shift; _need_arg "$#" -p; PROFILE_NAME="$1" ;;
+      --update)    MAKESUM_UPDATE=true ;;
+      # --build reaches the fetch() calls nested inside pkg_install() (lv2's
+      # seven sub-tarballs, ffmpeg.sh, opencl, libcdio) that a fetch-only pass
+      # never sources far enough to see. The flag is accepted here so it is
+      # not "unknown option" on a tree that has this task and not the next;
+      # wiring it to a real build is a separate task (#19).
+      --build)     _mk_build=true ;;
+      -*)          die "Unknown option for makesum: $1" ;;
+      *)           _mk_pkgs="$_mk_pkgs $1" ;;
+    esac
+    shift
+  done
+
+  if [ -n "$PROFILE_NAME" ]; then
+    _profile_file="$SCRIPT_DIR/profiles/ffmpeg-${PROFILE_NAME}.conf"
+    if [ ! -f "$_profile_file" ]; then
+      die "Profile not found: $_profile_file"
+    fi
+    . "$_profile_file"
+    log "Using profile: ffmpeg-${PROFILE_NAME}"
+  fi
+
+  if [ "$_mk_build" = true ]; then
+    log "makesum: --build is not wired to a real build yet — running the fetch-only pass instead"
+  fi
+
+  # Validate every requested package name against the recipe registry, same
+  # as cmd_build's --enable=/--disable= validation, so a typo fails fast with
+  # a suggestion instead of silently matching nothing.
+  registry_init
+  for _p in $_mk_pkgs; do
+    if ! is_known_pkg "$_p"; then
+      _hint=$(suggest_pkg "$_p")
+      if [ -n "$_hint" ]; then
+        die "Unknown package: $_p. Did you mean: $_hint ?"
+      else
+        die "Unknown package: $_p. Run '$PROGNAME build --list-pkgs' to see all."
+      fi
+    fi
+  done
+
+  while IFS= read -r _recipe || [ -n "$_recipe" ]; do
+    case "$_recipe" in
+      ""|\#*) continue ;;
+    esac
+
+    if [ -n "$_mk_pkgs" ]; then
+      _mk_name=$(basename "$_recipe" .sh)
+      _mk_match=false
+      for _p in $_mk_pkgs; do
+        [ "$_p" = "$_mk_name" ] && _mk_match=true && break
+      done
+      [ "$_mk_match" = true ] || continue
+    fi
+
+    # load_recipe (lib/framework.sh) is the same prelude run_recipe() uses:
+    # reset state, derive PKG_HASH_FILE from this recipe's own path, source
+    # it. Recipe top levels are plain variable assignment and conditionals
+    # (PKG_FFMPEG_OPT, PKG_DISABLED guards) -- none of the ~80 recipes run a
+    # command at source time, so sourcing every one here for a fetch-only
+    # pass is safe.
+    load_recipe "$SCRIPT_DIR/$_recipe"
+
+    if [ "$PKG_SKIP_EXTRACT" = true ] || [ -z "$PKG_URL" ]; then
+      log "makesum: skipping $PKG_NAME (no PKG_URL to fetch)"
+      continue
+    fi
+
+    _mk_file="${PKG_FILENAME:-${PKG_URL##*/}}"
+    download_file "$PKG_URL" "$DISTDIR/$_mk_file"
+
+    MAKESUM_PROVENANCE="Locally calculated $(date +%Y-%m-%d)"
+    hash_record_write "$PKG_HASH_FILE" "$_mk_file" "$DISTDIR/$_mk_file"
+  done < "$SCRIPT_DIR/recipes/_order.conf"
+}
+
 # ─── List Profiles ───────────────────────────────────────────────────
 
 cmd_list_profiles() {
@@ -619,6 +709,7 @@ case "$_cmd" in
   install)        cmd_install "$@" ;;
   uninstall)      cmd_uninstall "$@" ;;
   check-updates)  cmd_check_updates "$@" ;;
+  makesum)        cmd_makesum "$@" ;;
   check-shadowers) cmd_check_shadowers "$@" ;;
   list-profiles)  cmd_list_profiles "$@" ;;
   help|-h|--help) cmd_help ;;

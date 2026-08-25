@@ -148,8 +148,13 @@ check_guards() {
   return 0
 }
 
-# Run a single recipe file through the build lifecycle
-run_recipe() {
+# load_recipe RECIPE_PATH
+# Reset recipe state, derive PKG_HASH_FILE from the recipe's own path, source
+# the recipe, and validate the fields every recipe must set. Shared by
+# run_recipe() (full build lifecycle) and cmd_makesum() (fetch-only, in
+# lib/makesum.sh) so the derivation lives in exactly one place — a helper only
+# the new caller used would just be a second copy that drifts from this one.
+load_recipe() {
   _recipe_path="$1"
 
   if [ ! -f "$_recipe_path" ]; then
@@ -175,6 +180,11 @@ run_recipe() {
   if [ -z "$PKG_URL" ] && [ "$PKG_SKIP_EXTRACT" != true ]; then
     die "Recipe $_recipe_path missing PKG_URL (set PKG_SKIP_EXTRACT=true for header-only packages)"
   fi
+}
+
+# Run a single recipe file through the build lifecycle
+run_recipe() {
+  load_recipe "$1"
 
   # Queue this recipe's .pc files for removal if it's a transitive utility.
   # We do this BEFORE check_guards / stamp_check so the queue is populated

@@ -200,5 +200,79 @@ else
   _bad hash-file-not-recipe-set "framework derives it: $(grep -q 'PKG_HASH_FILE=' "$ROOT/lib/framework.sh" && echo yes || echo no); offenders: ${_hf_recipe_offenders:-none}"
 fi
 
+# -- makesum merge semantics --------------------------------------------------
+# `.` is a POSIX special builtin: its failure exits a non-interactive shell
+# outright, so on a tree without lib/makesum.sh this must be skipped rather
+# than attempted, or the script dies here without reaching DONE.
+[ -f "$ROOT/lib/makesum.sh" ] && . "$ROOT/lib/makesum.sh"
+
+# Merging must preserve records this run did not touch. One hash file holds all
+# four profiles' versions, so a run without --profile= that truncated would
+# silently drop the other three.
+printf 'test'  > "$_fx/new.tar.gz"    # sha256 == $_KAT, size 4
+printf 'other' > "$_fx/old.tar.gz"    # a different digest, size 5
+_OTHER=$(digest_file sha256 "$_fx/old.tar.gz")
+
+MAKESUM_PROVENANCE="Locally calculated 2026-08-25"
+MAKESUM_UPDATE=false
+
+cat > "$_fx/merge.hash" <<'EOF'
+# From https://example.invalid/old.sha256
+sha256  1111  old.tar.gz
+size    11  old.tar.gz
+EOF
+
+if _require_fn hash_record_write makesum-merge-preserves; then
+  hash_record_write "$_fx/merge.hash" new.tar.gz "$_fx/new.tar.gz"
+
+  if [ "$(hash_lookup "$_fx/merge.hash" old.tar.gz sha256)" = 1111 ]; then
+    _pass makesum-merge-preserves
+  else
+    _bad makesum-merge-preserves "pre-existing record was lost"
+  fi
+  if [ "$(hash_lookup "$_fx/merge.hash" new.tar.gz sha256)" = "$_KAT" ]; then
+    _pass makesum-merge-adds
+  else
+    _bad makesum-merge-adds "new record was not written"
+  fi
+  if grep -q 'example.invalid/old.sha256' "$_fx/merge.hash"; then
+    _pass makesum-preserves-provenance
+  else
+    _bad makesum-preserves-provenance "existing provenance comment was dropped"
+  fi
+
+  # A mismatching existing record is left alone unless MAKESUM_UPDATE=true.
+  # Silently refreshing a digest is how a tampered download becomes a
+  # committed pin.
+  MAKESUM_UPDATE=false
+  hash_record_write "$_fx/merge.hash" old.tar.gz "$_fx/old.tar.gz"
+  if [ "$(hash_lookup "$_fx/merge.hash" old.tar.gz sha256)" = 1111 ]; then
+    _pass makesum-no-clobber
+  else
+    _bad makesum-no-clobber "existing digest was overwritten without --update"
+  fi
+
+  MAKESUM_UPDATE=true
+  hash_record_write "$_fx/merge.hash" old.tar.gz "$_fx/old.tar.gz"
+  if [ "$(hash_lookup "$_fx/merge.hash" old.tar.gz sha256)" = "$_OTHER" ]; then
+    _pass makesum-update-rewrites
+  else
+    _bad makesum-update-rewrites "--update did not rewrite"
+  fi
+  MAKESUM_UPDATE=false
+fi
+
+# A filename with whitespace cannot round-trip through the 3-field grammar.
+# Guarded: on a tree without hash_record_write, the subshell exits 127, which
+# a bare "expected it to fail" check reads as PASS -- the undefined-function
+# footgun tests/oracle-baseline.sh rejects.
+if _require_fn hash_record_write makesum-rejects-space; then
+  if ( hash_record_write "$_fx/merge.hash" "two words.tar.gz" "$_fx/new.tar.gz" ) >/dev/null 2>&1; then
+    _bad makesum-rejects-space "whitespace filename was accepted"
+  else
+    _pass makesum-rejects-space
+  fi
+fi
+
 printf 'DONE:\n'
 exit "$_fail"
