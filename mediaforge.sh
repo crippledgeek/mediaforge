@@ -52,6 +52,8 @@ ENABLE_PKGS=""
 USE_MENU=false
 ENABLE_LTO=false
 FLITE_AUDIO="none"
+SKIP_CHECKSUM=false
+SKIP_CHECKSUM_PKGS=""
 
 # ─── Help ────────────────────────────────────────────────────────────
 
@@ -101,6 +103,9 @@ cmd_help() {
   printf '      --enable=PKG          Force-enable a recipe that defaults to off\n'
   printf '      --list-pkgs           Print every recipe with category and mutex group\n'
   printf '      --clean-choices       Delete the stored choice matrix and exit\n'
+  printf '\nChecksum verification (loud; never persisted to the stored choice matrix):\n'
+  printf '      --skip-checksum       Disable verification for EVERY recipe\n'
+  printf '      --skip-checksum=PKG   Disable verification for one recipe by name (repeatable, comma-separated ok)\n'
   printf '\nInstall / uninstall options (used by the install and uninstall subcommands):\n'
   printf '      --prefix=PATH         Install/uninstall location (default: interactive prompt)\n'
   printf '  -y, --yes                 Non-interactive mode\n'
@@ -125,6 +130,19 @@ cmd_version() {
 # value is missing instead of consuming the next flag as the value.
 _need_arg() {
   [ "$1" -gt 0 ] || die "$2 requires an argument"
+}
+
+# _skip_checksum_banner
+# --skip-checksum's loud complement: called at both build start and build end
+# so whoever bypassed the verification gate cannot miss it, and cannot miss it
+# again if they scroll past the start. A no-op when neither flag is set.
+_skip_checksum_banner() {
+  [ "$SKIP_CHECKSUM" = true ] || [ -n "${SKIP_CHECKSUM_PKGS:-}" ] || return 0
+  warn "================================================================"
+  warn "--skip-checksum is ACTIVE: checksum verification is bypassed"
+  [ "$SKIP_CHECKSUM" = true ] && warn "  ALL recipes: verification disabled"
+  [ -n "${SKIP_CHECKSUM_PKGS:-}" ] && warn "  Named recipes:${SKIP_CHECKSUM_PKGS}"
+  warn "================================================================"
 }
 
 # ─── Build ───────────────────────────────────────────────────────────
@@ -175,6 +193,8 @@ cmd_build() {
       --disable)           shift; _need_arg "$#" --disable; DISABLE_PKGS="$DISABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
       --enable=*)          ENABLE_PKGS="$ENABLE_PKGS $(echo "${1#--enable=}" | tr ',' ' ')" ;;
       --enable)            shift; _need_arg "$#" --enable; ENABLE_PKGS="$ENABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
+      --skip-checksum=*)   SKIP_CHECKSUM_PKGS="$SKIP_CHECKSUM_PKGS $(echo "${1#--skip-checksum=}" | tr ',' ' ')" ;;
+      --skip-checksum)     SKIP_CHECKSUM=true ;;
       --list-pkgs)         list_pkgs; exit 0 ;;
       --clean-choices)     rm -f "$PREFIX/.mediaforge-choices"; log "Cleared stored choices"; exit 0 ;;
       --tls=*)             TLS_BACKEND="${1#--tls=}" ;;
@@ -199,7 +219,7 @@ cmd_build() {
 
   # Validate every name in DISABLE_PKGS / ENABLE_PKGS against the recipe registry
   registry_init
-  for _p in $DISABLE_PKGS $ENABLE_PKGS; do
+  for _p in $DISABLE_PKGS $ENABLE_PKGS $SKIP_CHECKSUM_PKGS; do
     if ! is_known_pkg "$_p"; then
       _hint=$(suggest_pkg "$_p")
       if [ -n "$_hint" ]; then
@@ -238,6 +258,7 @@ cmd_build() {
 
   # Log final choice matrix
   log "Choices: tls=$TLS_BACKEND aac=$AAC_IMPL h264=$H264_IMPL h265=$H265_IMPL av1-enc=$AV1_ENC_IMPL spirv=$SPIRV_IMPL openssldir=${OPENSSLDIR:-auto}"
+  _skip_checksum_banner
 
   # Apply deferred flags
   if [ "$ENABLE_GPL" = true ]; then
@@ -405,6 +426,7 @@ cmd_build() {
   if [ "${DRY_RUN:-false}" = true ]; then
     log "Would build FFmpeg $FFMPEG_VERSION"
     log "Would configure FFmpeg with:$FFMPEG_CONFIGURE_OPTS"
+    _skip_checksum_banner
     return 0
   fi
 
@@ -416,6 +438,8 @@ cmd_build() {
     . "$SCRIPT_DIR/lib/install.sh"
     do_install ""
   fi
+
+  _skip_checksum_banner
 }
 
 # ─── Clean ───────────────────────────────────────────────────────────

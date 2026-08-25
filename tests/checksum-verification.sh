@@ -32,6 +32,7 @@ _require_fn() {
 
 . "$ROOT/lib/utils.sh"
 . "$ROOT/lib/download.sh"
+. "$ROOT/lib/resolve.sh"
 
 _fx=$(mktemp -d)
 SRV_PID=''
@@ -988,15 +989,137 @@ else
   _bad cmd-makesum-scoped-skips-ffmpeg "ffmpeg.hash was created despite an explicit package filter, or mediaforge.sh doesn't reference ffmpeg_tarball_filename at all"
 fi
 
-# checksum_skipped is the one component whose entire job is to never say yes.
-# Pin the stub's return value directly: a regression that flips it to 0 (or
-# to any other value a caller might read as "skip") fails here instead of
-# silently disabling the gate on every fetch(). On the baseline the function
-# doesn't exist and a bare call is not fatal under this file's `set -u`
-# (unset variables abort, an unknown command does not), so it returns 127 --
-# already != 1, no guard needed.
-checksum_skipped; _rc=$?
-if [ "$_rc" -eq 1 ]; then _pass checksum-skipped-stub-never-skips; else _bad checksum-skipped-stub-never-skips "rc=$_rc"; fi
+# -- --skip-checksum: checksum_skipped keys by PKG_NAME (Task 9, #19) --------
+# On the baseline (and on the Task 8 stub) the function either doesn't exist
+# (rc 127) or always returns 1, so every one of these is guarded by
+# _require_fn: without it, an undefined checksum_skipped would make the
+# "expected it to skip" assertions below read as a correctly-failing negative
+# and PASS for the wrong reason -- exactly what tests/oracle-baseline.sh
+# rejects.
+#
+# skip-off-by-default is NOT load-bearing on its own: the Task 8 stub also
+# always returns 1, so it cannot distinguish the stub from the real
+# implementation. It documents the safe default; skip-global, skip-named and
+# skip-other-recipe are what actually pin PKG_NAME-keyed behaviour, because
+# the stub can never return 0.
+if _require_fn checksum_skipped skip-off-by-default; then
+  PKG_NAME=zlib
+  SKIP_CHECKSUM=false
+  SKIP_CHECKSUM_PKGS=""
+  if checksum_skipped; then _bad skip-off-by-default "skipped with no flag"; else _pass skip-off-by-default; fi
+fi
+
+if _require_fn checksum_skipped skip-global; then
+  PKG_NAME=zlib
+  SKIP_CHECKSUM=true
+  SKIP_CHECKSUM_PKGS=""
+  if checksum_skipped; then _pass skip-global; else _bad skip-global "global flag did not skip"; fi
+fi
+
+if _require_fn checksum_skipped skip-named; then
+  PKG_NAME=zlib
+  SKIP_CHECKSUM=false
+  SKIP_CHECKSUM_PKGS=" zlib "
+  if checksum_skipped; then _pass skip-named; else _bad skip-named "named recipe was not skipped"; fi
+fi
+
+if _require_fn checksum_skipped skip-other-recipe; then
+  PKG_NAME=zlib
+  SKIP_CHECKSUM=false
+  SKIP_CHECKSUM_PKGS=" other "
+  if checksum_skipped; then _bad skip-other-recipe "a different recipe's name skipped this one"; else _pass skip-other-recipe; fi
+fi
+SKIP_CHECKSUM=false
+SKIP_CHECKSUM_PKGS=""
+
+# -- --skip-checksum is loud: warns naming the file it bypassed --------------
+# The loudness requirement ("someone who bypasses the gate should not be able
+# to forget they did") is a behaviour, not a doc line, so it needs its own
+# assertion rather than trusting fetch()'s skip branch exists. Matched on the
+# literal warning text, not just the filename: fetch()'s "No hash file" die
+# message also names the file, so a filename-only match would false-PASS on
+# the pre-Task-9 tree (where checksum_skipped exists as the Task 8 stub,
+# always returns 1, and this fetch() dies with that message instead of
+# skipping).
+if _require_fn checksum_skipped skip-checksum-warns-filename; then
+  _loudsrc="$_fx/loudsrc"; mkdir -p "$_loudsrc"
+  printf 'test' > "$_loudsrc/payload.txt"
+  _louddist="$_fx/louddist"; mkdir -p "$_louddist"
+  ( cd "$_loudsrc" && tar -czf "$_louddist/loud.tar.gz" payload.txt )
+  DISTDIR="$_louddist"
+  PKG_URL="file://$_louddist/loud.tar.gz"
+  PKG_FILENAME="loud.tar.gz"
+  PKG_DIRNAME="louddir"
+  PKG_HASH_FILE="$_fx/does-not-exist-loud.hash"
+  PKG_NAME=loudpkg
+  SKIP_CHECKSUM=true
+  SKIP_CHECKSUM_PKGS=""
+  _loudout=$( ( fetch ) 2>&1 >/dev/null )
+  if printf '%s' "$_loudout" | grep -qF 'SKIPPED for loud.tar.gz'; then
+    _pass skip-checksum-warns-filename
+  else
+    _bad skip-checksum-warns-filename "no loud warning naming loud.tar.gz: $_loudout"
+  fi
+  SKIP_CHECKSUM=false
+fi
+
+# -- --skip-checksum CLI parsing: comma-separated and repeated (Task 9) ------
+# Mirrors --disable=/--enable=: both a single comma-joined value and repeated
+# flags accumulate into SKIP_CHECKSUM_PKGS, and the bare boolean flag prints
+# the ALL-recipes banner line. grep -q on mediaforge.sh's own source is the
+# only oracle available here -- cmd_build isn't a function this file can call
+# in-process without also running the full build, so this shells out to the
+# real script under --dry-run, the same idiom tests/dry-run-matrix.sh uses.
+_cliout=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes \
+  --skip-checksum=zlib,giflib --skip-checksum=opus 2>&1)
+if printf '%s' "$_cliout" | grep -q 'zlib' \
+   && printf '%s' "$_cliout" | grep -q 'giflib' \
+   && printf '%s' "$_cliout" | grep -q 'opus'; then
+  _pass skip-checksum-cli-comma-and-repeated
+else
+  _bad skip-checksum-cli-comma-and-repeated "banner missing one of zlib/giflib/opus: $_cliout"
+fi
+
+_cliout2=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes --skip-checksum 2>&1)
+if printf '%s' "$_cliout2" | grep -qi 'ALL recipes'; then
+  _pass skip-checksum-cli-global-banner
+else
+  _bad skip-checksum-cli-global-banner "no ALL-recipes banner line: $_cliout2"
+fi
+
+# -- --skip-checksum is never persisted (Task 9, #19) -------------------------
+# A security bypass that silently survives into a later build is worse than no
+# bypass: the next build would skip verification with nothing on the command
+# line to say so. Exercises save_stored_choices() directly with DRY_RUN unset
+# (the brief's own --dry-run recipe never reaches the writer at all --
+# save_stored_choices returns early under DRY_RUN, lib/resolve.sh:332 -- so
+# that shape asserts nothing and is not used here).
+#
+# Guarded the same way as the checksum_skipped block above: on the baseline,
+# neither SKIP_CHECKSUM nor checksum_skipped exists, so save_stored_choices
+# trivially never writes them -- for a reason unrelated to this task. The
+# guard keeps that non-finding from counting as a pass.
+if _require_fn checksum_skipped skip-checksum-not-persisted; then
+  _persistdir="$_fx/persist-prefix"; mkdir -p "$_persistdir"
+  PREFIX="$_persistdir"
+  DRY_RUN=false
+  TLS_BACKEND=gnutls
+  AAC_IMPL=native
+  H264_IMPL=x264
+  H265_IMPL=x265
+  AV1_ENC_IMPL=svtav1
+  SPIRV_IMPL=glslang
+  OPENSSLDIR=""
+  SKIP_CHECKSUM=true
+  SKIP_CHECKSUM_PKGS="zlib giflib"
+  save_stored_choices
+  if [ -f "$_persistdir/.mediaforge-choices" ] \
+     && ! grep -qi 'checksum' "$_persistdir/.mediaforge-choices"; then
+    _pass skip-checksum-not-persisted
+  else
+    _bad skip-checksum-not-persisted "choices file missing, or it recorded a checksum-skip setting (wrote SKIP_CHECKSUM=$SKIP_CHECKSUM SKIP_CHECKSUM_PKGS=$SKIP_CHECKSUM_PKGS)"
+  fi
+fi
 
 printf 'DONE:\n'
 exit "$_fail"

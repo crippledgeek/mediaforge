@@ -192,7 +192,7 @@ verify_file() {
 
   [ -n "${PKG_HASH_FILE:-}" ] || die "verify_file: PKG_HASH_FILE is unset for $_vname"
   [ -f "$PKG_HASH_FILE" ] || die "No hash file $PKG_HASH_FILE for $_vname.
-Run './mediaforge.sh makesum' to record it."
+Run './mediaforge.sh makesum' to record it, or --skip-checksum to bypass (loudly)."
 
   hash_file_validate "$PKG_HASH_FILE"
 
@@ -253,11 +253,27 @@ ffmpeg_tarball_url() {
 }
 
 # checksum_skipped
-# Task 9 (--skip-checksum) replaces this with the real opt-out. Until then
-# fetch()'s verification gate is unconditional: this stub always returns 1
-# (never skip).
+# True when verification is disabled for the current recipe.
+#
+# Buildroot's BR_NO_CHECK_HASH_FOR keys by file basename. We key by PKG_NAME
+# instead: a recipe name is what a user has on the command line, and it covers
+# that recipe's sub-build downloads without them knowing the sub-tarball names
+# (lv2's seven, for instance).
 checksum_skipped() {
+  [ "${SKIP_CHECKSUM:-false}" = true ] && return 0
+  case " ${SKIP_CHECKSUM_PKGS:-} " in
+    *" ${PKG_NAME:-} "*) return 0 ;;
+  esac
   return 1
+}
+
+# checksum_skip_warn FILE
+# The one warning fetch() prints wherever checksum_skipped() bypasses
+# verification. Shared by both fetch() call sites (cached and freshly
+# downloaded) so the wording can't drift between the two paths -- the whole
+# point of --skip-checksum is that a bypass is never quiet.
+checksum_skip_warn() {
+  warn "Checksum verification SKIPPED for $1 (--skip-checksum) -- integrity is NOT verified"
 }
 
 # fetch [URL [FILENAME [DIRNAME]]]
@@ -284,7 +300,9 @@ fetch() {
   # never re-examined.
   if [ -f "$DISTDIR/$_file" ]; then
     log "$_file already cached"
-    if [ "${MAKESUM_MODE:-false}" != true ] && ! checksum_skipped; then
+    if [ "${MAKESUM_MODE:-false}" != true ] && checksum_skipped; then
+      checksum_skip_warn "$_file"
+    elif [ "${MAKESUM_MODE:-false}" != true ]; then
       verify_file "$DISTDIR/$_file" "$_file"
       case $? in
         0) ;;
@@ -323,7 +341,9 @@ The download was left in place -- run './mediaforge.sh makesum' to record it." ;
     fi
   else
     download_file "$_url" "$DISTDIR/$_file"
-    if [ "${MAKESUM_MODE:-false}" != true ] && ! checksum_skipped; then
+    if [ "${MAKESUM_MODE:-false}" != true ] && checksum_skipped; then
+      checksum_skip_warn "$_file"
+    elif [ "${MAKESUM_MODE:-false}" != true ]; then
       verify_file "$DISTDIR/$_file" "$_file"
       case $? in
         0) ;;
