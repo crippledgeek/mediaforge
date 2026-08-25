@@ -33,7 +33,9 @@ _require_fn() {
 . "$ROOT/lib/utils.sh"
 . "$ROOT/lib/download.sh"
 
-_fx=$(mktemp -d); trap 'rm -rf "$_fx"' EXIT INT TERM
+_fx=$(mktemp -d)
+SRV_PID=''
+trap 'kill "$SRV_PID" 2>/dev/null; rm -rf "$_fx"' EXIT INT TERM
 
 # Known-answer vector: sha256("test") is a published constant.
 printf 'test' > "$_fx/kat.txt"
@@ -659,5 +661,184 @@ else
   _bad amf-install-shape-source-archive "recipes/hwaccel/amf.sh has no source-archive fallback branch -- fix not present"
   _bad amf-install-shape-unknown-dies "recipes/hwaccel/amf.sh has no source-archive fallback branch -- fix not present"
 fi
+# -- verify_file --------------------------------------------------------------
+printf 'test' > "$_fx/good.tar.gz"
+cat > "$_fx/v.hash" <<EOF
+sha256  $_KAT  good.tar.gz
+size    4  good.tar.gz
+sha256  $_KAT  nosize.tar.gz
+EOF
+PKG_HASH_FILE="$_fx/v.hash"
+
+verify_file "$_fx/good.tar.gz" good.tar.gz; _rc=$?
+if [ "$_rc" -eq 0 ]; then _pass verify-accepts-good; else _bad verify-accepts-good "rc=$_rc"; fi
+
+printf 'tampered' > "$_fx/bad.tar.gz"
+cp "$_fx/v.hash" "$_fx/v2.hash"
+printf 'sha256  %s  bad.tar.gz\nsize    4  bad.tar.gz\n' "$_KAT" >> "$_fx/v2.hash"
+PKG_HASH_FILE="$_fx/v2.hash"
+verify_file "$_fx/bad.tar.gz" bad.tar.gz; _rc=$?
+if [ "$_rc" -eq 2 ]; then _pass verify-detects-mismatch; else _bad verify-detects-mismatch "rc=$_rc"; fi
+
+PKG_HASH_FILE="$_fx/v.hash"
+verify_file "$_fx/good.tar.gz" absent.tar.gz; _rc=$?
+if [ "$_rc" -eq 3 ]; then _pass verify-no-record; else _bad verify-no-record "rc=$_rc"; fi
+
+# size is mandatory: a sha256 with no size is an incomplete record, not a pass.
+verify_file "$_fx/good.tar.gz" nosize.tar.gz; _rc=$?
+if [ "$_rc" -eq 3 ]; then _pass verify-size-mandatory; else _bad verify-size-mandatory "rc=$_rc"; fi
+
+# Boundary: size N passes, N-1 and N+1 both fail. A far-from-boundary value
+# would pass against an off-by-one comparison and guard nothing.
+for _sz in 3 5; do
+  printf 'sha256  %s  good.tar.gz\nsize    %s  good.tar.gz\n' "$_KAT" "$_sz" > "$_fx/sz.hash"
+  PKG_HASH_FILE="$_fx/sz.hash"
+  verify_file "$_fx/good.tar.gz" good.tar.gz; _rc=$?
+  if [ "$_rc" -eq 2 ]; then _pass "verify-size-boundary-$_sz"; else _bad "verify-size-boundary-$_sz" "rc=$_rc"; fi
+done
+
+# A recipe with no hash file at all must die. Buildroot warns and returns 0
+# here; TALOS-2023-1844 is the report of that being exploitable.
+#
+# Negative assertion (success == "it died"): on a tree without verify_file the
+# subshell exits 127, which this shape would misread as "died as required" and
+# report PASS -- exactly what tests/oracle-baseline.sh rejects. Guarded like
+# the file's other negative assertions (e.g. digest-rejects-md5 above).
+if _require_fn verify_file verify-missing-hashfile-dies; then
+  PKG_HASH_FILE="$_fx/does-not-exist.hash"
+  if ( verify_file "$_fx/good.tar.gz" good.tar.gz ) >/dev/null 2>&1; then
+    _bad verify-missing-hashfile-dies "a missing hash file was tolerated"
+  else
+    _pass verify-missing-hashfile-dies
+  fi
+fi
+
+# -- fetch() actions on each verify_file outcome ------------------------------
+# The actions fetch() takes on verify_file's return codes are not exercised by
+# the unit tests above. Reuses tests/fetch-fail-no-cache.sh's local-HTTP-server
+# pattern (bind 127.0.0.1 on an ephemeral port, publish it via PORT_FILE,
+# trap-kill on exit) rather than exiting mid-file on a missing python3, which
+# would suppress the DONE: sentinel tests/oracle-baseline.sh requires.
+if command -v python3 >/dev/null 2>&1; then
+  # The server's document root is separate from DISTDIR and is never mutated
+  # after this point, so corrupting the cached copy in DISTDIR (below) cannot
+  # also corrupt what the server hands back on re-download.
+  _srvroot="$_fx/srvroot"; mkdir -p "$_srvroot"
+
+  # fetch() reaches extraction once a file verifies, so the fixture must be a
+  # real archive: a plain-text stand-in dies at "Failed to extract" before
+  # fetch() ever returns, and the assertions below can't observe the return
+  # value they're checking.
+  _archsrc="$_fx/archsrc"; mkdir -p "$_archsrc"
+  printf 'test' > "$_archsrc/payload.txt"
+  ( cd "$_archsrc" && tar -czf "$_srvroot/good.tar.gz" payload.txt )
+  _ARCHSUM=$(digest_file sha256 "$_srvroot/good.tar.gz")
+  _ARCHSIZE=$(file_size "$_srvroot/good.tar.gz")
+
+  PORT_FILE=$(mktemp)
+  python3 -c '
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        try:
+            with open(sys.argv[2] + self.path, "rb") as f:
+                body = f.read()
+        except OSError:
+            self.send_response(404)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *a):
+        pass
+
+srv = HTTPServer(("127.0.0.1", 0), H)
+with open(sys.argv[1], "w") as f:
+    f.write(str(srv.server_address[1]))
+    f.flush()
+srv.serve_forever()
+' "$PORT_FILE" "$_srvroot" &
+  SRV_PID=$!
+
+  _i=0
+  PORT=''
+  while [ "$_i" -lt 50 ]; do
+    PORT=$(cat "$PORT_FILE" 2>/dev/null)
+    [ -n "$PORT" ] && break
+    sleep 0.1
+    _i=$((_i + 1))
+  done
+  rm -f "$PORT_FILE"
+
+  if [ -z "$PORT" ]; then
+    _bad fetch-cached-mismatch-redownloads "server did not start"
+    _bad fetch-no-record-keeps-file "server did not start"
+  else
+    _serve="$_fx/dist"; mkdir -p "$_serve"
+    export DISTDIR="$_serve"
+    PKG_URL=''; PKG_FILENAME=''; PKG_DIRNAME=''
+    export PKG_URL PKG_FILENAME PKG_DIRNAME
+
+    printf 'sha256  %s  good.tar.gz\nsize    %s  good.tar.gz\n' "$_ARCHSUM" "$_ARCHSIZE" > "$_fx/fetch.hash"
+    PKG_HASH_FILE="$_fx/fetch.hash"
+
+    # A corrupt CACHED file is re-downloaded once and the replacement
+    # verified. This is the core #19 case: fetch() used to reuse a cached
+    # file unconditionally, forever, with no re-examination at all.
+    printf 'corrupted' > "$_serve/good.tar.gz"
+    if ( fetch "http://127.0.0.1:$PORT/good.tar.gz" good.tar.gz gooddir ) >/dev/null 2>&1; then
+      if [ "$(digest_file sha256 "$_serve/good.tar.gz")" = "$_ARCHSUM" ]; then
+        _pass fetch-cached-mismatch-redownloads
+      else
+        _bad fetch-cached-mismatch-redownloads "file was not replaced"
+      fi
+    else
+      _bad fetch-cached-mismatch-redownloads "fetch died instead of re-downloading"
+    fi
+
+    # A missing record aborts and LEAVES the file: the hash file is the
+    # likely defect, and deleting would force a re-download from a possibly
+    # worse source.
+    #
+    # On the baseline tree fetch() has no verification at all, so a fresh
+    # download always leaves the file behind regardless of any hash record --
+    # this assertion would PASS on the baseline for a reason unrelated to
+    # verify_file. ANDed with a grep for the marker, the same shape as the
+    # MAKESUM_MODE check above, so only a tree that both has the feature and
+    # keeps the file on a missing record passes.
+    rm -f "$_serve/good.tar.gz"
+    printf 'sha256  %s  other.tar.gz\nsize    %s  other.tar.gz\n' "$_ARCHSUM" "$_ARCHSIZE" > "$_fx/norec.hash"
+    PKG_HASH_FILE="$_fx/norec.hash"
+    ( fetch "http://127.0.0.1:$PORT/good.tar.gz" good.tar.gz gooddir ) >/dev/null 2>&1
+    if grep -q 'verify_file' "$ROOT/lib/download.sh" && [ -f "$_serve/good.tar.gz" ]; then
+      _pass fetch-no-record-keeps-file
+    else
+      _bad fetch-no-record-keeps-file "file was deleted on a missing-record abort, or lib/download.sh doesn't reference verify_file at all"
+    fi
+  fi
+
+  kill "$SRV_PID" 2>/dev/null
+  SRV_PID=''
+else
+  printf 'SKIP (no python3): fetch-cached-mismatch-redownloads, fetch-no-record-keeps-file\n'
+fi
+
+# Optional sha512/sha1 records are verified too, not merely tolerated.
+printf 'test' > "$_fx/opt.txt"
+_S512=$(digest_file sha512 "$_fx/opt.txt")
+printf 'sha256  %s  opt.txt\nsize    4  opt.txt\nsha512  %s  opt.txt\n' "$_KAT" "$_S512" > "$_fx/opt.hash"
+PKG_HASH_FILE="$_fx/opt.hash"
+verify_file "$_fx/opt.txt" opt.txt; _rc=$?
+if [ "$_rc" -eq 0 ]; then _pass verify-optional-sha512-ok; else _bad verify-optional-sha512-ok "rc=$_rc"; fi
+
+printf 'sha256  %s  opt.txt\nsize    4  opt.txt\nsha512  deadbeef  opt.txt\n' "$_KAT" > "$_fx/opt2.hash"
+PKG_HASH_FILE="$_fx/opt2.hash"
+verify_file "$_fx/opt.txt" opt.txt; _rc=$?
+if [ "$_rc" -eq 2 ]; then _pass verify-optional-sha512-mismatch; else _bad verify-optional-sha512-mismatch "rc=$_rc"; fi
+
 printf 'DONE:\n'
 exit "$_fail"

@@ -176,6 +176,65 @@ download_file() {
   die "Failed to download $_dl_url after 3 attempts"
 }
 
+# verify_file FILE BASENAME
+# Check FILE against the current recipe's hash file.
+#
+# Returns 0 verified, 2 mismatch, 3 no usable record. Dies when the hash file is
+# missing or malformed. The 0/2/3 split mirrors Buildroot's check-hash exit
+# codes, because the caller must treat a mismatch (delete and retry) differently
+# from a missing record (keep the file -- the metadata is the likely defect).
+#
+# Size is checked first: it is cheap and catches truncation and wrong-file
+# before any hashing.
+verify_file() {
+  _vfile="$1"
+  _vname="$2"
+
+  [ -n "${PKG_HASH_FILE:-}" ] || die "verify_file: PKG_HASH_FILE is unset for $_vname"
+  [ -f "$PKG_HASH_FILE" ] || die "No hash file $PKG_HASH_FILE for $_vname.
+Run './mediaforge.sh makesum' to record it, or --skip-checksum to bypass (loudly)."
+
+  hash_file_validate "$PKG_HASH_FILE"
+
+  _vsize=$(hash_lookup "$PKG_HASH_FILE" "$_vname" size)
+  _vsha=$(hash_lookup "$PKG_HASH_FILE" "$_vname" sha256)
+
+  if [ -z "$_vsha" ] || [ -z "$_vsize" ]; then
+    warn "No complete record for $_vname in $PKG_HASH_FILE (sha256 and size are both required)"
+    return 3
+  fi
+
+  _got=$(file_size "$_vfile")
+  if [ "$_got" != "$_vsize" ]; then
+    warn "$_vname has the wrong size: expected $_vsize bytes, got $_got"
+    return 2
+  fi
+
+  for _alg in sha256 sha512 sha1; do
+    _want=$(hash_lookup "$PKG_HASH_FILE" "$_vname" "$_alg")
+    [ -n "$_want" ] || continue
+    _got=$(digest_file "$_alg" "$_vfile")
+    if [ "$_got" != "$_want" ]; then
+      warn "$_vname has the wrong $_alg digest:"
+      warn "  expected: $_want"
+      warn "  got     : $_got"
+      warn "  Incomplete download, or a man-in-the-middle attack."
+      return 2
+    fi
+  done
+
+  log "$_vname: verified (sha256, size)"
+  return 0
+}
+
+# checksum_skipped
+# Task 9 (--skip-checksum) replaces this with the real opt-out. Until then
+# fetch()'s verification gate is unconditional: this stub always returns 1
+# (never skip).
+checksum_skipped() {
+  return 1
+}
+
 # fetch [URL [FILENAME [DIRNAME]]]
 # Reads PKG_URL, PKG_FILENAME, PKG_DIRNAME by default.
 # Positional args override for non-recipe downloads (ffmpeg.sh, sub-packages).
@@ -195,11 +254,54 @@ fetch() {
     esac
   fi
 
-  # Download if not cached
-  if [ ! -f "$DISTDIR/$_file" ]; then
-    download_file "$_url" "$DISTDIR/$_file"
-  else
+  # Download if not cached, then verify either way (#19): a cache hit used to
+  # be trusted forever, so a tarball corrupted or swapped after landing was
+  # never re-examined.
+  if [ -f "$DISTDIR/$_file" ]; then
     log "$_file already cached"
+    if [ "${MAKESUM_MODE:-false}" != true ] && ! checksum_skipped; then
+      verify_file "$DISTDIR/$_file" "$_file"
+      case $? in
+        0) ;;
+        2)
+          # A cached file that fails is almost always locally corrupt or
+          # truncated. Re-download once and verify the replacement, following
+          # support/download/dl-wrapper. The retry is verified too, so a
+          # hostile origin simply fails twice.
+          warn "Cached $_file failed verification, re-downloading"
+          rm -f "$DISTDIR/$_file"
+          download_file "$_url" "$DISTDIR/$_file"
+          verify_file "$DISTDIR/$_file" "$_file" || {
+            rm -f "$DISTDIR/$_file"
+            die "$_file failed verification after re-download. Refusing to build."
+          }
+          ;;
+        3)
+          # Keep the file: the hash file is the likely defect, and removing it
+          # would force a re-download from a possibly worse source.
+          die "No recorded digest for $_file in $PKG_HASH_FILE.
+The download was left in place -- run './mediaforge.sh makesum' to record it." ;;
+      esac
+    fi
+  else
+    download_file "$_url" "$DISTDIR/$_file"
+    if [ "${MAKESUM_MODE:-false}" != true ] && ! checksum_skipped; then
+      verify_file "$DISTDIR/$_file" "$_file"
+      case $? in
+        0) ;;
+        2)
+          # No retry here: there is no earlier-good copy to fall back to, so a
+          # mismatched fresh download is a dead end, not a corrupt cache.
+          rm -f "$DISTDIR/$_file"
+          die "$_file failed verification. Refusing to build."
+          ;;
+        3)
+          # Same reasoning as the cached branch above: the hash file is the
+          # likely defect, not this download.
+          die "No recorded digest for $_file in $PKG_HASH_FILE.
+The download was left in place -- run './mediaforge.sh makesum' to record it." ;;
+      esac
+    fi
   fi
 
   # makesum --build (#19): record what was just fetched instead of verifying
