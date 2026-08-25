@@ -187,6 +187,13 @@ _add_skip_checksum() {
   # space-padded window for " name ", never matched either of them. A separator
   # that validates but cannot match is the worst outcome for a verification
   # bypass, because the user is told it happened.
+  #
+  # PORTABILITY, since this is the shape a strict port would break: POSIX says
+  # the result is UNSPECIFIED when string2 is shorter than string1, and notes
+  # that BSD pads with the last character while System V does not. Every tr
+  # mediaforge runs on -- GNU coreutils, BSD/macOS, busybox -- pads, so every
+  # character in the class maps to a space. Do not "simplify" this to a
+  # System V-safe form by dropping members of the class.
   _asc=$(printf '%s' "$1" | tr -s '[:space:],' ' ')
   _asc="${_asc# }"
   _asc="${_asc% }"

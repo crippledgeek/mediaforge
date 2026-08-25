@@ -1263,24 +1263,11 @@ else
   _bad skip-checksum-empty-value-dies "rc=$_emptyrc, output: $_emptyout"
 fi
 
-# Every recipe's skip key must be a name the CLI accepts, or --skip-checksum
-# can report a bypass it did not perform. Derived from _order.conf rather than
-# hand-listed, so a recipe added later is covered without anyone remembering.
-if _require_fn recipe_key skip-key-always-a-valid-cli-name; then
-  registry_init
-  _keybad=""
-  while IFS= read -r _kr || [ -n "$_kr" ]; do
-    case "$_kr" in ""|\#*) continue ;; esac
-    PKG_HASH_FILE="$ROOT/${_kr%.sh}.hash"
-    _kk=$(recipe_key)
-    is_known_pkg "$_kk" || _keybad="$_keybad $_kr"
-  done < "$ROOT/recipes/_order.conf"
-  if [ -z "$_keybad" ]; then
-    _pass skip-key-always-a-valid-cli-name
-  else
-    _bad skip-key-always-a-valid-cli-name "keys the CLI would reject:$_keybad"
-  fi
-fi
+# That every recipe's key is a name the CLI accepts is asserted in
+# tests/recipe-identity.sh, which owns recipe_key. It arrived here because
+# --skip-checksum was the first caller; it is a property of the identity
+# function, not of checksum skipping, and a reader looking for it should find
+# it beside the rest of the identity contract.
 
 PKG_NAME=""
 PKG_HASH_FILE=""

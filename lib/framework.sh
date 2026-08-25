@@ -227,10 +227,14 @@ run_recipe() {
     _excluded=false
     # Same registry identity check_guards used to decide the skip; comparing a
     # different name here would let a --disable=d recipe re-accumulate the very
-    # FFmpeg flag the skip exists to suppress. Fatal on the same terms, and for
-    # the stronger reason: this line is only reached after check_guards returned,
-    # which means it already derived the key -- so a failure here is a state
-    # change between the two, not a missing value.
+    # FFmpeg flag the skip exists to suppress -- and "the skip" includes the
+    # LICENCE tiers, so a wrong match here re-emits --enable-libx264 for a build
+    # that never asked for --enable-gpl. Failing loud is the only answer that
+    # cannot silently mislicense a binary; a fallback to any other identity can.
+    # Fatal on the same terms as check_guards, and on stronger ones: this line is
+    # only reached after check_guards returned, which means it already derived
+    # the key, so a failure here is a state change between the two rather than a
+    # missing value.
     _excl_key=$(recipe_key) || die "Cannot derive a CLI identity for '$PKG_NAME' while deciding whether to re-accumulate its FFmpeg flag, though check_guards derived one moments earlier. PKG_HASH_FILE changed mid-recipe."
     for _d in $DISABLE_PKGS; do
       [ "$_d" = "$_excl_key" ] && _excluded=true && break

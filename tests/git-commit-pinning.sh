@@ -7,7 +7,7 @@
 # accepts only branches and tags. Every profile sets PKG_VERSION_LIBRTMP to a
 # 40-hex commit SHA, so the interpolated ref was `v<sha>` -- a ref that cannot
 # exist. `git clone` exits non-zero, `run` (lib/utils.sh) dies, and every
-# `--profile=` build failed at recipes/_order.conf:99. Without a profile it
+# `--profile=` build failed at the librtmp line of recipes/_order.conf. Without a profile it
 # worked only because the recipe default `2.6` happens to be a real tag.
 #
 # THE INTEGRITY HALF. A git tag is a mutable server-side pointer, so pinning

@@ -5,10 +5,12 @@
 # repository by line number is correct exactly once: at the moment it is
 # written. Any edit above the cited line silently retargets it, nothing
 # recomputes it, no gate reads it, and the next reader believes it because a
-# comment in a source tree reads as verified. Twelve such defects were found on
-# one branch, two of them introduced by the very commit that fixed the previous
-# one, and one of those by a change made in the same file two hundred lines
-# above the citation.
+# comment in a source tree reads as verified. This gate found FIFTEEN in-tree
+# citations on the branch that introduced it, and TWO of them were already stale
+# when it found them -- both naming a line in mediaforge.sh that the -fPIC export
+# had since moved away from. That is the argument for the gate, and unlike a
+# count of "defects" it is a claim a reader can check against the gate's own
+# output.
 #
 # A name does not have that failure mode. `save_stored_choices returns early
 # under DRY_RUN` stays true when the function moves, and tells the reader what
@@ -18,7 +20,13 @@
 # SCOPE: citations into THIS repository. An immutable external reference -- an
 # upstream commit SHA, an RFC section, a released tarball's file:line -- does
 # not rot and is deliberately allowed, which is why a candidate only counts
-# when the name it cites resolves to a shell file that exists here.
+# when the name it cites resolves to a file that exists here.
+#
+# Not only shell files. recipes/_order.conf gains a line whenever a recipe is
+# added, and README.md is edited constantly, so a citation into either has the
+# same rot profile as one into a function -- worse, since neither carries
+# symbols to cite instead. The extension class covers all three; the
+# file-exists check below is what keeps that from producing false positives.
 #
 # Usage: tests/comment-citations.sh
 # Exit 0 = pass, 1 = regression.
@@ -30,12 +38,27 @@ _fail=0
 _pass() { printf 'PASS [%s]\n' "$1"; }
 _bad()  { printf 'FAIL [%s] %s\n' "$1" "${2-}" >&2; _fail=1; }
 
-# Every shell filename that exists in this tree, one per line. Membership in
+# Every filename in this repository's OWN sources, one per line. Membership in
 # this list is what separates an in-tree citation (rots) from an external one
 # (does not), so the allowance for external references costs no maintenance:
 # nothing has to be listed, and a file that leaves the tree stops being matched.
-_tree_names=$(find . -name '*.sh' -not -path './.git/*' -print \
-              | awk -F/ '{ print $NF }' | sort -u)
+#
+# SCOPED TO THE SOURCE DIRECTORIES, not `find .`. $DISTDIR (packages/) and
+# $PREFIX (workspace/) hold the extracted sources of ~80 third-party projects,
+# so a bare tree walk returns thousands of names on a machine that has built and
+# a hundred-odd on a clean checkout. The comparison is by basename, so those
+# names ARE the predicate: an entirely legitimate citation into an upstream
+# ltmain.sh or autogen.sh would be reported as an offender for developers who
+# have built and not for anyone else. Nothing trips that today, which is exactly
+# why it had to be fixed before something did -- a gate whose verdict depends on
+# gitignored state is not a gate.
+#
+# `git ls-files` would be the obvious scoping, and is deliberately not used:
+# tests/oracle-baseline.sh runs this file inside a `git archive` export, which
+# is a plain directory with no repository to ask.
+_tree_names=$( { find ./lib ./recipes ./tests ./patches ./profiles -type f -print 2>/dev/null
+                 find . -maxdepth 1 -type f -print; } \
+               | awk -F/ '{ print $NF }' | sort -u)
 
 # Candidate citations: on each line, only the text from the first "#" onward is
 # considered, so a filename appearing in code (a path being built, an argument)
@@ -50,9 +73,9 @@ _candidates=$(awk '
     _h = index($0, "#")
     if (_h == 0) next
     _c = substr($0, _h)
-    while (match(_c, /[A-Za-z0-9_+.-]+\.sh:[0-9]+/)) {
+    while (match(_c, /[A-Za-z0-9_+.-]+\.(sh|conf|md):[0-9]+/)) {
       print FILENAME "|" FNR "|" substr(_c, RSTART, RLENGTH)
-      _c = substr(_c, RSTART + RLENGTH + 1)
+      _c = substr(_c, RSTART + RLENGTH)
     }
   }
 ' ./mediaforge.sh ./lib/*.sh ./recipes/*.sh ./recipes/*/*.sh ./tests/*.sh)

@@ -403,10 +403,15 @@ do_install() {
   # so without this read OPENSSLDIR is empty here and the probe silently
   # returns a different answer than the build baked.
   #
-  # Parsed with sed rather than sourced. load_stored_choices sources it, but
-  # this function runs privileged commands, and sourcing build output into a
-  # process that shells out under sudo is a worse trust posture than parsing a
-  # value out of it.
+  # Parsed by name with _stored_choice, never sourced -- and neither is the
+  # build's own read of this file. $PREFIX is where every dependency's
+  # `make install` writes, so anything that can compromise a build can leave
+  # shell here for a later process to execute; asking for values by name means a
+  # setting nobody asked for cannot arrive at all. That matters most right here,
+  # because this function runs mkdir and cp under sudo for a system prefix. The
+  # value read below is additionally put through _validate_openssldir before it
+  # reaches _install_file, so what a privileged command receives is an absolute
+  # path with no shell metacharacter and no '..' segment.
   #
   # A stale bundle from a previous arm is ignored rather than deleted: reading
   # the arm cannot damage a workspace, and deleting build state from an

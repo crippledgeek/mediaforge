@@ -37,6 +37,19 @@ _fail=0
 _pass() { printf 'PASS [%s]\n' "$1"; }
 _bad()  { printf 'FAIL [%s] %s\n' "$1" "${2-}" >&2; _fail=1; }
 
+# Guard for an assertion whose subject may not exist on the pre-fix tree, where
+# an undefined function exits 127 and a bare "did it fail?" check would read
+# that as success. Used only where that hazard is real -- the check_guards
+# assertions below need no guard, since check_guards exists on the base and
+# legitimately reports the old behaviour as a failure there.
+_require_fn() {
+  if command -v "$1" >/dev/null 2>&1; then
+    return 0
+  fi
+  _bad "$2" "$1 is not defined"
+  return 1
+}
+
 # ── the divergence this is all about actually still exists ──────────────────
 # Asserted rather than assumed: if someone renames the three PKG_NAMEs to match
 # their filenames, every other assertion here would pass for a reason that has
@@ -106,6 +119,33 @@ fi
 . "$ROOT/lib/framework.sh"
 OS_LINUX=true
 OS_ARCH=""
+
+# Every recipe's key must be a name the CLI accepts, or --disable=/--enable=/
+# --skip-checksum= can report an action they did not perform. Derived from
+# _order.conf rather than hand-listed, so a recipe added later is covered
+# without anyone remembering to. Moved here from
+# tests/checksum-verification.sh, where it landed only because --skip-checksum
+# was recipe_key's first caller: it is a property of the identity function.
+#
+# registry_init reads $SCRIPT_DIR, which mediaforge.sh sets and this file must
+# supply for itself.
+# shellcheck disable=SC2034
+SCRIPT_DIR="$ROOT"
+if _require_fn recipe_key key-always-a-valid-cli-name; then
+  registry_init
+  _keybad=""
+  while IFS= read -r _kr || [ -n "$_kr" ]; do
+    case "$_kr" in ""|\#*) continue ;; esac
+    PKG_HASH_FILE="$ROOT/${_kr%.sh}.hash"
+    _kk=$(recipe_key)
+    is_known_pkg "$_kk" || _keybad="$_keybad $_kr"
+  done < "$ROOT/recipes/_order.conf"
+  if [ -z "$_keybad" ]; then
+    _pass key-always-a-valid-cli-name
+  else
+    _bad key-always-a-valid-cli-name "keys the CLI would reject:$_keybad"
+  fi
+fi
 
 _synth_reset() {
   reset_recipe
