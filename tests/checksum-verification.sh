@@ -133,19 +133,17 @@ fi
 # A bad-value record must not still increment the duplicate counter for its
 # (keyword, filename) pair, or a later legitimate record for that pair is
 # reported as a duplicate that does not exist alongside the real format error.
-if _require_fn hash_file_validate validate-bad-value-not-duplicate; then
-  printf 'sha256  zzzz  f.tar.gz\nsha256  aabb  f.tar.gz\n' > "$_fx/bad-then-good.hash"
-  _msg=$( ( hash_file_validate "$_fx/bad-then-good.hash" ) 2>&1 )
-  case "$_msg" in
-    *hex*)
-      case "$_msg" in
-        *duplicate*) _bad validate-bad-value-not-duplicate "spurious duplicate: $_msg" ;;
-        *)           _pass validate-bad-value-not-duplicate ;;
-      esac
-      ;;
-    *) _bad validate-bad-value-not-duplicate "missing hex/format error: $_msg" ;;
-  esac
-fi
+printf 'sha256  zzzz  f.tar.gz\nsha256  aabb  f.tar.gz\n' > "$_fx/bad-then-good.hash"
+_msg=$( ( hash_file_validate "$_fx/bad-then-good.hash" ) 2>&1 )
+case "$_msg" in
+  *hex*)
+    case "$_msg" in
+      *duplicate*) _bad validate-bad-value-not-duplicate "spurious duplicate: $_msg" ;;
+      *)           _pass validate-bad-value-not-duplicate ;;
+    esac
+    ;;
+  *) _bad validate-bad-value-not-duplicate "missing hex/format error: $_msg" ;;
+esac
 
 printf 'DONE:\n'
 exit "$_fail"
