@@ -2,3 +2,31 @@
 # Locally calculated 2026-08-25
 sha256  78c51bcf21b54e58bb6329accbb4dae03b2ed79b520f9a01e734bd9de530953f  lv2-1.18.10.tar.xz
 size    237380  lv2-1.18.10.tar.xz
+
+# Locally calculated 2026-08-25
+sha256  26a595e522d054b6eb40feb40f6aa2e4d2fdd34730afc32a2dd911082fe58924  autowaf.tar.gz
+size    386770  autowaf.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  7fcea95de1a676c6bc33c2ee24f3c179cec613765db1ea8562dec0e6fe6eb292  serd-v0.32.6.tar.gz
+size    376055  serd-v0.32.6.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  4e6ce03e0336e8b4a3d6c2b70b1c5e18590a5673a98186da90d4f33c23defc09  pcre-8.45.tar.gz
+size    2096552  pcre-8.45.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  51d70d63e970214db84e32d55377d84090c02145f5768265ab140d117f2b8e24  zix-v0.8.0.tar.gz
+size    102874  zix-v0.8.0.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  00f5b551ce93e5c0696b96b8d284af13190a15d7d04fb6fa2e9c4964f626e675  sord-v0.16.20.tar.gz
+size    275660  sord-v0.16.20.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  2e71c82c1fc3b22551077e60ba5858c0dc42a5803f084f90ed2c34ccf21927ff  sratom-v0.6.20.tar.gz
+size    23054  sratom-v0.6.20.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  3d0ff171ca5fa124e65d8f8fbffcbc12e495a6d79f9599703543d3f08f402d63  lilv-v0.26.2.tar.gz
+size    150052  lilv-v0.26.2.tar.gz
