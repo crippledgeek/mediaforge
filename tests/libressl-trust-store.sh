@@ -476,19 +476,21 @@ fi
 # which is only printed once option parsing and validation have both succeeded.
 # Absence of "unknown option" alone would pass on a crash or an unrelated die.
 #
-# Exit status is NOT usable as the oracle here, and that is a property of the
-# harness rather than of this flag: --dry-run runs FFmpeg's configure for real
-# (tests/lcevc-default-off.sh documents the same thing), so on a workspace with
-# no built dependencies EVERY dry-run exits 1, including a bare
-# `./mediaforge.sh build --dry-run` — measured. Requiring rc=0 would fail
-# permanently for a reason unrelated to what is being tested.
-_out=$(./mediaforge.sh build --openssldir=/etc/ssl --dry-run --yes 2>&1) || true
-if printf '%s' "$_out" | grep -q 'tls=' \
+# rc is now part of the oracle too: mediaforge.sh ends with an unconditional
+# `exit 0` after the dispatch case, so a nonzero exit here can only come from
+# a `die` firing somewhere along the way (option parsing, path validation) --
+# the earlier `|| true` masked exactly that signal by folding every nonzero
+# rc into 0 before `_rc=$?` could read it, so it is dropped from this
+# assignment; the assertion below captures the real rc instead.
+_out=$(./mediaforge.sh build --openssldir=/etc/ssl --dry-run --yes 2>&1)
+_rc=$?
+if [ "$_rc" -eq 0 ] \
+   && printf '%s' "$_out" | grep -q 'tls=' \
    && ! printf '%s' "$_out" | grep -qi 'unknown option' \
    && ! printf '%s' "$_out" | grep -q 'is not an absolute path'; then
   _pass "--openssldir accepts an absolute path"
 else
-  _bad "--openssldir=/etc/ssl did not survive option parsing"
+  _bad "--openssldir=/etc/ssl did not survive option parsing (rc=$_rc)"
 fi
 
 # --openssldir LAST, with nothing after it: that is the only position in which

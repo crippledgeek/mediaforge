@@ -145,7 +145,7 @@ _run "libcdio on (gpl)"     "--enable-libcdio"      ./mediaforge.sh build --enab
 # Only the OFF-by-default half lives here, paired with the 7.0 row below it.
 # The opt-in half (--enable=lcevc emits the flag) belongs to
 # tests/lcevc-default-off.sh, which owns that contract with a better oracle: it
-# greps the assembled `$ ./configure` line specifically, where _run/_run_no grep
+# greps the `Would configure FFmpeg with:` line specifically, where _run/_run_no grep
 # the whole log — and that log mentions lcevc for other reasons. Asserting it
 # here as well would also make this matrix Linux-only, since lcevc.sh sets
 # PKG_LINUX_ONLY=true and check_guards (lib/framework.sh:140) skips it on macOS
@@ -168,5 +168,16 @@ _run "rabbitmq default on"        "--enable-librabbitmq" ./mediaforge.sh build
 _run "libssh skipped w/o mbedtls" "Skipping libssh"      ./mediaforge.sh build
 _run_no "no libssh flag in default dry-run" "--enable-libssh" ./mediaforge.sh build
 _run "libssh selectable w/ mbedtls tls" "tls=mbedtls" ./mediaforge.sh build --tls=mbedtls
+
+# --dry-run must not fetch, extract, build or install FFmpeg.
+# recipes/ffmpeg.sh is sourced directly by cmd_build rather than through
+# run_recipe(), so run_recipe's own DRY_RUN short-circuit never reached it:
+# a dry run downloaded and re-extracted the FFmpeg tarball, then fell through
+# toward do_install, which has no dry-run guard of its own.
+#
+# fetch() logs "Extracted " only after a real tar-extract succeeds, so its
+# presence is proof the recipe ran despite --dry-run.
+_run    "dry-run logs would-build-ffmpeg" "Would build FFmpeg" ./mediaforge.sh build
+_run_no "dry-run does not extract"        "Extracted "         ./mediaforge.sh build
 
 exit "$_fail"
