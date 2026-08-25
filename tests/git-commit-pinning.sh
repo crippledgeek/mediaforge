@@ -1,6 +1,7 @@
 #!/bin/sh
-# Commit-pinning regression tests for the two git-sourced recipes
-# (recipes/other/librtmp.sh, recipes/hwaccel/libplacebo.sh).
+# Commit-pinning regression tests for the three git-sourced recipes
+# (recipes/other/librtmp.sh, recipes/hwaccel/libplacebo.sh,
+# recipes/video/av1.sh).
 #
 # THE BUG THIS PINS. librtmp cloned with `--branch "v${PKG_VERSION}"`, which
 # accepts only branches and tags. Every profile sets PKG_VERSION_LIBRTMP to a
@@ -17,6 +18,16 @@
 #
 # Hermetic: every assertion runs against a local fixture repo built here. No
 # network, so these run in tests/run.sh with the rest of the suite.
+#
+# ORACLE EVIDENCE, RECORDED BY HAND. tests/oracle-baseline.sh only gates test
+# files a branch ADDED; this one is MODIFIED by the av1 work, so that gate SKIPs
+# it (its own header documents the gap). Verified manually instead by exporting
+# the merge base and running this file against it:
+#   base a806750 -> 24 PASS, 13 FAIL, DONE printed.
+# The 13 failures are this branch's real oracles: the non-clone-DEST and
+# dangling-symlink cases, the two av1 fetch assertions, PKG_COMMIT_AV1 unset in
+# all four profiles, and PKG_VERSION_AV1 holding a SHA in all four (the #28
+# shape, on the base).
 #
 # Usage: tests/git-commit-pinning.sh
 # Exit 0 = pass, 1 = regression.
@@ -126,6 +137,44 @@ if command -v fetch_git > /dev/null 2>&1; then
     _bad "clone already at the commit is reused" "directory was rebuilt"
   fi
 
+  # -- 4b. A DEST that exists but is not a clone is replaced, not git-init'd.
+  # The tarball->git conversion case: recipes/video/av1.sh previously extracted
+  # a flat archive into $DISTDIR/av1, so every workspace that ever built it has
+  # that directory with no .git. Without this, fetch_git git-inits over the
+  # debris and `git checkout FETCH_HEAD` aborts with "untracked working tree
+  # files would be overwritten" on any file the archive and the commit share --
+  # README.md, CMakeLists.txt, and so on for libaom, i.e. certainly.
+  _d5="$_fx/c5"
+  mkdir -p "$_d5"
+  printf 'stale tarball debris\n' > "$_d5/f.txt"
+  if ( fetch_git "$_repo" "$_d5" "$_OLD" ) > /dev/null 2>&1; then
+    _got=$(git -C "$_d5" rev-parse HEAD 2>/dev/null)
+    if [ "$_got" = "$_OLD" ] && [ "$(cat "$_d5/f.txt" 2>/dev/null)" = old ]; then
+      _pass "non-clone directory at DEST is replaced"
+    else
+      _bad "non-clone directory at DEST is replaced" "HEAD=$_got f.txt=$(cat "$_d5/f.txt" 2>/dev/null)"
+    fi
+  else
+    _bad "non-clone directory at DEST is replaced" "fetch_git failed on a non-clone DEST"
+  fi
+
+  # -- 4c. A dangling SYMLINK at DEST is replaced too. -----------------------
+  # `[ -e ]` follows symlinks, so a broken one is -e-FALSE and slipped past the
+  # non-clone branch into `mkdir -p`, which fails with "File exists" and dies
+  # saying nothing useful. `[ -L ]` is what sees it.
+  _d6="$_fx/c6"
+  ln -s "$_fx/does-not-exist" "$_d6"
+  if ( fetch_git "$_repo" "$_d6" "$_OLD" ) > /dev/null 2>&1; then
+    _got=$(git -C "$_d6" rev-parse HEAD 2>/dev/null)
+    if [ "$_got" = "$_OLD" ]; then
+      _pass "dangling symlink at DEST is replaced"
+    else
+      _bad "dangling symlink at DEST is replaced" "HEAD=$_got"
+    fi
+  else
+    _bad "dangling symlink at DEST is replaced" "fetch_git failed on a symlink DEST"
+  fi
+
   # -- 5. An unreachable commit fails loudly. -------------------------------
   # 40 hex digits, valid shape, no such object -- so this exercises the fetch
   # failure path rather than an argument-validation path.
@@ -151,12 +200,37 @@ for _r in recipes/other/librtmp.sh recipes/hwaccel/libplacebo.sh; do
   fi
 done
 
-# -- 7. Every profile supplies a 40-hex commit for both recipes. -------------
+# -- 6b. av1 no longer fetches a gitiles archive. ---------------------------
+# recipes/video/av1.sh pulled https://aomedia.googlesource.com/aom/+archive/
+# <sha>.tar.gz. Gitiles builds that tarball per request and stamps the CURRENT
+# time into the tar headers, so the same URL returns different bytes every time
+# and no digest can pin it (google/gitiles#217, open; #84, its closed duplicate;
+# and mediaforge #19, #27). Measured twice a second apart: two different
+# sha256s. Naming a commit in the URL is a REQUEST parameter, not a verified
+# property of the response; fetching the commit through git makes it
+# self-verifying.
+#
+# Asserted as PRESENCE of the fetch_git call rather than mere absence of the
+# string '+archive': absence alone stays green if PKG_URL is repointed at some
+# other unpinned mirror, or if fetch_git is dropped entirely.
+if sed 's/[[:space:]]*#.*$//' recipes/video/av1.sh \
+   | grep -qE 'fetch_git[^#]*PKG_COMMIT'; then
+  _pass "av1 fetches via fetch_git at PKG_COMMIT"
+else
+  _bad "av1 fetches via fetch_git at PKG_COMMIT" "no fetch_git call using PKG_COMMIT"
+fi
+if sed 's/[[:space:]]*#.*$//' recipes/video/av1.sh | grep -q '+archive'; then
+  _bad "av1 does not fetch a gitiles +archive tarball" "PKG_URL still uses +archive"
+else
+  _pass "av1 does not fetch a gitiles +archive tarball"
+fi
+
+# -- 7. Every profile supplies a 40-hex commit for all three recipes. --------
 # The regression test for the reported failure: a profile value that is not a
 # commit is what produced `v<sha>`, and a MISSING one silently reintroduces the
 # tag-pinning the rest of this file removes.
 for _p in profiles/ffmpeg-*.conf; do
-  for _v in PKG_COMMIT_LIBRTMP PKG_COMMIT_LIBPLACEBO; do
+  for _v in PKG_COMMIT_LIBRTMP PKG_COMMIT_LIBPLACEBO PKG_COMMIT_AV1; do
     _val=$(awk -F'"' -v k="^$_v=" '$0 ~ k { print $2; exit }' "$_p")
     _hex=$(printf '%s' "$_val" | tr -d '0-9a-f')
     _len=${#_val}
@@ -170,12 +244,31 @@ for _p in profiles/ffmpeg-*.conf; do
   done
 done
 
-# -- 8. librtmp declares the git it shells out to. --------------------------
-if grep -qE '^PKG_REQUIRES_CMD=.*git' recipes/other/librtmp.sh; then
-  _pass "librtmp declares its git dependency"
-else
-  _bad "librtmp declares its git dependency" "PKG_REQUIRES_CMD does not name git"
-fi
+# -- 7b. A profile must not put a COMMIT where a VERSION belongs. -----------
+# PKG_VERSION_* and PKG_COMMIT_* are now independent knobs and nothing couples
+# them. A profile that sets only PKG_VERSION_* to a SHA -- the exact #28 shape
+# -- silently gets the recipe's DEFAULT commit under a foreign version label,
+# and the stamp (av1-$PKG_VERSION, lib/utils.sh:70) then records the lie.
+for _p in profiles/ffmpeg-*.conf; do
+  for _v in PKG_VERSION_LIBRTMP PKG_VERSION_LIBPLACEBO PKG_VERSION_AV1; do
+    _val=$(awk -F'"' -v k="^$_v=" '$0 ~ k { print $2; exit }' "$_p")
+    _hex=$(printf '%s' "$_val" | tr -d '0-9a-f')
+    if [ "${#_val}" -eq 40 ] && [ -z "$_hex" ]; then
+      _bad "$(basename "$_p") $_v is a version, not a commit" "holds a SHA: $_val"
+    else
+      _pass "$(basename "$_p") $_v is a version, not a commit"
+    fi
+  done
+done
+
+# -- 8. Each git-sourced recipe declares the git it shells out to. ----------
+for _r in recipes/other/librtmp.sh recipes/video/av1.sh; do
+  if grep -qE '^PKG_REQUIRES_CMD=.*git' "$_r"; then
+    _pass "$_r declares its git dependency"
+  else
+    _bad "$_r declares its git dependency" "PKG_REQUIRES_CMD does not name git"
+  fi
+done
 
 [ "$_fail" -eq 0 ] && printf 'git-commit-pinning: all assertions passed.\n'
 # Completion sentinel for tests/oracle-baseline.sh: proves the file ran to the
