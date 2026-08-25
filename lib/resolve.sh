@@ -253,6 +253,7 @@ resolve_choices() {
   _validate_enum "--h265"    "$H265_IMPL"    "x265|kvazaar"
   _validate_enum "--av1-enc" "$AV1_ENC_IMPL" "svtav1|rav1e|av1"
   _validate_enum "--spirv"   "$SPIRV_IMPL"   "glslang|shaderc"
+  _validate_enum "--flite-audio" "$FLITE_AUDIO" "none|alsa|pulseaudio|oss|sun"
 
   # Compiled into libtls as TLS_DEFAULT_CA_FILE (tls/Makefile.am:53) and into
   # libcrypto as X509_CERT_FILE, so a relative value would be resolved against
