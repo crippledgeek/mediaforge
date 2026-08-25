@@ -109,3 +109,28 @@ hash_record_write() {
     warn "makesum: $_hw_name had no size record -- synthesized one ($_hw_size) so the sidecar stays valid (size is mandatory)."
   fi
 }
+
+# makesum_fetch_and_record HASHFILE FILENAME URL
+# Fetch FILENAME into DISTDIR only if makesum_needs_fetch says the cached
+# bytes aren't already attested, then record its digest into HASHFILE.
+#
+# Extracted from cmd_makesum's per-recipe loop (mediaforge.sh) so FFmpeg's own
+# tarball -- sourced directly by cmd_build rather than listed in
+# recipes/_order.conf, so the loop never reaches it -- can be recorded through
+# the exact same fetch-or-skip-then-record mechanism instead of a second copy
+# that could drift from it.
+makesum_fetch_and_record() {
+  _mfr_hash="$1"
+  _mfr_name="$2"
+  _mfr_url="$3"
+  _mfr_dest="$DISTDIR/$_mfr_name"
+
+  if makesum_needs_fetch "$_mfr_hash" "$_mfr_name" "$_mfr_dest"; then
+    download_file "$_mfr_url" "$_mfr_dest"
+  else
+    log "makesum: $_mfr_name already matches its recorded digest, skipping download"
+  fi
+
+  MAKESUM_PROVENANCE="Locally calculated $(date +%Y-%m-%d)"
+  hash_record_write "$_mfr_hash" "$_mfr_name" "$_mfr_dest"
+}

@@ -697,6 +697,16 @@ for _sz in 3 5; do
   if [ "$_rc" -eq 2 ]; then _pass "verify-size-boundary-$_sz"; else _bad "verify-size-boundary-$_sz" "rc=$_rc"; fi
 done
 
+# The actual swap/MITM shape: a file the RIGHT size but the WRONG content.
+# verify-detects-mismatch above differs in size too, so it short-circuits at
+# the size check (line ~208) and never reaches the sha256 loop at all -- this
+# is the only assertion that proves the digest loop itself rejects a mismatch.
+printf 'XXXX' > "$_fx/swap.tar.gz"
+printf 'sha256  %s  swap.tar.gz\nsize    4  swap.tar.gz\n' "$_KAT" > "$_fx/swap.hash"
+PKG_HASH_FILE="$_fx/swap.hash"
+verify_file "$_fx/swap.tar.gz" swap.tar.gz; _rc=$?
+if [ "$_rc" -eq 2 ]; then _pass verify-detects-mismatch-same-size; else _bad verify-detects-mismatch-same-size "rc=$_rc"; fi
+
 # A recipe with no hash file at all must die. Buildroot warns and returns 0
 # here; TALOS-2023-1844 is the report of that being exploitable.
 #
@@ -777,6 +787,9 @@ srv.serve_forever()
   if [ -z "$PORT" ]; then
     _bad fetch-cached-mismatch-redownloads "server did not start"
     _bad fetch-no-record-keeps-file "server did not start"
+    _bad fetch-fresh-mismatch-deletes "server did not start"
+    _bad fetch-cached-mismatch-fails-twice-deletes "server did not start"
+    _bad fetch-cached-no-record-keeps-file "server did not start"
   else
     _serve="$_fx/dist"; mkdir -p "$_serve"
     export DISTDIR="$_serve"
@@ -819,12 +832,57 @@ srv.serve_forever()
     else
       _bad fetch-no-record-keeps-file "file was deleted on a missing-record abort, or lib/download.sh doesn't reference verify_file at all"
     fi
+
+    # A mismatched FRESH download deletes and dies: no retry, since there is
+    # no earlier good copy to fall back to. $_KAT ("test") is guaranteed
+    # wrong for an archive's own bytes -- reused here as a deliberately-bad
+    # digest rather than hand-typed hex.
+    printf 'sha256  %s  good2.tar.gz\nsize    %s  good2.tar.gz\n' "$_KAT" "$_ARCHSIZE" > "$_fx/freshmismatch.hash"
+    PKG_HASH_FILE="$_fx/freshmismatch.hash"
+    ( fetch "http://127.0.0.1:$PORT/good.tar.gz" good2.tar.gz gooddir2 ) >/dev/null 2>&1
+    _frc=$?
+    if [ "$_frc" -ne 0 ] && [ ! -f "$_serve/good2.tar.gz" ]; then
+      _pass fetch-fresh-mismatch-deletes
+    else
+      _bad fetch-fresh-mismatch-deletes "rc=$_frc, file present=$([ -f "$_serve/good2.tar.gz" ] && echo yes || echo no)"
+    fi
+
+    # A cached mismatch that fails TWICE (the corrupt cache and the
+    # replacement both fail against a record that matches neither) deletes
+    # and dies -- the retry does not loop, and does not keep a file it could
+    # never verify. On the baseline this can't pass for the wrong reason:
+    # baseline fetch() never verifies, so it treats the corrupt cached bytes
+    # as the archive and dies at extraction WITHOUT deleting them -- rc != 0
+    # but the file is still there, which the combined check below rejects.
+    printf 'sha256  %s  good3.tar.gz\nsize    %s  good3.tar.gz\n' "$_KAT" "$_ARCHSIZE" > "$_fx/twicewrong.hash"
+    PKG_HASH_FILE="$_fx/twicewrong.hash"
+    printf 'corrupted' > "$_serve/good3.tar.gz"
+    ( fetch "http://127.0.0.1:$PORT/good.tar.gz" good3.tar.gz gooddir3 ) >/dev/null 2>&1
+    _trc=$?
+    if [ "$_trc" -ne 0 ] && [ ! -f "$_serve/good3.tar.gz" ]; then
+      _pass fetch-cached-mismatch-fails-twice-deletes
+    else
+      _bad fetch-cached-mismatch-fails-twice-deletes "rc=$_trc, file present=$([ -f "$_serve/good3.tar.gz" ] && echo yes || echo no)"
+    fi
+
+    # A missing record on a CACHED file keeps it too, not only on the fresh
+    # path tested above -- the disposition is "no usable record", not
+    # "no usable record AND it just arrived".
+    printf 'sha256  %s  other4.tar.gz\nsize    %s  other4.tar.gz\n' "$_ARCHSUM" "$_ARCHSIZE" > "$_fx/norec-cached.hash"
+    PKG_HASH_FILE="$_fx/norec-cached.hash"
+    printf 'whatever-cached-bytes' > "$_serve/good4.tar.gz"
+    ( fetch "http://127.0.0.1:$PORT/good.tar.gz" good4.tar.gz gooddir4 ) >/dev/null 2>&1
+    if grep -q 'verify_file' "$ROOT/lib/download.sh" && [ -f "$_serve/good4.tar.gz" ]; then
+      _pass fetch-cached-no-record-keeps-file
+    else
+      _bad fetch-cached-no-record-keeps-file "file was deleted on a missing-record abort (cached path), or lib/download.sh doesn't reference verify_file"
+    fi
   fi
 
   kill "$SRV_PID" 2>/dev/null
   SRV_PID=''
 else
-  printf 'SKIP (no python3): fetch-cached-mismatch-redownloads, fetch-no-record-keeps-file\n'
+  printf 'SKIP (no python3): fetch-cached-mismatch-redownloads, fetch-no-record-keeps-file, fetch-fresh-mismatch-deletes, fetch-cached-mismatch-fails-twice-deletes, fetch-cached-no-record-keeps-file\n'
 fi
 
 # Optional sha512/sha1 records are verified too, not merely tolerated.
@@ -839,6 +897,106 @@ printf 'sha256  %s  opt.txt\nsize    4  opt.txt\nsha512  deadbeef  opt.txt\n' "$
 PKG_HASH_FILE="$_fx/opt2.hash"
 verify_file "$_fx/opt.txt" opt.txt; _rc=$?
 if [ "$_rc" -eq 2 ]; then _pass verify-optional-sha512-mismatch; else _bad verify-optional-sha512-mismatch "rc=$_rc"; fi
+
+# -- makesum_fetch_and_record (review fix, #19) -------------------------------
+# The fetch-or-skip-then-record mechanism cmd_makesum's per-recipe loop used
+# inline, extracted so FFmpeg's own tarball (below) can share it instead of
+# duplicating it. file:// needs no server -- curl supports it directly.
+#
+# Expected digest is a known-answer constant (sha256("mfr-content")), not
+# computed via digest_file: on a tree old enough to lack digest_file/hash_lookup
+# entirely (this file's population spans the whole branch, back past where
+# those primitives were introduced), a computed expectation and an
+# equally-undefined hash_lookup both silently return empty, and empty equals
+# empty -- the exact false-PASS trap _NESTED_KAT above this already avoids.
+_mfr_src="$_fx/mfr-src.txt"
+printf 'mfr-content' > "$_mfr_src"
+_mfr_dist="$_fx/mfr-dist"; mkdir -p "$_mfr_dist"
+_mfr_hash="$_fx/mfr.hash"
+DISTDIR="$_mfr_dist"
+( makesum_fetch_and_record "$_mfr_hash" mfr-src.txt "file://$_mfr_src" ) >/dev/null 2>&1
+_MFR_KAT=b859bb8e00a50abfb59ceef6807f0752d72190c0c09baab3fa0797a438153074
+if [ "$(hash_lookup "$_mfr_hash" mfr-src.txt sha256)" = "$_MFR_KAT" ]; then
+  _pass makesum-fetch-and-record-writes
+else
+  _bad makesum-fetch-and-record-writes "no matching sha256 record written"
+fi
+
+# -- cmd_makesum reaches FFmpeg's own tarball (review fix, #19) --------------
+# THE BUG THIS PINS. recipes/ffmpeg.sh is sourced directly by cmd_build, never
+# listed in recipes/_order.conf, so cmd_makesum's per-recipe loop never
+# reached it -- a plain `makesum --profile=X` recorded every other recipe and
+# silently skipped FFmpeg, and the only path that COULD record it
+# (`makesum --build`) needs the whole dependency chain built first, making
+# verify_file's own "run makesum to record it" advice unfollowable for the
+# one file three of four profiles actually needed it for.
+#
+# Sandboxed under a fixture SCRIPT_DIR/DISTDIR/profile so this never touches
+# the real repo's recipes/ffmpeg.hash or the network: _order.conf is empty (so
+# the per-recipe loop has nothing to do) and download_file is shadowed to
+# copy a local fixture instead of curling GitHub -- the same
+# shadow-the-side-effect idiom the cmd_build stub above uses. Restored via a
+# re-source immediately after, so it cannot leak into anything after this test
+# (matching that same block's own restoration discipline).
+_mfroot="$_fx/mf-root"
+mkdir -p "$_mfroot/recipes" "$_mfroot/profiles"
+: > "$_mfroot/recipes/_order.conf"
+printf 'FFMPEG_VERSION="9.9.9"\n' > "$_mfroot/profiles/ffmpeg-9.9.9.conf"
+
+_ffdist="$_fx/mf-dist"; mkdir -p "$_ffdist"
+_fffixture="$_fx/ffmpeg-fixture.tar.gz"
+printf 'fixture ffmpeg tarball' > "$_fffixture"
+
+# shellcheck disable=SC2329
+download_file() {
+  cp "$_fffixture" "$2"
+}
+
+( SCRIPT_DIR="$_mfroot" DISTDIR="$_ffdist" cmd_makesum --profile=9.9.9 ) >/dev/null 2>&1
+
+. "$ROOT/lib/download.sh"
+
+# Known-answer constant (sha256("fixture ffmpeg tarball")), not
+# digest_file-computed -- same false-PASS trap as makesum-fetch-and-record-writes
+# above: on a tree old enough to lack digest_file, a computed expectation and
+# an undefined hash_lookup both silently return empty.
+_FF_KAT=c0abbb33f3822d3f963ecb9abb4e6f6ca57ed64e8c9b5cb19f14eb505db2d6e1
+if [ "$(hash_lookup "$_mfroot/recipes/ffmpeg.hash" FFmpeg-release-9.9.9.tar.gz sha256)" = "$_FF_KAT" ]; then
+  _pass cmd-makesum-reaches-ffmpeg
+else
+  _bad cmd-makesum-reaches-ffmpeg "no matching record for FFmpeg-release-9.9.9.tar.gz"
+fi
+
+# A package filter scopes to exactly that package -- it must NOT also touch
+# FFmpeg, which isn't itself a selectable name in the registry.
+#
+# "ffmpeg.hash was never created" is trivially true on ANY tree that doesn't
+# reach FFmpeg from cmd_makesum at all, base included -- so on its own this
+# assertion would PASS there for the wrong reason (tests/oracle-baseline.sh
+# rejects exactly that). ANDed with a grep for the marker, the same shape as
+# the MAKESUM_MODE and no-record fetch()-level checks above: only a tree that
+# both reaches FFmpeg (cmd-makesum-reaches-ffmpeg, above, proves that half)
+# AND scopes it correctly passes.
+_mfroot2="$_fx/mf-root2"
+mkdir -p "$_mfroot2/recipes" "$_mfroot2/profiles"
+: > "$_mfroot2/recipes/_order.conf"
+printf 'FFMPEG_VERSION="9.9.9"\n' > "$_mfroot2/profiles/ffmpeg-9.9.9.conf"
+( SCRIPT_DIR="$_mfroot2" DISTDIR="$_fx/mf-dist2" cmd_makesum --profile=9.9.9 giflib ) >/dev/null 2>&1
+if grep -q 'ffmpeg_tarball_filename' "$ROOT/mediaforge.sh" && [ ! -f "$_mfroot2/recipes/ffmpeg.hash" ]; then
+  _pass cmd-makesum-scoped-skips-ffmpeg
+else
+  _bad cmd-makesum-scoped-skips-ffmpeg "ffmpeg.hash was created despite an explicit package filter, or mediaforge.sh doesn't reference ffmpeg_tarball_filename at all"
+fi
+
+# checksum_skipped is the one component whose entire job is to never say yes.
+# Pin the stub's return value directly: a regression that flips it to 0 (or
+# to any other value a caller might read as "skip") fails here instead of
+# silently disabling the gate on every fetch(). On the baseline the function
+# doesn't exist and a bare call is not fatal under this file's `set -u`
+# (unset variables abort, an unknown command does not), so it returns 127 --
+# already != 1, no guard needed.
+checksum_skipped; _rc=$?
+if [ "$_rc" -eq 1 ]; then _pass checksum-skipped-stub-never-skips; else _bad checksum-skipped-stub-never-skips "rc=$_rc"; fi
 
 printf 'DONE:\n'
 exit "$_fail"

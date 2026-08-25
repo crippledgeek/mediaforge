@@ -629,17 +629,19 @@ cmd_makesum() {
     fi
 
     _mk_file="${PKG_FILENAME:-${PKG_URL##*/}}"
-    _mk_dest="$DISTDIR/$_mk_file"
-
-    if makesum_needs_fetch "$PKG_HASH_FILE" "$_mk_file" "$_mk_dest"; then
-      download_file "$PKG_URL" "$_mk_dest"
-    else
-      log "makesum: $_mk_file already matches its recorded digest, skipping download"
-    fi
-
-    MAKESUM_PROVENANCE="Locally calculated $(date +%Y-%m-%d)"
-    hash_record_write "$PKG_HASH_FILE" "$_mk_file" "$_mk_dest"
+    makesum_fetch_and_record "$PKG_HASH_FILE" "$_mk_file" "$PKG_URL"
   done < "$SCRIPT_DIR/recipes/_order.conf"
+
+  # FFmpeg itself is sourced directly by cmd_build (recipes/ffmpeg.sh), not
+  # listed in _order.conf, so the loop above never reaches it -- the only
+  # other path that could record its digest is `makesum --build`, which needs
+  # the whole dependency chain built first. Only when no package filter was
+  # given: a scoped `makesum somepkg` should record exactly that package, not
+  # silently also touch FFmpeg (which isn't itself a selectable package name
+  # in the registry `is_known_pkg` already validated `_mk_pkgs` against above).
+  if [ -z "$_mk_pkgs" ]; then
+    makesum_fetch_and_record "$SCRIPT_DIR/recipes/ffmpeg.hash" "$(ffmpeg_tarball_filename)" "$(ffmpeg_tarball_url)"
+  fi
 }
 
 # ─── List Profiles ───────────────────────────────────────────────────

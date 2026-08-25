@@ -2,3 +2,15 @@
 # Locally calculated 2026-08-25
 sha256  679aa13a19415d5ddab91e580084e3ab20c963c8240001e5cbb955a97bdd81b1  FFmpeg-release-8.0.1.tar.gz
 size    16408559  FFmpeg-release-8.0.1.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  7775f159386f819a7d063b3cfc4352f6c9c051a54f50dffe76015f295206ae74  FFmpeg-release-6.1.tar.gz
+size    15096751  FFmpeg-release-6.1.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  a68fbc06a645cc93e5c877adbaa592cffc40e8595ba50eb716807c4a35bf0f03  FFmpeg-release-7.0.tar.gz
+size    15560410  FFmpeg-release-7.0.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  7ddad2d992bd250a6c56053c26029f7e728bebf0f37f80cf3f8a0e6ec706431a  FFmpeg-release-7.1.tar.gz
+size    15881667  FFmpeg-release-7.1.tar.gz

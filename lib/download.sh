@@ -192,7 +192,7 @@ verify_file() {
 
   [ -n "${PKG_HASH_FILE:-}" ] || die "verify_file: PKG_HASH_FILE is unset for $_vname"
   [ -f "$PKG_HASH_FILE" ] || die "No hash file $PKG_HASH_FILE for $_vname.
-Run './mediaforge.sh makesum' to record it, or --skip-checksum to bypass (loudly)."
+Run './mediaforge.sh makesum' to record it."
 
   hash_file_validate "$PKG_HASH_FILE"
 
@@ -210,6 +210,11 @@ Run './mediaforge.sh makesum' to record it, or --skip-checksum to bypass (loudly
     return 2
   fi
 
+  # Recorded, not assumed: sha512/sha1 are optional records, so a build that
+  # never had one to check must not claim it did, and one that did check it
+  # must say so -- otherwise a silently-absent sha512 and a checked-and-passed
+  # sha512 log identically.
+  _vchecked=size
   for _alg in sha256 sha512 sha1; do
     _want=$(hash_lookup "$PKG_HASH_FILE" "$_vname" "$_alg")
     [ -n "$_want" ] || continue
@@ -221,10 +226,30 @@ Run './mediaforge.sh makesum' to record it, or --skip-checksum to bypass (loudly
       warn "  Incomplete download, or a man-in-the-middle attack."
       return 2
     fi
+    _vchecked="$_vchecked, $_alg"
   done
 
-  log "$_vname: verified (sha256, size)"
+  log "$_vname: verified ($_vchecked)"
   return 0
+}
+
+# ffmpeg_tarball_filename / ffmpeg_tarball_url
+# The canonical GitHub tag-archive name and URL for $FFMPEG_VERSION.
+#
+# Shared by recipes/ffmpeg.sh's fetch() call and mediaforge.sh's cmd_makesum,
+# so the two can never end up naming a different file for the same version.
+# FFmpeg is sourced directly by cmd_build rather than through _order.conf, so
+# without this cmd_makesum had no way at all to reach it: `makesum --profile=X`
+# recorded every other recipe and silently skipped FFmpeg, and the only path
+# that could record it (`makesum --build`) needs the whole dependency chain
+# built first -- making verify_file's own "run makesum to record it" message
+# unfollowable for the one file every profile but 8.0.1 actually needed it for.
+ffmpeg_tarball_filename() {
+  printf 'FFmpeg-release-%s.tar.gz' "$FFMPEG_VERSION"
+}
+
+ffmpeg_tarball_url() {
+  printf 'https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n%s.tar.gz' "$FFMPEG_VERSION"
 }
 
 # checksum_skipped
@@ -271,10 +296,23 @@ fetch() {
           warn "Cached $_file failed verification, re-downloading"
           rm -f "$DISTDIR/$_file"
           download_file "$_url" "$DISTDIR/$_file"
-          verify_file "$DISTDIR/$_file" "$_file" || {
-            rm -f "$DISTDIR/$_file"
-            die "$_file failed verification after re-download. Refusing to build."
-          }
+          verify_file "$DISTDIR/$_file" "$_file"
+          # A fresh download landing here is rc 3 (missing record) only if the
+          # hash file lost its entry between the two verify_file calls a few
+          # lines apart -- not reachable in practice, but a plain `||` would
+          # delete on rc 3 same as rc 2, exactly the keep-on-missing-record
+          # inversion this task exists to eliminate. Same case shape as every
+          # other verify_file call in fetch(), so a genuine rc 3 here dies with
+          # the file kept, not silently deleted.
+          case $? in
+            0) ;;
+            3)
+              die "No recorded digest for $_file in $PKG_HASH_FILE.
+The re-downloaded file was left in place -- run './mediaforge.sh makesum' to record it." ;;
+            *)
+              rm -f "$DISTDIR/$_file"
+              die "$_file failed verification after re-download. Refusing to build." ;;
+          esac
           ;;
         3)
           # Keep the file: the hash file is the likely defect, and removing it
@@ -308,9 +346,9 @@ The download was left in place -- run './mediaforge.sh makesum' to record it." ;
   # it. PKG_HASH_FILE is ordinary shell state (see lib/framework.sh's
   # load_recipe), so a fetch() called from inside pkg_install() -- lv2's
   # seven sub-tarballs, opencl's ICD-Loader, libcdio's paranoia sub-package --
-  # still lands in the enclosing recipe's sidecar. Task 8 adds the
-  # verification gate right here too, guarded by the inverse condition, so
-  # recording and verifying never both run for the same fetch().
+  # still lands in the enclosing recipe's sidecar. The verification gate above
+  # is guarded by the inverse condition, so recording and verifying never both
+  # run for the same fetch().
   if [ "${MAKESUM_MODE:-false}" = true ]; then
     # Read by hash_record_write() in lib/makesum.sh, which this file does not
     # source; per-file shellcheck can't see the cross-file consumer (same

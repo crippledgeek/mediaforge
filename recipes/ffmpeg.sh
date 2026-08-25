@@ -26,8 +26,7 @@ log "======================="
 # shellcheck disable=SC2034
 PKG_HASH_FILE="$SCRIPT_DIR/recipes/ffmpeg.hash"
 
-fetch "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" \
-  "FFmpeg-release-${FFMPEG_VERSION}.tar.gz"
+fetch "$(ffmpeg_tarball_url)" "$(ffmpeg_tarball_filename)"
 
 # Local patch: mark AVS2 as AV_CODEC_PROP_REORDER so libavcodec/encode.c does
 # NOT clobber libxavs2's B-frame decode-order DTS with dts=pts (which yields a
