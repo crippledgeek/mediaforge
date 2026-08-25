@@ -1,11 +1,11 @@
 #!/bin/sh
 # Checksum verification tests for lib/download.sh (issue #19).
 #
-# THE BUG THIS PINS. fetch() verified nothing. lib/download.sh:87 reuses any
-# file that already exists in DISTDIR forever, so a tarball corrupted,
-# truncated, or swapped after landing is never re-examined, and lib/download.sh:93
-# accepts whatever bytes a redirect chain returns. 18 recipes fetch through
-# mirror redirectors that hand off to third-party hosts.
+# THE BUG THIS PINS. fetch() verified nothing. Its cache-reuse branch reuses
+# any file that already exists in DISTDIR forever, so a tarball corrupted,
+# truncated, or swapped after landing is never re-examined, and its `curl -fL`
+# download accepts whatever bytes a redirect chain returns. 18 recipes fetch
+# through mirror redirectors that hand off to third-party hosts.
 #
 # Hermetic: fixtures are built here, no network.
 #
