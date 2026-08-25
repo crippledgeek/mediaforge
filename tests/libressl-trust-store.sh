@@ -476,12 +476,12 @@ fi
 # which is only printed once option parsing and validation have both succeeded.
 # Absence of "unknown option" alone would pass on a crash or an unrelated die.
 #
-# rc is now part of the oracle too: since #19's --dry-run fix, cmd_build's
-# DRY_RUN guard returns 0 unconditionally, so a nonzero exit here can only
-# come from something going wrong before that guard (option parsing, path
-# validation) — the earlier `|| true` masked exactly that signal by folding
-# every nonzero rc into 0 before `_rc=$?` could read it, so it is dropped
-# from this assignment; the assertion below captures the real rc instead.
+# rc is now part of the oracle too: mediaforge.sh ends with an unconditional
+# `exit 0` after the dispatch case, so a nonzero exit here can only come from
+# a `die` firing somewhere along the way (option parsing, path validation) --
+# the earlier `|| true` masked exactly that signal by folding every nonzero
+# rc into 0 before `_rc=$?` could read it, so it is dropped from this
+# assignment; the assertion below captures the real rc instead.
 _out=$(./mediaforge.sh build --openssldir=/etc/ssl --dry-run --yes 2>&1)
 _rc=$?
 if [ "$_rc" -eq 0 ] \
