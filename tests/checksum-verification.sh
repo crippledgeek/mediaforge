@@ -429,7 +429,7 @@ unset MAKESUM_MODE
 # that records argc and each argument to a fixture file rather than running
 # a build -- the real cmd_build runs the full recipe loop even under
 # --dry-run, so invoking it here would make this test dependent on the
-# workspace and network regardless.
+# workspace (stamp_check reads $PREFIX/.stamps) and slow.
 #
 # mediaforge.sh cannot be `.`-sourced directly: its own tail runs a
 # subcommand dispatch (case "$_cmd" in ... esac; exit 0) against THIS
