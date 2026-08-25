@@ -74,6 +74,26 @@ else
   _fail=1
 fi
 
+# Invalid --flite-audio is rejected (#19: was validated only inside two
+# recipes, neither reachable under --dry-run, so this used to exit 0).
+_output=$(./mediaforge.sh build --flite-audio=bogus --dry-run --yes 2>&1) || true
+if printf '%s' "$_output" | grep -q "Invalid --flite-audio: bogus"; then
+  printf 'PASS [flite-audio=bogus rejected]\n'
+else
+  printf 'FAIL [flite-audio=bogus rejected]: %s\n' "$_output" >&2
+  _fail=1
+fi
+
+# Valid non-default --flite-audio is accepted: reaches the dry-run summary
+# rather than dying in resolve_choices.
+_run "flite-audio=alsa accepted"       "Would build FFmpeg" ./mediaforge.sh build --flite-audio=alsa
+_run_no "flite-audio=alsa not rejected" "Invalid --flite-audio" ./mediaforge.sh build --flite-audio=alsa
+
+# Default --flite-audio=none is accepted -- the value every ordinary build
+# uses, so a regression here would break every build, not a rare invocation.
+_run "default flite-audio=none accepted"       "Would build FFmpeg" ./mediaforge.sh build
+_run_no "default flite-audio=none not rejected" "Invalid --flite-audio" ./mediaforge.sh build
+
 # H264 mutex
 _run "h264=openh264 disables x264" "Skipping x264 (disabled via CLI)" \
   ./mediaforge.sh build --h264=openh264
