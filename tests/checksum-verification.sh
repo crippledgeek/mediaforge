@@ -42,6 +42,16 @@ trap 'kill "$SRV_PID" 2>/dev/null; rm -rf "$_fx"' EXIT INT TERM
 printf 'test' > "$_fx/kat.txt"
 _KAT=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 
+# Sentinel digests for fixtures whose VALUE is irrelevant but whose LENGTH is
+# not: hash_file_validate enforces 64/128/40 hex characters per keyword, so a
+# short stand-in like `1111` would be rejected for its length and every
+# fixture below would then be testing the length check rather than the
+# behaviour it was written for.
+_H64_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+_H64_B=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+_H64_1=1111111111111111111111111111111111111111111111111111111111111111
+_H64_Z=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+
 _got=$(digest_file sha256 "$_fx/kat.txt")
 if [ "$_got" = "$_KAT" ]; then _pass digest-sha256; else _bad digest-sha256 "got $_got"; fi
 
@@ -84,7 +94,7 @@ sha256  9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08  openss
 size    4  openssl-3.5.4.tar.gz
 
 # Locally calculated 2026-08-25
-sha256  aaaa  other.tar.gz
+sha256  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  other.tar.gz
 size    7  other.tar.gz
 EOF
 
@@ -120,9 +130,9 @@ if _require_fn hash_file_validate validate-rejects-guard; then
     case "$_case" in
       wrong-fields)      printf 'sha256 abc\n' > "$_fx/bad.hash" ;;
       unknown-keyword)   printf 'sha999  abc  f.tar.gz\n' > "$_fx/bad.hash" ;;
-      non-hex)           printf 'sha256  zzzz  f.tar.gz\n' > "$_fx/bad.hash" ;;
+      non-hex)           printf 'sha256  %s  f.tar.gz\n' "$_H64_Z" > "$_fx/bad.hash" ;;
       non-numeric-size)  printf 'size  many  f.tar.gz\n' > "$_fx/bad.hash" ;;
-      duplicate)         printf 'sha256  aa  f.tar.gz\nsha256  bb  f.tar.gz\n' > "$_fx/bad.hash" ;;
+      duplicate)         printf 'sha256  %s  f.tar.gz\nsha256  %s  f.tar.gz\n' "$_H64_A" "$_H64_B" > "$_fx/bad.hash" ;;
       md5-keyword)       printf 'md5  aa  f.tar.gz\n' > "$_fx/bad.hash" ;;
     esac
     if ( hash_file_validate "$_fx/bad.hash" ) >/dev/null 2>&1; then
@@ -133,10 +143,39 @@ if _require_fn hash_file_validate validate-rejects-guard; then
   done
 fi
 
+# A digest of the wrong LENGTH is a malformed sidecar, and must be reported as
+# one. Without a length check `sha256  ab  foo.tar.gz` parses as well-formed
+# and only surfaces at verify_file as a digest MISMATCH -- which reads as
+# tampering and sends the reader hunting a compromised mirror, when the actual
+# defect is two characters in a text file. One negative per keyword, because a
+# single shared length would accept a sha1 in a sha256 record.
+if _require_fn hash_file_validate validate-rejects-length-guard; then
+  for _lc in sha256:ab sha512:ab sha1:ab sha256:$_H64_A$_H64_A sha1:$_H64_A; do
+    _lk=${_lc%%:*}
+    _lv=${_lc#*:}
+    printf '%s  %s  f.tar.gz\nsize  4  f.tar.gz\n' "$_lk" "$_lv" > "$_fx/len.hash"
+    if ( hash_file_validate "$_fx/len.hash" ) >/dev/null 2>&1; then
+      _bad "validate-rejects-length-$_lk-${#_lv}" "a $_lk digest of ${#_lv} hex characters was accepted"
+    else
+      _pass "validate-rejects-length-$_lk-${#_lv}"
+    fi
+  done
+
+  # Positive companion: the exact lengths must still be accepted, or the check
+  # above would pass by rejecting everything.
+  printf 'sha256  %s  f.tar.gz\nsha512  %s%s  f.tar.gz\nsha1  %s  f.tar.gz\nsize  4  f.tar.gz\n' \
+    "$_H64_A" "$_H64_A" "$_H64_B" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" > "$_fx/len-ok.hash"
+  if ( hash_file_validate "$_fx/len-ok.hash" ) >/dev/null 2>&1; then
+    _pass validate-accepts-exact-lengths
+  else
+    _bad validate-accepts-exact-lengths "64/128/40-character digests were rejected"
+  fi
+fi
+
 # A bad-value record must not still increment the duplicate counter for its
 # (keyword, filename) pair, or a later legitimate record for that pair is
 # reported as a duplicate that does not exist alongside the real format error.
-printf 'sha256  zzzz  f.tar.gz\nsha256  aabb  f.tar.gz\n' > "$_fx/bad-then-good.hash"
+printf 'sha256  %s  f.tar.gz\nsha256  %s  f.tar.gz\n' "$_H64_Z" "$_H64_A" > "$_fx/bad-then-good.hash"
 _msg=$( ( hash_file_validate "$_fx/bad-then-good.hash" ) 2>&1 )
 case "$_msg" in
   *hex*)
@@ -219,16 +258,16 @@ _OTHER=$(digest_file sha256 "$_fx/old.tar.gz")
 MAKESUM_PROVENANCE="Locally calculated 2026-08-25"
 MAKESUM_UPDATE=false
 
-cat > "$_fx/merge.hash" <<'EOF'
+cat > "$_fx/merge.hash" <<EOF
 # From https://example.invalid/old.sha256
-sha256  1111  old.tar.gz
+sha256  $_H64_1  old.tar.gz
 size    11  old.tar.gz
 EOF
 
 if _require_fn hash_record_write makesum-merge-preserves; then
   hash_record_write "$_fx/merge.hash" new.tar.gz "$_fx/new.tar.gz"
 
-  if [ "$(hash_lookup "$_fx/merge.hash" old.tar.gz sha256)" = 1111 ]; then
+  if [ "$(hash_lookup "$_fx/merge.hash" old.tar.gz sha256)" = "$_H64_1" ]; then
     _pass makesum-merge-preserves
   else
     _bad makesum-merge-preserves "pre-existing record was lost"
@@ -249,7 +288,7 @@ if _require_fn hash_record_write makesum-merge-preserves; then
   # committed pin.
   MAKESUM_UPDATE=false
   hash_record_write "$_fx/merge.hash" old.tar.gz "$_fx/old.tar.gz"
-  if [ "$(hash_lookup "$_fx/merge.hash" old.tar.gz sha256)" = 1111 ]; then
+  if [ "$(hash_lookup "$_fx/merge.hash" old.tar.gz sha256)" = "$_H64_1" ]; then
     _pass makesum-no-clobber
   else
     _bad makesum-no-clobber "existing digest was overwritten without --update"
@@ -319,8 +358,8 @@ fi
 # --update rewriting the digest must not leave that shape still broken.
 if _require_fn hash_record_write makesum-update-adds-missing-size; then
   printf 'test' > "$_fx/nosize-src.tar.gz"   # sha256 == $_KAT, size 4
-  cat > "$_fx/nosize.hash" <<'EOF'
-sha256  1111  nosize.tar.gz
+  cat > "$_fx/nosize.hash" <<EOF
+sha256  $_H64_1  nosize.tar.gz
 EOF
   MAKESUM_UPDATE=true
   hash_record_write "$_fx/nosize.hash" nosize.tar.gz "$_fx/nosize-src.tar.gz"
@@ -333,34 +372,83 @@ EOF
 fi
 
 # -- fetch() records under MAKESUM_MODE=true (Task 6, #19) -------------------
-# `makesum --build` (mediaforge.sh) is the only way to reach the ten fetch()
-# calls nested inside pkg_install() -- lv2's seven sub-tarballs plus
-# ffmpeg.sh/opencl.sh/libcdio.sh -- so the property to pin here is not "fetch
-# records a file" but "a fetch called from inside a pkg_install()-like
-# context records into the ENCLOSING recipe's PKG_HASH_FILE", since that is
-# exactly what those ten calls depend on. No `hash_record_write`/`fetch`
-# _require_fn guard is needed below: fetch() already exists on the baseline
-# tree (Task 5 and earlier), so an unguarded comparison against $_KAT already
-# fails naturally there -- no record is written pre-patch, hash_lookup
-# returns empty, and "" != $_KAT reports FAIL, exactly as it must.
+# `makesum --build` (mediaforge.sh) is the only way to reach the nine fetch()
+# calls nested inside a recipe phase function -- lv2's seven sub-tarballs plus
+# opencl's ICD-Loader and libcdio's paranoia sub-package -- so the property to
+# pin here is not "fetch records a file" but "a fetch called from inside a
+# pkg_install()-like context records into the ENCLOSING recipe's
+# PKG_HASH_FILE", since that is exactly what those nine calls depend on.
+# (recipes/ffmpeg.sh's own fetch is at that file's top level, not inside a
+# phase function; `makesum` reaches it without --build, via
+# makesum_fetch_and_record.) No `hash_record_write`/`fetch` _require_fn guard
+# is needed below: fetch() already exists on the baseline tree (Task 5 and
+# earlier), so an unguarded comparison against $_KAT already fails naturally
+# there -- no record is written pre-patch, hash_lookup returns empty, and ""
+# != $_KAT reports FAIL, exactly as it must.
 _mk_dist="$_fx/makesum-distdir"
 mkdir -p "$_mk_dist"
+_mk_origin="$_fx/makesum-origin"
+mkdir -p "$_mk_origin"
 
-# Positive: fetch() with MAKESUM_MODE=true records a cached file's digest
-# into PKG_HASH_FILE. Pre-seeding DISTDIR takes fetch()'s "already cached"
-# branch, so no network call is exercised; the *.patch filename makes
-# fetch() return before extraction, matching the recording hook's placement
-# (after the file is on disk, before extraction).
+# Positive: fetch() with MAKESUM_MODE=true records what it fetched into
+# PKG_HASH_FILE. Served over file:// so no network is touched; the *.patch
+# filename makes fetch() return before extraction, matching the recording
+# hook's placement (after the file is on disk, before extraction).
+printf 'test' > "$_mk_origin/fetch-fixture.patch"
 DISTDIR="$_mk_dist"
 PKG_HASH_FILE="$_fx/fetch-record.hash"
-printf 'test' > "$_mk_dist/fetch-fixture.patch"
 MAKESUM_MODE=true
-( fetch "https://example.invalid/fetch-fixture.patch" "fetch-fixture.patch" ) >/dev/null 2>&1
+( fetch "file://$_mk_origin/fetch-fixture.patch" "fetch-fixture.patch" ) >/dev/null 2>&1
 if [ "$(hash_lookup "$_fx/fetch-record.hash" fetch-fixture.patch sha256)" = "$_KAT" ]; then
   _pass fetch-records-when-makesum-mode
 else
   _bad fetch-records-when-makesum-mode "no matching sha256 record written"
 fi
+
+# -- makesum must not mint a pin from unattested cached bytes (S-F1) ---------
+# THE BUG THIS PINS. Under MAKESUM_MODE the cached branch skipped both the
+# verify arm and the download arm, so `makesum --build` recorded whatever
+# already sat in packages/ -- for the unrecorded sub-build downloads that are
+# --build's entire reason to exist. Someone who built before this branch and
+# then ran `makesum --build` pinned their months-old DISTDIR, and every later
+# build verified happily against those bytes. makesum_needs_fetch was written
+# for exactly this decision and was never consulted here.
+#
+# Fixture: a cache entry with NO recorded digest whose bytes differ from the
+# origin's. Only a re-download produces $_KAT.
+printf 'test' > "$_mk_origin/unattested.patch"
+printf 'stale bytes from a months-old cache' > "$_mk_dist/unattested.patch"
+DISTDIR="$_mk_dist"
+PKG_HASH_FILE="$_fx/unattested.hash"
+MAKESUM_MODE=true
+( fetch "file://$_mk_origin/unattested.patch" "unattested.patch" ) >/dev/null 2>&1
+if [ "$(hash_lookup "$_fx/unattested.hash" unattested.patch sha256)" = "$_KAT" ]; then
+  _pass makesum-refetches-unattested-cache
+else
+  _bad makesum-refetches-unattested-cache "recorded the stale cached bytes instead of re-downloading"
+fi
+
+# Companion: a cache entry that DOES match its recorded digest is attested, so
+# it must be reused rather than re-downloaded. Without this the fix above
+# could be "always re-download", which would make Task 7's five makesum runs
+# over ~107 recipes re-fetch everything every time. Proven by pointing the URL
+# at a path that does not exist: any download attempt fails and no record can
+# be written, so a passing assertion means no download was attempted.
+printf 'test' > "$_mk_dist/attested.patch"
+PKG_HASH_FILE="$_fx/attested.hash"
+cat > "$_fx/attested.hash" <<EOF
+sha256  $_KAT  attested.patch
+size    4  attested.patch
+EOF
+MAKESUM_MODE=true
+( fetch "file://$_mk_origin/no-such-origin.patch" "attested.patch" ) >/dev/null 2>&1
+if [ "$(hash_lookup "$_fx/attested.hash" attested.patch sha256)" = "$_KAT" ] \
+   && [ "$(file_size "$_mk_dist/attested.patch")" = 4 ]; then
+  _pass makesum-reuses-attested-cache
+else
+  _bad makesum-reuses-attested-cache "an attested cache entry was re-downloaded (or destroyed)"
+fi
+unset MAKESUM_MODE
 
 # Negative: an ordinary build's fetch() calls run with MAKESUM_MODE unset,
 # and must behave exactly as before -- no record written. Also exercises the
@@ -402,11 +490,11 @@ fi
 # both silently return empty, and empty equals empty -- a false PASS on a
 # tree with none of this feature, same trap $_KAT above already avoids.
 _fetch_nested_fixture() {
-  fetch "https://example.invalid/nested-fixture.patch" "nested-fixture.patch"
+  fetch "file://$_mk_origin/nested-fixture.patch" "nested-fixture.patch"
 }
 DISTDIR="$_mk_dist"
 PKG_HASH_FILE="$_fx/enclosing-recipe.hash"
-printf 'nested' > "$_mk_dist/nested-fixture.patch"
+printf 'nested' > "$_mk_origin/nested-fixture.patch"
 _NESTED_KAT=233562de1a0288b139c4fa40b7d189f806e906eeb048517aeb67f34ac0e2faf1
 MAKESUM_MODE=true
 ( _fetch_nested_fixture ) >/dev/null 2>&1
@@ -512,9 +600,10 @@ _assert_build_forward makesum-build-consumes-profile-not-forwarded \
   "$(printf 'argc=2\narg=--tls\narg=openssl')" \
   --build --profile 7.1 --tls openssl
 
-# Restored so the stub cannot leak into any later assertion in this file --
-# this is currently the last section, but the discipline holds regardless of
-# ordering.
+# Deleted so the stub cannot leak into any later assertion in this file. There
+# is no restoring it: `unset -f` removes the definition, and the real
+# cmd_build is not redefined afterwards -- nothing below calls it, and the
+# sections that exercise the CLI shell out to ./mediaforge.sh instead.
 unset -f cmd_build
 
 # -- --dry-run must not fetch/extract/build/install FFmpeg (#19) -------------
@@ -894,7 +983,10 @@ PKG_HASH_FILE="$_fx/opt.hash"
 verify_file "$_fx/opt.txt" opt.txt; _rc=$?
 if [ "$_rc" -eq 0 ]; then _pass verify-optional-sha512-ok; else _bad verify-optional-sha512-ok "rc=$_rc"; fi
 
-printf 'sha256  %s  opt.txt\nsize    4  opt.txt\nsha512  deadbeef  opt.txt\n' "$_KAT" > "$_fx/opt2.hash"
+# A WRONG sha512 of the RIGHT length: a short one is now caught earlier, by
+# hash_file_validate, and would test the length check rather than the digest
+# comparison this assertion is about.
+printf 'sha256  %s  opt.txt\nsize    4  opt.txt\nsha512  %s%s  opt.txt\n' "$_KAT" "$_H64_A" "$_H64_B" > "$_fx/opt2.hash"
 PKG_HASH_FILE="$_fx/opt2.hash"
 verify_file "$_fx/opt.txt" opt.txt; _rc=$?
 if [ "$_rc" -eq 2 ]; then _pass verify-optional-sha512-mismatch; else _bad verify-optional-sha512-mismatch "rc=$_rc"; fi
@@ -989,7 +1081,7 @@ else
   _bad cmd-makesum-scoped-skips-ffmpeg "ffmpeg.hash was created despite an explicit package filter, or mediaforge.sh doesn't reference ffmpeg_tarball_filename at all"
 fi
 
-# -- --skip-checksum: checksum_skipped keys by PKG_NAME (Task 9, #19) --------
+# -- --skip-checksum: checksum_skipped keys by recipe basename (S-F2/F5/F6) --
 # On the baseline (and on the Task 8 stub) the function either doesn't exist
 # (rc 127) or always returns 1, so every one of these is guarded by
 # _require_fn: without it, an undefined checksum_skipped would make the
@@ -997,12 +1089,25 @@ fi
 # and PASS for the wrong reason -- exactly what tests/oracle-baseline.sh
 # rejects.
 #
+# THE BUG THIS PINS. The skip list used to key on $PKG_NAME, which is neither
+# the identifier the CLI validates against nor one that is reliably set:
+#   * recipes/ffmpeg.sh is sourced directly by cmd_build, never through
+#     run_recipe()/reset_recipe(), so it inherited the LAST _order.conf
+#     recipe's PKG_NAME -- `--skip-checksum=opencl` silently disabled
+#     verification of the FFmpeg tarball while the banner named only opencl;
+#   * three recipes set a PKG_NAME that is not their filename (FreeType2,
+#     FreeType2-hb, VapourSynth), so `--skip-checksum=vapoursynth` passed
+#     registry validation, printed in the banner, and never matched anything.
+# PKG_HASH_FILE is framework-derived for every recipe and set explicitly by
+# recipes/ffmpeg.sh, so its basename is always present and always the name the
+# CLI accepts.
+#
 # skip-off-by-default is NOT load-bearing on its own: the Task 8 stub also
 # always returns 1, so it cannot distinguish the stub from the real
-# implementation. It documents the safe default; skip-global, skip-named and
-# skip-other-recipe are what actually pin PKG_NAME-keyed behaviour, because
-# the stub can never return 0.
+# implementation. It documents the safe default; the rest are what pin the
+# keying, because the stub can never return 0.
 if _require_fn checksum_skipped skip-off-by-default; then
+  PKG_HASH_FILE="$ROOT/recipes/other/zlib.hash"
   PKG_NAME=zlib
   SKIP_CHECKSUM=false
   SKIP_CHECKSUM_PKGS=""
@@ -1010,27 +1115,154 @@ if _require_fn checksum_skipped skip-off-by-default; then
 fi
 
 if _require_fn checksum_skipped skip-global; then
-  PKG_NAME=zlib
+  PKG_HASH_FILE="$ROOT/recipes/other/zlib.hash"
   SKIP_CHECKSUM=true
   SKIP_CHECKSUM_PKGS=""
   if checksum_skipped; then _pass skip-global; else _bad skip-global "global flag did not skip"; fi
 fi
 
 if _require_fn checksum_skipped skip-named; then
-  PKG_NAME=zlib
+  PKG_HASH_FILE="$ROOT/recipes/other/zlib.hash"
   SKIP_CHECKSUM=false
-  SKIP_CHECKSUM_PKGS=" zlib "
+  SKIP_CHECKSUM_PKGS="zlib"
   if checksum_skipped; then _pass skip-named; else _bad skip-named "named recipe was not skipped"; fi
 fi
 
 if _require_fn checksum_skipped skip-other-recipe; then
-  PKG_NAME=zlib
+  PKG_HASH_FILE="$ROOT/recipes/other/zlib.hash"
   SKIP_CHECKSUM=false
-  SKIP_CHECKSUM_PKGS=" other "
+  SKIP_CHECKSUM_PKGS="other"
   if checksum_skipped; then _bad skip-other-recipe "a different recipe's name skipped this one"; else _pass skip-other-recipe; fi
 fi
+
+# S-F6: the three recipes whose PKG_NAME differs from their filename. The CLI
+# validates against the filename, so keying on PKG_NAME reported a bypass that
+# never happened -- fail-closed, but a security control that lies about what it
+# did is its own defect. Asserted per recipe, not as a loop over a derived
+# list, so a future fourth divergent recipe does not quietly shrink the test.
+if _require_fn checksum_skipped skip-key-vapoursynth; then
+  SKIP_CHECKSUM=false
+  PKG_NAME="VapourSynth"
+  PKG_HASH_FILE="$ROOT/recipes/other/vapoursynth.hash"
+  SKIP_CHECKSUM_PKGS="vapoursynth"
+  if checksum_skipped; then _pass skip-key-vapoursynth; else _bad skip-key-vapoursynth "--skip-checksum=vapoursynth did not match recipes/other/vapoursynth.sh"; fi
+
+  PKG_NAME="FreeType2"
+  PKG_HASH_FILE="$ROOT/recipes/other/freetype2.hash"
+  SKIP_CHECKSUM_PKGS="freetype2"
+  if checksum_skipped; then _pass skip-key-freetype2; else _bad skip-key-freetype2 "--skip-checksum=freetype2 did not match recipes/other/freetype2.sh"; fi
+
+  PKG_NAME="FreeType2-hb"
+  PKG_HASH_FILE="$ROOT/recipes/other/freetype2-harfbuzz.hash"
+  SKIP_CHECKSUM_PKGS="freetype2-harfbuzz"
+  if checksum_skipped; then _pass skip-key-freetype2-harfbuzz; else _bad skip-key-freetype2-harfbuzz "--skip-checksum=freetype2-harfbuzz did not match recipes/other/freetype2-harfbuzz.sh"; fi
+
+  # ...and the sibling must not be caught by the other's name, or the keys are
+  # not distinct at all.
+  PKG_HASH_FILE="$ROOT/recipes/other/freetype2.hash"
+  SKIP_CHECKSUM_PKGS="freetype2-harfbuzz"
+  if checksum_skipped; then _bad skip-key-freetype2-not-hb "freetype2-harfbuzz's name also skipped freetype2"; else _pass skip-key-freetype2-not-hb; fi
+fi
+
+# S-F2: opencl is the LAST recipe in _order.conf, so its PKG_NAME was the one
+# still set when cmd_build sourced recipes/ffmpeg.sh. The FFmpeg tarball is the
+# single most important artifact in the build; it must be skippable only by
+# name.
+if _require_fn checksum_skipped skip-key-opencl-does-not-cover-ffmpeg; then
+  SKIP_CHECKSUM=false
+  PKG_NAME=opencl
+  PKG_HASH_FILE="$ROOT/recipes/ffmpeg.hash"
+  SKIP_CHECKSUM_PKGS="opencl"
+  if checksum_skipped; then
+    _bad skip-key-opencl-does-not-cover-ffmpeg "--skip-checksum=opencl disabled verification of the FFmpeg tarball"
+  else
+    _pass skip-key-opencl-does-not-cover-ffmpeg
+  fi
+
+  SKIP_CHECKSUM_PKGS="ffmpeg"
+  if checksum_skipped; then _pass skip-key-ffmpeg-by-name; else _bad skip-key-ffmpeg-by-name "--skip-checksum=ffmpeg did not match the FFmpeg tarball"; fi
+fi
+
+# S-F5: SKIP_CHECKSUM_PKGS accumulated with a leading space and the matcher
+# wrapped it in spaces again, so the match window opened with a double space
+# and an EMPTY key matched it -- every fetch under any --skip-checksum=NAME was
+# skipped whenever the key was empty. Both halves are asserted: an empty key
+# must not match, and the list must not carry the stray leading space that made
+# it possible.
+if _require_fn checksum_skipped skip-key-empty-never-matches; then
+  SKIP_CHECKSUM=false
+  PKG_NAME=""
+  PKG_HASH_FILE=""
+  # The leading space is not incidental: it is exactly what the accumulating
+  # parser produced ("$SKIP_CHECKSUM_PKGS $names" starting from ""), and the
+  # matcher then wrapped the value in spaces again, so the window opened with
+  # "  " and an empty key was a substring of it. A list written without the
+  # leading space does not reproduce the defect at all.
+  SKIP_CHECKSUM_PKGS=" zlib giflib"
+  if checksum_skipped; then
+    _bad skip-key-empty-never-matches "an empty key matched a populated skip list"
+  else
+    _pass skip-key-empty-never-matches
+  fi
+fi
+
+# The parser's own half of S-F5, asserted where the list is built rather than
+# where it is read: two accumulating flags must produce a single-space-joined
+# list with no leading space.
+_normout=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes \
+  --skip-checksum=zlib,giflib --skip-checksum=opus 2>&1 \
+  | grep 'Named recipes:' | head -1)
+if [ "${_normout##*Named recipes: }" = "zlib giflib opus" ]; then
+  _pass skip-checksum-list-is-normalized
+else
+  _bad skip-checksum-list-is-normalized "banner line was: [$_normout]"
+fi
+
+# S-F7: an empty value arms the banner with nothing after "Named recipes:" and
+# is the shortest route to the empty-key match above.
+_emptyout=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes --skip-checksum= 2>&1)
+_emptyrc=$?
+# Matched on the specific rejection wording, not on the flag text: the baseline
+# also dies here, with "Unknown option: --skip-checksum=", which contains the
+# flag as a substring and would false-PASS.
+if [ "$_emptyrc" -ne 0 ] && printf '%s' "$_emptyout" | grep -qF 'requires at least one recipe name'; then
+  _pass skip-checksum-empty-value-dies
+else
+  _bad skip-checksum-empty-value-dies "rc=$_emptyrc, output: $_emptyout"
+fi
+
+# Every recipe's skip key must be a name the CLI accepts, or --skip-checksum
+# can report a bypass it did not perform. Derived from _order.conf rather than
+# hand-listed, so a recipe added later is covered without anyone remembering.
+if _require_fn checksum_skip_key skip-key-always-a-valid-cli-name; then
+  registry_init
+  _keybad=""
+  while IFS= read -r _kr || [ -n "$_kr" ]; do
+    case "$_kr" in ""|\#*) continue ;; esac
+    PKG_HASH_FILE="$ROOT/${_kr%.sh}.hash"
+    _kk=$(checksum_skip_key)
+    is_known_pkg "$_kk" || _keybad="$_keybad $_kr"
+  done < "$ROOT/recipes/_order.conf"
+  if [ -z "$_keybad" ]; then
+    _pass skip-key-always-a-valid-cli-name
+  else
+    _bad skip-key-always-a-valid-cli-name "keys the CLI would reject:$_keybad"
+  fi
+fi
+
+PKG_NAME=""
+PKG_HASH_FILE=""
 SKIP_CHECKSUM=false
 SKIP_CHECKSUM_PKGS=""
+
+# recipes/ffmpeg.sh inherits every unreset global from the last recipe the
+# build ran, which is how it ended up reporting opencl's PKG_NAME. Setting its
+# own is wrong to omit independently of what the skip list keys on.
+if grep -q '^PKG_NAME="ffmpeg"' "$ROOT/recipes/ffmpeg.sh"; then
+  _pass ffmpeg-recipe-sets-its-own-pkg-name
+else
+  _bad ffmpeg-recipe-sets-its-own-pkg-name "recipes/ffmpeg.sh does not set PKG_NAME"
+fi
 
 # -- --skip-checksum is loud: warns naming the file it bypassed --------------
 # The loudness requirement ("someone who bypasses the gate should not be able
@@ -1066,18 +1298,23 @@ fi
 # -- --skip-checksum CLI parsing: comma-separated and repeated (Task 9) ------
 # Mirrors --disable=/--enable=: both a single comma-joined value and repeated
 # flags accumulate into SKIP_CHECKSUM_PKGS, and the bare boolean flag prints
-# the ALL-recipes banner line. grep -q on mediaforge.sh's own source is the
-# only oracle available here -- cmd_build isn't a function this file can call
-# in-process without also running the full build, so this shells out to the
-# real script under --dry-run, the same idiom tests/dry-run-matrix.sh uses.
-_cliout=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes \
-  --skip-checksum=zlib,giflib --skip-checksum=opus 2>&1)
-if printf '%s' "$_cliout" | grep -q 'zlib' \
-   && printf '%s' "$_cliout" | grep -q 'giflib' \
-   && printf '%s' "$_cliout" | grep -q 'opus'; then
+# the ALL-recipes banner line. This shells out to the real script under
+# --dry-run, the same idiom tests/dry-run-matrix.sh uses, because cmd_build
+# isn't a function this file can call in-process without running a build.
+#
+# Matched on the "Named recipes:" banner LINE, not on the names appearing
+# anywhere in the output: --dry-run emits "Would build zlib-1.3.1" for every
+# recipe regardless of the banner, so a whole-output grep for `zlib` passed on
+# any tree that parses the flag at all and was measuring nothing.
+_cliline=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes \
+  --skip-checksum=zlib,giflib --skip-checksum=opus 2>&1 \
+  | grep 'Named recipes:' | head -1)
+if printf '%s' "$_cliline" | grep -q 'zlib' \
+   && printf '%s' "$_cliline" | grep -q 'giflib' \
+   && printf '%s' "$_cliline" | grep -q 'opus'; then
   _pass skip-checksum-cli-comma-and-repeated
 else
-  _bad skip-checksum-cli-comma-and-repeated "banner missing one of zlib/giflib/opus: $_cliout"
+  _bad skip-checksum-cli-comma-and-repeated "banner line missing one of zlib/giflib/opus: [$_cliline]"
 fi
 
 _cliout2=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes --skip-checksum 2>&1)
@@ -1088,8 +1325,8 @@ else
 fi
 
 # -- --skip-checksum=PKG validates against the recipe registry (review) ------
-# mediaforge.sh:222 folded SKIP_CHECKSUM_PKGS into the same validation loop
-# that already checks DISABLE_PKGS/ENABLE_PKGS -- a typo must die loudly
+# cmd_build folds SKIP_CHECKSUM_PKGS into validate_pkg_names (lib/registry.sh),
+# the same check DISABLE_PKGS/ENABLE_PKGS go through -- a typo must die loudly
 # rather than silently never skip (silently never-skip would still be safe,
 # but a fail-fast, clearly-worded typo report is the better failure mode, and
 # it's the one --disable=/--enable= already give).
@@ -1109,17 +1346,17 @@ else
   _bad skip-checksum-unknown-pkg-dies "rc=$_clirc3, output: $_cliout3"
 fi
 
-# -- --skip-checksum's PKG_NAME keying survives a nested fetch() (review) ----
+# -- --skip-checksum's keying survives a nested fetch() (review) -------------
 # lv2's pkg_install() calls fetch() seven times for its sub-tarballs without
-# ever reassigning PKG_NAME -- checksum_skipped() rereads $PKG_NAME fresh on
+# ever reassigning PKG_HASH_FILE -- checksum_skipped() rereads it fresh on
 # every call, so the same shell-state mechanism fetch()'s own comment already
-# relies on for PKG_HASH_FILE also keys the skip decision. Nothing enforces
-# "a recipe never reassigns PKG_NAME inside pkg_install()" -- it holds today
-# by construction, not by any type or contract -- so this pins it as a
-# regression guard rather than leaving it an unverified assumption. Hermetic:
-# two local tar.gz fixtures fetched via file://, no network, no PKG_HASH_FILE
-# record for either (so a call that reaches verify_file at all is
-# unambiguous: it dies on the missing record).
+# relies on for the sidecar path also keys the skip decision. Nothing enforces
+# "a recipe never reassigns PKG_HASH_FILE inside pkg_install()" -- the
+# framework derives it and no recipe sets it, but that is a convention this
+# suite checks elsewhere, not a type -- so this pins it as a regression guard.
+# Hermetic: two local tar.gz fixtures fetched via file://, no network, and the
+# sidecar path does not exist (so a call that reaches verify_file at all is
+# unambiguous: it dies on the missing hash file).
 _nestedsrc="$_fx/nestedsrc"; mkdir -p "$_nestedsrc"
 printf 'nested-a' > "$_nestedsrc/a.txt"
 printf 'nested-b' > "$_nestedsrc/b.txt"
@@ -1127,42 +1364,37 @@ _nesteddist="$_fx/nesteddist"; mkdir -p "$_nesteddist"
 ( cd "$_nestedsrc" && tar -czf "$_nesteddist/nested-a.tar.gz" a.txt )
 ( cd "$_nestedsrc" && tar -czf "$_nesteddist/nested-b.tar.gz" b.txt )
 DISTDIR="$_nesteddist"
-PKG_HASH_FILE="$_fx/does-not-exist-nested.hash"
 SKIP_CHECKSUM=false
-SKIP_CHECKSUM_PKGS=" nestedpkg "
+SKIP_CHECKSUM_PKGS="nestedpkg"
 
-if _require_fn checksum_skipped skip-checksum-nested-fetch-inherits-pkg-name; then
-  PKG_NAME=nestedpkg
+if _require_fn checksum_skipped skip-checksum-nested-fetch-inherits-key; then
+  PKG_HASH_FILE="$_fx/nested/nestedpkg.hash"
   if ( fetch "file://$_nesteddist/nested-a.tar.gz" nested-a.tar.gz nested-a-dir \
        && fetch "file://$_nesteddist/nested-b.tar.gz" nested-b.tar.gz nested-b-dir \
      ) >/dev/null 2>&1; then
-    _pass skip-checksum-nested-fetch-inherits-pkg-name
+    _pass skip-checksum-nested-fetch-inherits-key
   else
-    _bad skip-checksum-nested-fetch-inherits-pkg-name "a second fetch() under the same unchanged PKG_NAME was not skipped"
+    _bad skip-checksum-nested-fetch-inherits-key "a second fetch() under the same unchanged PKG_HASH_FILE was not skipped"
   fi
 fi
 
 # Regression-guard companion, proving the assertion above is actually
 # sensitive to the invariant it claims to protect (per review: a test that
-# would pass either way tests nothing). Same fixture, but PKG_NAME is
-# reassigned between the two fetch() calls -- simulating a hypothetical
-# recipe that breaks the "never reassigns PKG_NAME mid-pkg_install()"
-# invariant. The second file is then keyed to a name absent from
-# SKIP_CHECKSUM_PKGS, so it must NOT be skipped and must die on its missing
-# hash record. If this assertion could not fail (i.e. the second fetch
-# succeeded anyway), skip-checksum-nested-fetch-inherits-pkg-name above would
-# not be testing PKG_NAME-keying at all -- it would just be testing that two
-# fetches under --skip-checksum=nestedpkg succeed, true for reasons unrelated
-# to the keying.
-if _require_fn checksum_skipped skip-checksum-nested-fetch-would-catch-pkg-name-reassignment; then
-  PKG_NAME=nestedpkg
+# would pass either way tests nothing). Same fixture, but PKG_HASH_FILE is
+# reassigned between the two fetch() calls, so the second file is keyed to a
+# name absent from SKIP_CHECKSUM_PKGS: it must NOT be skipped, and must die on
+# its missing hash file. If this could not fail, the assertion above would
+# just be testing that two fetches under --skip-checksum=nestedpkg succeed,
+# true for reasons unrelated to the keying.
+if _require_fn checksum_skipped skip-checksum-nested-fetch-would-catch-key-reassignment; then
+  PKG_HASH_FILE="$_fx/nested/nestedpkg.hash"
   if ( fetch "file://$_nesteddist/nested-a.tar.gz" nested-a2.tar.gz nested-a2-dir \
-       && PKG_NAME=someotherpkg \
+       && PKG_HASH_FILE="$_fx/nested/someotherpkg.hash" \
        && fetch "file://$_nesteddist/nested-b.tar.gz" nested-b2.tar.gz nested-b2-dir \
      ) >/dev/null 2>&1; then
-    _bad skip-checksum-nested-fetch-would-catch-pkg-name-reassignment "reassigning PKG_NAME mid-pkg_install did not break the skip -- the guard above proves nothing"
+    _bad skip-checksum-nested-fetch-would-catch-key-reassignment "reassigning PKG_HASH_FILE mid-pkg_install did not break the skip -- the guard above proves nothing"
   else
-    _pass skip-checksum-nested-fetch-would-catch-pkg-name-reassignment
+    _pass skip-checksum-nested-fetch-would-catch-key-reassignment
   fi
 fi
 SKIP_CHECKSUM_PKGS=""
@@ -1198,6 +1430,183 @@ if _require_fn checksum_skipped skip-checksum-not-persisted; then
     _pass skip-checksum-not-persisted
   else
     _bad skip-checksum-not-persisted "choices file missing, or it recorded a checksum-skip setting (wrote SKIP_CHECKSUM=$SKIP_CHECKSUM SKIP_CHECKSUM_PKGS=$SKIP_CHECKSUM_PKGS)"
+  fi
+fi
+
+# -- MAKESUM_MODE is not settable from outside cmd_makesum (S-F3) ------------
+# THE BUG THIS PINS. SKIP_CHECKSUM and SKIP_CHECKSUM_PKGS are initialized in
+# mediaforge.sh's globals block, which neutralizes anything inherited from the
+# environment. MAKESUM_MODE was not, and every consumer reads
+# ${MAKESUM_MODE:-false} -- so `MAKESUM_MODE=true ./mediaforge.sh build`
+# disabled verification for every fetch AND rewrote the sidecars, with no
+# banner. Two assertions: the initialization exists, and a build that inherits
+# the variable does not enter recording mode.
+if grep -q '^MAKESUM_MODE=false' "$ROOT/mediaforge.sh"; then
+  _pass makesum-mode-initialized-in-globals
+else
+  _bad makesum-mode-initialized-in-globals "mediaforge.sh has no MAKESUM_MODE=false in its globals block"
+fi
+
+# ANDed with a grep for the banner text in mediaforge.sh: "no recording banner
+# was printed" is trivially true on a tree that has no such banner, so on its
+# own this would pass on the baseline for a reason unrelated to the fix.
+_envout=$(cd "$ROOT" && MAKESUM_MODE=true ./mediaforge.sh build --dry-run --yes 2>&1)
+if grep -q 'recording is ACTIVE' "$ROOT/mediaforge.sh" \
+   && ! printf '%s' "$_envout" | grep -q 'recording is ACTIVE'; then
+  _pass makesum-mode-env-not-inherited
+else
+  _bad makesum-mode-env-not-inherited "an inherited MAKESUM_MODE=true put the build into recording mode, or no banner exists to tell"
+fi
+
+# The positive half: recording mode reached the legitimate way MUST announce
+# itself, or the assertion above passes on any tree that simply has no banner.
+_mkbanner=$(cd "$ROOT" && ./mediaforge.sh makesum --build --dry-run --yes 2>&1)
+if printf '%s' "$_mkbanner" | grep -q 'recording is ACTIVE'; then
+  _pass makesum-mode-announces-itself
+else
+  _bad makesum-mode-announces-itself "makesum --build printed no recording banner: $_mkbanner"
+fi
+
+# The second route into MAKESUM_MODE, and the worse one: load_stored_choices
+# sourced $PREFIX/.mediaforge-choices wholesale, and $PREFIX is the workspace
+# every dependency's `make install` writes into. A compromised build could drop
+# any shell there -- including MAKESUM_MODE=true, disabling verification for
+# every LATER build. Parsed by name now, so a setting nobody asked for cannot
+# arrive at all; asserted with two payloads so the oracle is the allowlist and
+# not one variable's name.
+if _require_fn load_stored_choices stored-choices-not-sourced; then
+  _evildir="$_fx/evil-prefix"; mkdir -p "$_evildir"
+  cat > "$_evildir/.mediaforge-choices" <<'EOF'
+STORED_TLS_BACKEND=openssl
+MAKESUM_MODE=true
+SKIP_CHECKSUM=true
+EOF
+  PREFIX="$_evildir"
+  USE_MENU=false
+  DRY_RUN=false
+  MAKESUM_MODE=false
+  SKIP_CHECKSUM=false
+  TLS_BACKEND=""
+  AAC_IMPL=""; H264_IMPL=""; H265_IMPL=""; AV1_ENC_IMPL=""; SPIRV_IMPL=""; OPENSSLDIR=""
+  load_stored_choices
+  if [ "$MAKESUM_MODE" = false ] && [ "$SKIP_CHECKSUM" = false ]; then
+    _pass stored-choices-not-sourced
+  else
+    _bad stored-choices-not-sourced "the choices file set MAKESUM_MODE=$MAKESUM_MODE SKIP_CHECKSUM=$SKIP_CHECKSUM"
+  fi
+  # ...while the settings it IS allowed to carry must still arrive, or the fix
+  # would be "ignore the file".
+  # ANDed with a marker for the parser: sourcing the file applies the value
+  # too, so the equality alone passes on the baseline for the wrong reason.
+  # Anchored on the definition line -- a bare `_stored_choice` is a substring
+  # of load_stored_choices and save_stored_choices, both of which the baseline
+  # already has, so the unanchored marker matched there and this assertion
+  # passed on the base until tests/oracle-baseline.sh caught it.
+  if [ "$TLS_BACKEND" = openssl ] && grep -q '^_stored_choice()' "$ROOT/lib/resolve.sh"; then
+    _pass stored-choices-allowlisted-value-applied
+  else
+    _bad stored-choices-allowlisted-value-applied "STORED_TLS_BACKEND did not reach TLS_BACKEND (got '$TLS_BACKEND')"
+  fi
+fi
+
+# -- every network fetch goes through fetch() (S-F4) --------------------------
+# The branch's stated invariant is that every fetched file is verified.
+# recipes/video/vid_stab.sh reached past it with a raw `curl -L -sS` -- no -f,
+# so an HTTP error-page body is written and fed straight to `patch -p1`, and no
+# digest either. Enforced as a tree-wide property rather than fixed in one
+# recipe and asserted about that recipe, because the next one to be written
+# this way would not be caught by a vid_stab-shaped test.
+_rawnet=$(awk '
+  /^[[:space:]]*#/ { next }
+  {
+    _l = $0
+    gsub(/[;&|()]/, " ", _l)
+    _n = split(_l, _w, /[[:space:]]+/)
+    for (_i = 1; _i <= _n; _i++) {
+      if (_w[_i] == "curl" || _w[_i] == "wget") {
+        if (!seen[FILENAME]++) print FILENAME
+        break
+      }
+    }
+  }
+' "$ROOT"/recipes/*.sh "$ROOT"/recipes/*/*.sh)
+if [ -z "$_rawnet" ]; then
+  _pass no-recipe-fetches-outside-fetch
+else
+  _bad no-recipe-fetches-outside-fetch "recipes invoking curl/wget directly: $_rawnet"
+fi
+
+# ...and the file that used to be fetched that way now has a recorded digest,
+# so routing it through fetch() actually buys verification rather than moving
+# an unverified download one function deeper.
+_vsp=$(awk -F'"' '/patch -p1 </ { _n = split($2, _p, "/"); print _p[_n]; exit }' \
+  "$ROOT/recipes/video/vid_stab.sh")
+if [ -n "$_vsp" ] && [ -f "$ROOT/recipes/video/vid_stab.hash" ] \
+   && [ -n "$(hash_lookup "$ROOT/recipes/video/vid_stab.hash" "$_vsp" sha256)" ]; then
+  _pass vid-stab-patch-digest-recorded
+else
+  _bad vid-stab-patch-digest-recorded "no sha256 record for '${_vsp:-<no patch filename found>}' in recipes/video/vid_stab.hash"
+fi
+
+# -- makesum --update summarizes every digest it re-pinned (S-F8) -------------
+# `makesum --update` with no package filter re-pins every changed digest in one
+# pass. Per-record warnings interleaved into a long log are not a reviewable
+# set: the reader has to reconstruct which pins moved by scrolling. The final
+# block is what makes the re-pin set auditable before it is committed.
+if _require_fn makesum_update_summary makesum-update-summary-lists-names; then
+  MAKESUM_UPDATED=""
+  makesum_note_updated alpha.tar.gz
+  makesum_note_updated beta.tar.gz
+  _sumout=$( makesum_update_summary 2>&1 )
+  if printf '%s' "$_sumout" | grep -q '2 digest' \
+     && printf '%s' "$_sumout" | grep -q 'alpha.tar.gz' \
+     && printf '%s' "$_sumout" | grep -q 'beta.tar.gz'; then
+    _pass makesum-update-summary-lists-names
+  else
+    _bad makesum-update-summary-lists-names "summary did not name both updated files: $_sumout"
+  fi
+
+  # Nothing updated must print nothing, or the block becomes noise every run
+  # and stops being read.
+  MAKESUM_UPDATED=""
+  _sumout=$( makesum_update_summary 2>&1 )
+  if [ -z "$_sumout" ]; then
+    _pass makesum-update-summary-silent-when-nothing-changed
+  else
+    _bad makesum-update-summary-silent-when-nothing-changed "printed a summary with no updates: $_sumout"
+  fi
+
+  # The names must come from hash_record_write itself, not from a caller that
+  # has to remember to report them -- otherwise the summary drifts from what
+  # was actually re-pinned.
+  printf 'test' > "$_fx/sum-src.tar.gz"
+  cat > "$_fx/sum.hash" <<EOF
+sha256  $_H64_1  sum.tar.gz
+size    11  sum.tar.gz
+EOF
+  MAKESUM_UPDATED=""
+  MAKESUM_UPDATE=true
+  hash_record_write "$_fx/sum.hash" sum.tar.gz "$_fx/sum-src.tar.gz" >/dev/null 2>&1
+  MAKESUM_UPDATE=false
+  case " $MAKESUM_UPDATED " in
+    *" sum.tar.gz "*) _pass makesum-update-records-name-at-the-rewrite ;;
+    *) _bad makesum-update-records-name-at-the-rewrite "hash_record_write rewrote a digest without noting it (MAKESUM_UPDATED='$MAKESUM_UPDATED')" ;;
+  esac
+fi
+
+# -- registry validation lives in one place (CR-Important-2) ------------------
+# cmd_build and cmd_makesum each carried a verbatim copy of the same
+# validate-or-suggest loop; this branch created the second. Asserted through
+# both CLI entry points rather than by grepping for the helper's name, so the
+# claim is that both actually validate, not that a function exists.
+if _require_fn validate_pkg_names validate-pkg-names-shared; then
+  _vpn_build=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes --disable=doesnotexist 2>&1 || true)
+  _vpn_ms=$(cd "$ROOT" && ./mediaforge.sh makesum doesnotexist 2>&1 || true)
+  if printf '%s' "$_vpn_build" | grep -qF 'Unknown package: doesnotexist' \
+     && printf '%s' "$_vpn_ms" | grep -qF 'Unknown package: doesnotexist'; then
+    _pass validate-pkg-names-shared
+  else
+    _bad validate-pkg-names-shared "build: [$_vpn_build] makesum: [$_vpn_ms]"
   fi
 fi
 

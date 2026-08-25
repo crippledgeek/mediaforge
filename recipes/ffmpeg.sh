@@ -21,10 +21,15 @@ log "Building FFmpeg $FFMPEG_VERSION"
 log "======================="
 
 # Sourced directly by mediaforge.sh rather than through run_recipe(), so
-# unlike every other recipe it must derive its own PKG_HASH_FILE. Read by
-# fetch()/makesum in lib/download.sh, a cross-file consumer shellcheck can't see.
+# unlike every other recipe it must set its own identity. Nothing resets the
+# PKG_* globals before this file is sourced, so without the PKG_NAME line it
+# reports whichever name the last recipe in _order.conf left behind. Both are
+# read by fetch()/makesum in lib/download.sh, a cross-file consumer shellcheck
+# can't see.
 # shellcheck disable=SC2034
-PKG_HASH_FILE="$SCRIPT_DIR/recipes/ffmpeg.hash"
+PKG_NAME="ffmpeg"
+# shellcheck disable=SC2034
+PKG_HASH_FILE="$(ffmpeg_hash_file)"
 
 fetch "$(ffmpeg_tarball_url)" "$(ffmpeg_tarball_filename)"
 

@@ -7,10 +7,10 @@ PKG_GITHUB_REPO="xiph/rav1e"
 # 7.0/7.1 profiles pin (e.g. p20231128) as bare <ver> -- probed live
 # 2026-08-25: vp20231128 -> 404, p20231128 -> 200.
 case "$PKG_VERSION" in
-  p*) PKG_TAG="$PKG_VERSION" ;;
-  *)  PKG_TAG="v${PKG_VERSION}" ;;
+  p*) _tag="$PKG_VERSION" ;;
+  *)  _tag="v${PKG_VERSION}" ;;
 esac
-PKG_URL="https://github.com/xiph/rav1e/archive/refs/tags/${PKG_TAG}.tar.gz"
+PKG_URL="https://github.com/xiph/rav1e/archive/refs/tags/${_tag}.tar.gz"
 PKG_FFMPEG_OPT="--enable-librav1e"
 PKG_MUTEX_GROUP="av1-enc"
 PKG_REQUIRES_CMD="cargo"

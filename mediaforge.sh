@@ -54,6 +54,13 @@ ENABLE_LTO=false
 FLITE_AUDIO="none"
 SKIP_CHECKSUM=false
 SKIP_CHECKSUM_PKGS=""
+# Initialized here for the same reason as the two above: every consumer reads
+# ${MAKESUM_MODE:-false}, so without this line `MAKESUM_MODE=true
+# ./mediaforge.sh build` inherited recording mode from the environment --
+# verification disabled for every fetch and the sidecars rewritten from
+# whatever was fetched. cmd_makesum sets it after this point, which is the only
+# way in.
+MAKESUM_MODE=false
 
 # ─── Help ────────────────────────────────────────────────────────────
 
@@ -111,7 +118,7 @@ cmd_help() {
   printf '                            no package filter)\n'
   printf '\nChecksum verification (loud; never persisted to the stored choice matrix):\n'
   printf '      --skip-checksum       Disable verification for EVERY recipe\n'
-  printf '      --skip-checksum=PKG   Disable verification for one recipe by name (repeatable, comma-separated ok)\n'
+  printf '      --skip-checksum=PKG   Disable verification for one recipe, by recipe filename or "ffmpeg" (repeatable, comma-separated ok)\n'
   printf '\nInstall / uninstall options (used by the install and uninstall subcommands):\n'
   printf '      --prefix=PATH         Install/uninstall location (default: interactive prompt)\n'
   printf '  -y, --yes                 Non-interactive mode\n'
@@ -139,16 +146,49 @@ _need_arg() {
 }
 
 # _skip_checksum_banner
-# --skip-checksum's loud complement: called at both build start and build end
-# so whoever bypassed the verification gate cannot miss it, and cannot miss it
-# again if they scroll past the start. A no-op when neither flag is set.
+# The loud complement to every way of leaving the build unverified: called at
+# both build start and build end so whoever bypassed the verification gate
+# cannot miss it, and cannot miss it again if they scroll past the start.
+# Silent when verification is fully on.
 _skip_checksum_banner() {
+  # Recording mode bypasses verification just as thoroughly as
+  # --skip-checksum, and additionally overwrites the sidecars, so it announces
+  # itself on the same terms. Unconditional rather than "only when it arrived
+  # some unexpected way": `makesum --build` genuinely is a build with no
+  # verification, and a reader who scrolls past that has been told.
+  if [ "${MAKESUM_MODE:-false}" = true ]; then
+    warn "================================================================"
+    warn "makesum recording is ACTIVE: digests are RECORDED, not verified"
+    warn "  Every fetched file overwrites its recorded digest"
+    warn "================================================================"
+  fi
   [ "$SKIP_CHECKSUM" = true ] || [ -n "${SKIP_CHECKSUM_PKGS:-}" ] || return 0
   warn "================================================================"
   warn "--skip-checksum is ACTIVE: checksum verification is bypassed"
   [ "$SKIP_CHECKSUM" = true ] && warn "  ALL recipes: verification disabled"
-  [ -n "${SKIP_CHECKSUM_PKGS:-}" ] && warn "  Named recipes:${SKIP_CHECKSUM_PKGS}"
+  [ -n "${SKIP_CHECKSUM_PKGS:-}" ] && warn "  Named recipes: ${SKIP_CHECKSUM_PKGS}"
   warn "================================================================"
+}
+
+# _add_skip_checksum VALUE
+# Append --skip-checksum=VALUE's comma- or space-separated recipe names to
+# SKIP_CHECKSUM_PKGS, single-space separated with no leading space.
+#
+# The normalization is load-bearing, not tidiness: checksum_skipped searches
+# the list as a substring of a space-padded window, so a leading space opened
+# that window with "  " and made the empty string a member of every list. An
+# empty VALUE is rejected outright for the same reason, and because it arms the
+# banner with a bypass that names nothing.
+_add_skip_checksum() {
+  _asc=$(printf '%s' "$1" | tr ',' ' ' | tr -s ' ')
+  _asc="${_asc# }"
+  _asc="${_asc% }"
+  [ -n "$_asc" ] || die "--skip-checksum= requires at least one recipe name (use bare --skip-checksum to disable verification everywhere)"
+  if [ -z "$SKIP_CHECKSUM_PKGS" ]; then
+    SKIP_CHECKSUM_PKGS="$_asc"
+  else
+    SKIP_CHECKSUM_PKGS="$SKIP_CHECKSUM_PKGS $_asc"
+  fi
 }
 
 # ─── Build ───────────────────────────────────────────────────────────
@@ -199,7 +239,7 @@ cmd_build() {
       --disable)           shift; _need_arg "$#" --disable; DISABLE_PKGS="$DISABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
       --enable=*)          ENABLE_PKGS="$ENABLE_PKGS $(echo "${1#--enable=}" | tr ',' ' ')" ;;
       --enable)            shift; _need_arg "$#" --enable; ENABLE_PKGS="$ENABLE_PKGS $(echo "$1" | tr ',' ' ')" ;;
-      --skip-checksum=*)   SKIP_CHECKSUM_PKGS="$SKIP_CHECKSUM_PKGS $(echo "${1#--skip-checksum=}" | tr ',' ' ')" ;;
+      --skip-checksum=*)   _add_skip_checksum "${1#--skip-checksum=}" ;;
       --skip-checksum)     SKIP_CHECKSUM=true ;;
       --list-pkgs)         list_pkgs; exit 0 ;;
       --clean-choices)     rm -f "$PREFIX/.mediaforge-choices"; log "Cleared stored choices"; exit 0 ;;
@@ -223,18 +263,14 @@ cmd_build() {
     shift
   done
 
-  # Validate every name in DISABLE_PKGS / ENABLE_PKGS against the recipe registry
-  registry_init
-  for _p in $DISABLE_PKGS $ENABLE_PKGS $SKIP_CHECKSUM_PKGS; do
-    if ! is_known_pkg "$_p"; then
-      _hint=$(suggest_pkg "$_p")
-      if [ -n "$_hint" ]; then
-        die "Unknown package: $_p. Did you mean: $_hint ?"
-      else
-        die "Unknown package: $_p. Run '$PROGNAME build --list-pkgs' to see all."
-      fi
-    fi
-  done
+  # Validate every requested name against the recipe registry.
+  # --skip-checksum additionally accepts "ffmpeg": it is not a selectable
+  # package (recipes/ffmpeg.sh is sourced directly by cmd_build, not listed in
+  # _order.conf) but it is a real sidecar with a real digest, and until it was
+  # accepted here the FFmpeg tarball was the one file that could not be
+  # deliberately skipped.
+  validate_pkg_names "$DISABLE_PKGS $ENABLE_PKGS"
+  validate_pkg_names "$SKIP_CHECKSUM_PKGS" ffmpeg
 
   if [ "$USE_MENU" = true ]; then
     if [ "$AUTOINSTALL" = "yes" ]; then
@@ -558,11 +594,13 @@ cmd_makesum() {
         PROFILE_NAME="$1"; shift; _mk_argc=$((_mk_argc - 1))
         ;;
       --update)    MAKESUM_UPDATE=true ;;
-      # --build reaches the fetch() calls nested inside pkg_install() (lv2's
-      # seven sub-tarballs, ffmpeg.sh, opencl, libcdio) that a fetch-only pass
-      # never sources far enough to see -- already accounted for by the
-      # pre-scan above, nothing left to do here. Consumed, never forwarded:
-      # cmd_build has no such flag of its own.
+      # --build reaches the nine fetch() calls nested inside a recipe phase
+      # function (lv2's seven sub-tarballs, opencl's ICD-Loader, libcdio's
+      # paranoia sub-package) that a fetch-only pass never sources far enough
+      # to see. recipes/ffmpeg.sh is not among them: its fetch is at that
+      # file's top level, and plain `makesum` records it via
+      # makesum_fetch_and_record. Consumed, never forwarded: cmd_build has no
+      # such flag of its own.
       --build)     ;;
       # Everything else -- flag or bare value, whether or not it starts with
       # "-" -- is forwarded to cmd_build verbatim when --build is set, rather
@@ -604,6 +642,7 @@ cmd_makesum() {
     # A stray package name (`makesum --build zlib`) is forwarded too and
     # rejected by cmd_build's own parser, not this one.
     cmd_build "$@"
+    makesum_update_summary
     return
   fi
 
@@ -616,20 +655,9 @@ cmd_makesum() {
     log "Using profile: ffmpeg-${PROFILE_NAME}"
   fi
 
-  # Validate every requested package name against the recipe registry, same
-  # as cmd_build's --enable=/--disable= validation, so a typo fails fast with
-  # a suggestion instead of silently matching nothing.
-  registry_init
-  for _p in $_mk_pkgs; do
-    if ! is_known_pkg "$_p"; then
-      _hint=$(suggest_pkg "$_p")
-      if [ -n "$_hint" ]; then
-        die "Unknown package: $_p. Did you mean: $_hint ?"
-      else
-        die "Unknown package: $_p. Run '$PROGNAME build --list-pkgs' to see all."
-      fi
-    fi
-  done
+  # Same validation cmd_build's --enable=/--disable= go through, so a typo
+  # fails fast with a suggestion instead of silently matching nothing.
+  validate_pkg_names "$_mk_pkgs"
 
   while IFS= read -r _recipe || [ -n "$_recipe" ]; do
     case "$_recipe" in
@@ -670,8 +698,10 @@ cmd_makesum() {
   # silently also touch FFmpeg (which isn't itself a selectable package name
   # in the registry `is_known_pkg` already validated `_mk_pkgs` against above).
   if [ -z "$_mk_pkgs" ]; then
-    makesum_fetch_and_record "$SCRIPT_DIR/recipes/ffmpeg.hash" "$(ffmpeg_tarball_filename)" "$(ffmpeg_tarball_url)"
+    makesum_fetch_and_record "$(ffmpeg_hash_file)" "$(ffmpeg_tarball_filename)" "$(ffmpeg_tarball_url)"
   fi
+
+  makesum_update_summary
 }
 
 # ─── List Profiles ───────────────────────────────────────────────────

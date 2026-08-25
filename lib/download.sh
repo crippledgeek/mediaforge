@@ -62,6 +62,16 @@ hash_file_validate() {
         if (v !~ /^[0-9]+$/) { printf("line %d: size %s is not a decimal count\n", NR, v); next }
       } else if (k == "sha256" || k == "sha512" || k == "sha1") {
         if (v !~ /^[0-9a-f]+$/) { printf("line %d: %s value %s is not lowercase hex\n", NR, k, v); next }
+        # A short or over-long digest is a malformed sidecar, and saying so
+        # here is the point: without this it parses as well formed and only
+        # surfaces at verify_file as a digest MISMATCH, which reads as
+        # tampering and sends the reader hunting a compromised mirror for a
+        # defect that is two characters in a text file.
+        want = (k == "sha256" ? 64 : (k == "sha512" ? 128 : 40))
+        if (length(v) != want) {
+          printf("line %d: %s value is %d hex characters, expected %d\n", NR, k, length(v), want)
+          next
+        }
       } else {
         printf("line %d: unknown keyword %s\n", NR, k)
         next
@@ -252,17 +262,52 @@ ffmpeg_tarball_url() {
   printf 'https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n%s.tar.gz' "$FFMPEG_VERSION"
 }
 
+# ffmpeg_hash_file
+# The sidecar recipes/ffmpeg.sh verifies against and cmd_makesum records into.
+# Third of the trio above, and here for the same reason: the path was written
+# out at both call sites, so the two could name different files.
+ffmpeg_hash_file() {
+  printf '%s/recipes/ffmpeg.hash' "$SCRIPT_DIR"
+}
+
+# checksum_skip_key
+# The name --skip-checksum=NAME must use to reach the current recipe: its
+# recipe filename, derived from the sidecar path.
+#
+# Not PKG_NAME. That is neither the identifier the CLI validates against nor
+# one that is reliably set here: recipes/ffmpeg.sh is sourced directly by
+# cmd_build rather than through reset_recipe(), so it used to carry whichever
+# name the last _order.conf recipe left behind, and three recipes declare a
+# PKG_NAME that is not their filename (FreeType2, FreeType2-hb, VapourSynth),
+# whose names the CLI accepts and the match then never saw.
+#
+# PKG_HASH_FILE is derived by load_recipe for every recipe, set explicitly by
+# recipes/ffmpeg.sh, and inherited unchanged by nested fetch() calls — so it is
+# always present and always agrees with the registry.
+checksum_skip_key() {
+  _csk="${PKG_HASH_FILE:-}"
+  [ -n "$_csk" ] || return 0
+  _csk="${_csk##*/}"
+  printf '%s' "${_csk%.hash}"
+}
+
 # checksum_skipped
 # True when verification is disabled for the current recipe.
 #
-# Buildroot's BR_NO_CHECK_HASH_FOR keys by file basename. We key by PKG_NAME
-# instead: a recipe name is what a user has on the command line, and it covers
-# that recipe's sub-build downloads without them knowing the sub-tarball names
+# Buildroot's BR_NO_CHECK_HASH_FOR keys by file basename. We key by recipe
+# name instead: it is what a user has on the command line, and it covers that
+# recipe's sub-build downloads without them knowing the sub-tarball names
 # (lv2's seven, for instance).
 checksum_skipped() {
   [ "${SKIP_CHECKSUM:-false}" = true ] && return 0
+  _cs_key=$(checksum_skip_key)
+  # An empty key is not a recipe, and matching one would bypass verification
+  # for every fetch the moment any --skip-checksum=NAME was given: the list is
+  # searched as a substring of a space-padded window, and the empty string is a
+  # substring of every window.
+  [ -n "$_cs_key" ] || return 1
   case " ${SKIP_CHECKSUM_PKGS:-} " in
-    *" ${PKG_NAME:-} "*) return 0 ;;
+    *" $_cs_key "*) return 0 ;;
   esac
   return 1
 }
@@ -274,6 +319,18 @@ checksum_skipped() {
 # point of --skip-checksum is that a bypass is never quiet.
 checksum_skip_warn() {
   warn "Checksum verification SKIPPED for $1 (--skip-checksum) -- integrity is NOT verified"
+}
+
+# die_no_record FILE DISPOSITION
+# fetch()'s verify_file rc-3 exit: a file on disk with no recorded digest.
+#
+# One helper for all three rc-3 sites (cached, re-downloaded, freshly
+# downloaded), which differed only in DISPOSITION -- the sentence saying which
+# copy was kept. Wording that says "run makesum to record it" is the entire
+# value of rc 3, and three copies of it drift.
+die_no_record() {
+  die "No recorded digest for $1 in $PKG_HASH_FILE.
+$2 -- run './mediaforge.sh makesum' to record it."
 }
 
 # fetch [URL [FILENAME [DIRNAME]]]
@@ -295,70 +352,88 @@ fetch() {
     esac
   fi
 
+  # makesum (#19): a cache entry may only seed a NEW pin when it already
+  # matches an attested digest. Everything else -- no record, no file, or bytes
+  # that no longer match one -- is unverified input, and recording it would
+  # mint a canonical digest from a months-old truncated tarball that every
+  # later build then verifies happily against. That is the exact failure #19
+  # exists to close, arriving through the tool meant to prevent it, and it bit
+  # hardest on `--build`'s whole reason to exist: the sub-build downloads that
+  # have no record yet. makesum_needs_fetch (lib/makesum.sh) is the one place
+  # that decision is made; makesum_fetch_and_record asks it the same question.
+  if [ -f "$DISTDIR/$_file" ] && [ "${MAKESUM_MODE:-false}" = true ]; then
+    if makesum_needs_fetch "${PKG_HASH_FILE:-}" "$_file" "$DISTDIR/$_file"; then
+      warn "makesum: cached $_file is not attested by a recorded digest, re-downloading before recording"
+      rm -f "$DISTDIR/$_file"
+    else
+      log "makesum: $_file already matches its recorded digest, skipping download"
+    fi
+  fi
+
   # Download if not cached, then verify either way (#19): a cache hit used to
   # be trusted forever, so a tarball corrupted or swapped after landing was
   # never re-examined.
   if [ -f "$DISTDIR/$_file" ]; then
     log "$_file already cached"
-    if [ "${MAKESUM_MODE:-false}" != true ] && checksum_skipped; then
-      checksum_skip_warn "$_file"
-    elif [ "${MAKESUM_MODE:-false}" != true ]; then
-      verify_file "$DISTDIR/$_file" "$_file"
-      case $? in
-        0) ;;
-        2)
-          # A cached file that fails is almost always locally corrupt or
-          # truncated. Re-download once and verify the replacement, following
-          # support/download/dl-wrapper. The retry is verified too, so a
-          # hostile origin simply fails twice.
-          warn "Cached $_file failed verification, re-downloading"
-          rm -f "$DISTDIR/$_file"
-          download_file "$_url" "$DISTDIR/$_file"
-          verify_file "$DISTDIR/$_file" "$_file"
-          # A fresh download landing here is rc 3 (missing record) only if the
-          # hash file lost its entry between the two verify_file calls a few
-          # lines apart -- not reachable in practice, but a plain `||` would
-          # delete on rc 3 same as rc 2, exactly the keep-on-missing-record
-          # inversion this task exists to eliminate. Same case shape as every
-          # other verify_file call in fetch(), so a genuine rc 3 here dies with
-          # the file kept, not silently deleted.
-          case $? in
-            0) ;;
-            3)
-              die "No recorded digest for $_file in $PKG_HASH_FILE.
-The re-downloaded file was left in place -- run './mediaforge.sh makesum' to record it." ;;
-            *)
-              rm -f "$DISTDIR/$_file"
-              die "$_file failed verification after re-download. Refusing to build." ;;
-          esac
-          ;;
-        3)
-          # Keep the file: the hash file is the likely defect, and removing it
-          # would force a re-download from a possibly worse source.
-          die "No recorded digest for $_file in $PKG_HASH_FILE.
-The download was left in place -- run './mediaforge.sh makesum' to record it." ;;
-      esac
+    if [ "${MAKESUM_MODE:-false}" != true ]; then
+      if checksum_skipped; then
+        checksum_skip_warn "$_file"
+      else
+        verify_file "$DISTDIR/$_file" "$_file"
+        case $? in
+          0) ;;
+          2)
+            # A cached file that fails is almost always locally corrupt or
+            # truncated. Re-download once and verify the replacement, following
+            # support/download/dl-wrapper. The retry is verified too, so a
+            # hostile origin simply fails twice.
+            warn "Cached $_file failed verification, re-downloading"
+            rm -f "$DISTDIR/$_file"
+            download_file "$_url" "$DISTDIR/$_file"
+            verify_file "$DISTDIR/$_file" "$_file"
+            # A fresh download landing here is rc 3 (missing record) only if the
+            # hash file lost its entry between the two verify_file calls a few
+            # lines apart -- not reachable in practice, but a plain `||` would
+            # delete on rc 3 same as rc 2, exactly the keep-on-missing-record
+            # inversion this task exists to eliminate. Same case shape as every
+            # other verify_file call in fetch(), so a genuine rc 3 here dies with
+            # the file kept, not silently deleted.
+            case $? in
+              0) ;;
+              3) die_no_record "$_file" "The re-downloaded file was left in place" ;;
+              *)
+                rm -f "$DISTDIR/$_file"
+                die "$_file failed verification after re-download. Refusing to build." ;;
+            esac
+            ;;
+          3)
+            # Keep the file: the hash file is the likely defect, and removing it
+            # would force a re-download from a possibly worse source.
+            die_no_record "$_file" "The download was left in place" ;;
+        esac
+      fi
     fi
   else
     download_file "$_url" "$DISTDIR/$_file"
-    if [ "${MAKESUM_MODE:-false}" != true ] && checksum_skipped; then
-      checksum_skip_warn "$_file"
-    elif [ "${MAKESUM_MODE:-false}" != true ]; then
-      verify_file "$DISTDIR/$_file" "$_file"
-      case $? in
-        0) ;;
-        2)
-          # No retry here: there is no earlier-good copy to fall back to, so a
-          # mismatched fresh download is a dead end, not a corrupt cache.
-          rm -f "$DISTDIR/$_file"
-          die "$_file failed verification. Refusing to build."
-          ;;
-        3)
-          # Same reasoning as the cached branch above: the hash file is the
-          # likely defect, not this download.
-          die "No recorded digest for $_file in $PKG_HASH_FILE.
-The download was left in place -- run './mediaforge.sh makesum' to record it." ;;
-      esac
+    if [ "${MAKESUM_MODE:-false}" != true ]; then
+      if checksum_skipped; then
+        checksum_skip_warn "$_file"
+      else
+        verify_file "$DISTDIR/$_file" "$_file"
+        case $? in
+          0) ;;
+          2)
+            # No retry here: there is no earlier-good copy to fall back to, so a
+            # mismatched fresh download is a dead end, not a corrupt cache.
+            rm -f "$DISTDIR/$_file"
+            die "$_file failed verification. Refusing to build."
+            ;;
+          3)
+            # Same reasoning as the cached branch above: the hash file is the
+            # likely defect, not this download.
+            die_no_record "$_file" "The download was left in place" ;;
+        esac
+      fi
     fi
   fi
 

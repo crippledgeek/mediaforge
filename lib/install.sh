@@ -414,9 +414,12 @@ do_install() {
   _stored_tls=""
   _stored_od=""
   if [ -f "$PREFIX/.mediaforge-choices" ]; then
-    _stored_tls=$(sed -n 's/^STORED_TLS_BACKEND=//p' "$PREFIX/.mediaforge-choices")
-    # save_stored_choices single-quotes this one; strip the quotes.
-    _stored_od=$(sed -n "s/^STORED_OPENSSLDIR='\(.*\)'$/\1/p" "$PREFIX/.mediaforge-choices")
+    # Same by-name parser load_stored_choices uses (lib/resolve.sh), rather
+    # than a second pair of extraction expressions here: the quoting
+    # save_stored_choices applies is a property of the writer, and two readers
+    # that each re-derive it drift the first time it changes.
+    _stored_tls=$(_stored_choice "$PREFIX/.mediaforge-choices" STORED_TLS_BACKEND)
+    _stored_od=$(_stored_choice "$PREFIX/.mediaforge-choices" STORED_OPENSSLDIR)
   fi
   if [ -n "$_stored_od" ]; then
     _validate_openssldir "STORED_OPENSSLDIR (from $PREFIX/.mediaforge-choices)" \

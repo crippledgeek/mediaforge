@@ -307,24 +307,46 @@ resolve_choices() {
 
 # Load previously-stored choices, if present. Stored values are applied
 # *under* CLI flags (i.e. CLI overrides storage).
+# _stored_choice FILE NAME
+# Print the value of the STORED_* assignment called NAME in FILE, stripping the
+# single quotes save_stored_choices wraps STORED_OPENSSLDIR in.
+#
+# Parsed, never sourced. $PREFIX is the workspace every dependency's
+# `make install` writes into, so anything that can compromise a build can also
+# leave shell in this file for the NEXT one to execute -- including settings no
+# caller ever asked about, such as MAKESUM_MODE=true, which turns verification
+# into digest recording with the sidecars rewritten from whatever is fetched.
+# Asking for values by name means a setting we did not ask for cannot arrive at
+# all, which is a smaller thing to get right than enumerating what to reject.
+# lib/install.sh reads the same file the same way.
+_stored_choice() {
+  awk -v k="$2" -v q="'" '
+    {
+      eq = index($0, "=")
+      if (eq == 0) next
+      if (substr($0, 1, eq - 1) != k) next
+      v = substr($0, eq + 1)
+      if (length(v) > 1 && substr(v, 1, 1) == q && substr(v, length(v), 1) == q) {
+        v = substr(v, 2, length(v) - 2)
+      }
+      print v
+      exit
+    }
+  ' "$1"
+}
+
 load_stored_choices() {
   [ "${USE_MENU:-false}" = true ] && return 0
   [ "${DRY_RUN:-false}" = true ] && return 0
   _file="$PREFIX/.mediaforge-choices"
   [ -f "$_file" ] || return 0
-  if ! ( . "$_file" ) >/dev/null 2>&1; then
-    warn "$_file is malformed — ignoring"
-    return 0
-  fi
-  # shellcheck disable=SC1090
-  . "$_file"
-  : "${TLS_BACKEND:=${STORED_TLS_BACKEND:-}}"
-  : "${AAC_IMPL:=${STORED_AAC_IMPL:-}}"
-  : "${H264_IMPL:=${STORED_H264_IMPL:-}}"
-  : "${H265_IMPL:=${STORED_H265_IMPL:-}}"
-  : "${AV1_ENC_IMPL:=${STORED_AV1_ENC_IMPL:-}}"
-  : "${SPIRV_IMPL:=${STORED_SPIRV_IMPL:-}}"
-  : "${OPENSSLDIR:=${STORED_OPENSSLDIR:-}}"
+  : "${TLS_BACKEND:=$(_stored_choice "$_file" STORED_TLS_BACKEND)}"
+  : "${AAC_IMPL:=$(_stored_choice "$_file" STORED_AAC_IMPL)}"
+  : "${H264_IMPL:=$(_stored_choice "$_file" STORED_H264_IMPL)}"
+  : "${H265_IMPL:=$(_stored_choice "$_file" STORED_H265_IMPL)}"
+  : "${AV1_ENC_IMPL:=$(_stored_choice "$_file" STORED_AV1_ENC_IMPL)}"
+  : "${SPIRV_IMPL:=$(_stored_choice "$_file" STORED_SPIRV_IMPL)}"
+  : "${OPENSSLDIR:=$(_stored_choice "$_file" STORED_OPENSSLDIR)}"
 }
 
 # Save resolved choices for next run.

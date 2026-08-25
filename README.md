@@ -357,10 +357,12 @@ removed. `vaapi` fetches nothing at all (`PKG_URL=""`) and has neither.
 A cached tarball is re-downloaded rather than trusted, unless it already has
 a recorded `sha256` that matches the bytes on disk — `makesum`'s own output
 *becomes* the pin, so trusting an unattested cache entry would mint a pin
-from bytes of unknown age. Without `--update`, a digest that no longer
-matches an existing record is reported and left untouched; `--update`
-overwrites it and prints a reminder to confirm upstream genuinely
-re-published before trusting the new value. `--build` forwards every other
+from bytes of unknown age. That policy holds for `--build` too, including the
+sub-build downloads that have no record yet. Without `--update`, a digest
+that no longer matches an existing record is reported and left untouched;
+`--update` overwrites it, prints a reminder to confirm upstream genuinely
+re-published before trusting the new value, and ends the run with a summary
+block listing every digest it re-pinned. `--build` forwards every other
 argument straight to the `build` subcommand's own parser and does not accept
 a package filter — it exists to reach the `fetch()` calls nested inside a
 recipe's `pkg_install()` (lv2's seven sub-tarballs, opencl's ICD-Loader,
@@ -381,11 +383,12 @@ Both forms print a loud warning banner at build start and again at build
 end, and neither is ever written to the stored choice matrix
 (`$PREFIX/.mediaforge-choices`) — a bypass is a one-run decision, not
 something that should silently persist into the next build.
-`--skip-checksum=PKG` is keyed by recipe name (`PKG_NAME`, validated against
-the recipe registry the same way `--enable=`/`--disable=` are), not by
-tarball filename — that also covers a recipe's own sub-build downloads
-without the caller needing to know their filenames (lv2's seven, for
-instance).
+`--skip-checksum=PKG` is keyed by recipe filename (validated against the
+recipe registry the same way `--enable=`/`--disable=` are), not by tarball
+filename — that also covers a recipe's own sub-build downloads without the
+caller needing to know their filenames (lv2's seven, for instance). `ffmpeg`
+is accepted as well, for the FFmpeg tarball itself. An empty
+`--skip-checksum=` is rejected rather than treated as "no recipes".
 
 ## Version Profiles
 

@@ -34,6 +34,31 @@ is_known_pkg() {
   return 1
 }
 
+# validate_pkg_names LIST [EXTRA]
+# Die on the first name in LIST that is neither a recipe in the registry nor
+# one of the whitespace-separated names in EXTRA, naming near matches.
+#
+# One implementation for all three callers (cmd_build's --disable=/--enable=,
+# cmd_build's --skip-checksum=, cmd_makesum's package filter). They carried
+# byte-identical copies of this loop, and a copy is where the suggestion text
+# and the die wording drift apart.
+validate_pkg_names() {
+  _vpn_extra="${2:-}"
+  registry_init
+  for _vpn in $1; do
+    is_known_pkg "$_vpn" && continue
+    for _vpn_e in $_vpn_extra; do
+      [ "$_vpn_e" = "$_vpn" ] && continue 2
+    done
+    _vpn_hint=$(suggest_pkg "$_vpn")
+    if [ -n "$_vpn_hint" ]; then
+      die "Unknown package: $_vpn. Did you mean: $_vpn_hint ?"
+    else
+      die "Unknown package: $_vpn. Run '$PROGNAME build --list-pkgs' to see all."
+    fi
+  done
+}
+
 # Print substring-matching recipe names, comma-separated, max 3.
 suggest_pkg() {
   registry_init

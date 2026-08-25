@@ -103,11 +103,44 @@ hash_record_write() {
     END { if (!saw_size) printf("size    %s  %s\n", sz, want) }
   ' "$_hw_file" > "$_hw_file.tmp" && mv "$_hw_file.tmp" "$_hw_file"
 
+  makesum_note_updated "$_hw_name"
   warn "makesum: UPDATED $_hw_name ($_hw_old -> $_hw_sha)"
   warn "  If that block's provenance comment names an upstream digest URL, confirm upstream really republished."
   if [ -z "$_hw_had_size" ]; then
     warn "makesum: $_hw_name had no size record -- synthesized one ($_hw_size) so the sidecar stays valid (size is mandatory)."
   fi
+}
+
+# makesum_note_updated FILENAME / makesum_update_summary
+# Accumulate the names --update actually re-pinned, and print them as one
+# block at the end of the run.
+#
+# `makesum --update` with no package filter walks ~107 recipes and can re-pin
+# any number of them; the per-record warnings are then scattered through a long
+# log and exit 0, so the set of digests that moved is something the reader has
+# to reconstruct by scrolling. Re-pinning a digest is the one makesum action
+# that can turn tampered bytes into a committed pin, so that set is exactly
+# what must be reviewable before the diff is committed.
+#
+# Noted where the rewrite happens (hash_record_write) rather than by each
+# caller, so the summary cannot report a different set from the one written.
+makesum_note_updated() {
+  MAKESUM_UPDATED="${MAKESUM_UPDATED:-} $1"
+}
+
+makesum_update_summary() {
+  [ -n "${MAKESUM_UPDATED:-}" ] || return 0
+  _mus_n=0
+  for _mus in $MAKESUM_UPDATED; do
+    _mus_n=$((_mus_n + 1))
+  done
+  warn "================================================================"
+  warn "$_mus_n digest(s) UPDATED by --update:"
+  for _mus in $MAKESUM_UPDATED; do
+    warn "  $_mus"
+  done
+  warn "  Confirm upstream really republished each of these before committing."
+  warn "================================================================"
 }
 
 # makesum_fetch_and_record HASHFILE FILENAME URL
