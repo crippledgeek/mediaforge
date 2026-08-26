@@ -1,4 +1,8 @@
 
-# Locally calculated 2026-08-25
+# sha512 from https://sourceware.org/pub/bzip2/sha512.sum
+# sha256 locally calculated 2026-08-25 (upstream publishes sha512 only)
+# pgp signature verified https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz.sig
+# with key EC3CFE88F6CA0788774F5C1D1AA44BE649DE760A
+sha512  083f5e675d73f3233c7930ebe20425a533feedeaaa9d8cc86831312a6581cefbe6ed0d08d2fa89be81082f2a5abdabca8b3c080bf97218a1bd59dc118a30b9f3  bzip2-1.0.8.tar.gz
 sha256  ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269  bzip2-1.0.8.tar.gz
 size    810029  bzip2-1.0.8.tar.gz

@@ -377,6 +377,87 @@ calculated `sha256`. `md5` is unrepresentable here by design. Every recorded
 digest is checked — `verify_file` treats `sha512`/`sha1` as additional
 requirements, never as alternatives to the mandatory `sha256`.
 
+**Signature provenance.** A digest says the bytes match what was recorded; a
+signature says *who published them*. Where upstream publishes a detached
+OpenPGP signature and the signing key can be corroborated independently, the
+block records both:
+
+```
+# sha256 from https://downloads.xiph.org/releases/vorbis/SHA256SUMS
+# pgp signature verified https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz.asc
+# with key B7B00AEE1F960EEA0FED66FB9259A8F2D2D44C84
+sha256  0e982409…  libvorbis-1.3.7.tar.gz
+size    1658963  libvorbis-1.3.7.tar.gz
+```
+
+The two lines are separate from the digest-origin comment on purpose. Buildroot
+bundles them into one phrase (`# Locally calculated after checking pgp
+signature`), which cannot express a digest that came from upstream's own
+`SHA256SUMS` — the bundled wording would have to overwrite the origin in order
+to state the signature. Split, a block says both, truthfully.
+
+The fingerprint is the **primary** key's, even where a signing subkey made the
+signature (`bzip2` and `libressl` are both signed by a subkey), because the
+primary is what an independent packager pins and therefore what can be
+corroborated.
+
+**Corroboration is the whole point, and it bounds what this buys.** A signature
+checked against a key fetched from the same host as the artifact proves nothing
+— so every recorded key was cross-checked against Arch Linux's `validpgpkeys`,
+an independent packaging organization that vetted the same key; `libssh` and
+`libtiff` also match the fingerprint Buildroot records. Two of those
+cross-checks are weaker than the rest and say so here rather than in a footnote:
+Arch pins `gnutls`'s key (Daiki Ueno) in its **gettext** recipe, having
+commented it out of `gnutls` in favour of a newer signer, and `pkg-config`'s pin
+lives in a PKGBUILD Arch has frozen since migrating to `pkgconf` — every other
+distro checked pins nothing there, so Arch is its sole corroborator.
+
+**Nothing is recorded that cannot be defended.** Four recipes publish a
+signature that verifies and are still deliberately absent:
+
+| Recipe | Why not recorded |
+|---|---|
+| `libtool` | Arch pins no key, and the signing key changed between 2.4.6 and 2.4.7 |
+| `speex` | verifies, but no independent source pins the key |
+| `libressl` | signed 2026-05-26 by a key that expired 2026-03-03 |
+| `nettle` | signed 2025-06-26 by a key that expired 2025-01-15 |
+
+The last two are **withheld, not disqualified.** Key expiry is a self-signature
+the holder can extend at any time, and extending it flips every past signature
+from `EXPKEYSIG` to `GOODSIG` — nothing about the signature or the bytes
+changes. `nettle` shares `gmp`'s key, so if Niels Möller extends
+`343C2FF0…828C67298` then `nettle` becomes recordable on exactly the evidence
+that is failing today. The dates above are what a future maintainer needs to
+re-check; do not read their absence as a permanent verdict.
+
+The last two are worth knowing about as a trap, not just an outcome: **`gpgv`'s
+human-readable output prints "Good signature" for a signature made by an expired
+key.** Only the status codes distinguish them — `gpg --status-fd` returns
+`EXPKEYSIG` rather than `GOODSIG`. Six of the sixteen signatures checked here
+return `EXPKEYSIG`; for four of them the signature predates the expiry and the
+key has merely lapsed since — validity is evaluated at signing time, so a key
+lapsing afterwards does not retroactively invalidate what it signed, the same
+way an expired TLS certificate does not — but for `libressl` and `nettle` the
+signature postdates it.
+
+**Verify with status codes, not with the message a human reads.** This
+generalizes past `gpg`: no verification tool's prose output is a reliable
+verdict, because `GOODSIG`, `EXPKEYSIG`, `REVKEYSIG` and a name-mismatch
+warning can all print text beginning "Good signature". Nothing in the tree
+shells out to a verification tool today — `verify_file` computes digests
+directly — so this is a rule for the next person who adds one: read the exit
+status or `--status-fd`, never `grep` the stdout. Gentoo's `verify-sig` maintainer
+is blunt about the ceiling here — *"The verify-sig mechanics do not provide any
+way to verify the authenticity of installed OpenPGP keys"* — trust bottoms out
+in a human vetting a fingerprint, and recording the fingerprint is what makes
+that reviewable.
+
+Verification happens at pin time, not build time, so **`gpg` is a maintainer
+tool and never a build dependency**. Gentoo and Arch verify on the user's
+machine because the pinning maintainer is not present there; here the digests
+are already committed and diff-reviewed, so a build-time signature check would
+re-verify what the pinned digest already guarantees.
+
 These digests are transcribed by hand, once, and reviewed in the diff —
 deliberately, not for want of tooling. Re-fetching the sums file on every
 `makesum` run would re-derive the pin from the network each time and let

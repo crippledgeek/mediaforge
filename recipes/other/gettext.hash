@@ -1,5 +1,7 @@
 
 # Locally calculated 2026-08-25
+# pgp signature verified https://ftp.gnu.org/gnu/gettext/gettext-0.22.5.tar.gz.sig
+# with key 9001B85AF9E1B83DF1BDA942F5BE8B267C6A406D
 sha256  ec1705b1e969b83a9f073144ec806151db88127f5e40fe5a94cb6c8fa48996a0  gettext-0.22.5.tar.gz
 size    26861674  gettext-0.22.5.tar.gz
 
