@@ -427,9 +427,18 @@ human-readable output prints "Good signature" for a signature made by an expired
 key.** Only the status codes distinguish them — `gpg --status-fd` returns
 `EXPKEYSIG` rather than `GOODSIG`. Six of the sixteen signatures checked here
 return `EXPKEYSIG`; for four of them the signature predates the expiry and the
-key has merely lapsed since, which is ordinary key hygiene, but for `libressl`
-and `nettle` the signature postdates it. Verify with status codes, not with the
-message a human reads. Gentoo's `verify-sig` maintainer
+key has merely lapsed since — validity is evaluated at signing time, so a key
+lapsing afterwards does not retroactively invalidate what it signed, the same
+way an expired TLS certificate does not — but for `libressl` and `nettle` the
+signature postdates it.
+
+**Verify with status codes, not with the message a human reads.** This
+generalizes past `gpg`: no verification tool's prose output is a reliable
+verdict, because `GOODSIG`, `EXPKEYSIG`, `REVKEYSIG` and a name-mismatch
+warning can all print text beginning "Good signature". Nothing in the tree
+shells out to a verification tool today — `verify_file` computes digests
+directly — so this is a rule for the next person who adds one: read the exit
+status or `--status-fd`, never `grep` the stdout. Gentoo's `verify-sig` maintainer
 is blunt about the ceiling here — *"The verify-sig mechanics do not provide any
 way to verify the authenticity of installed OpenPGP keys"* — trust bottoms out
 in a human vetting a fingerprint, and recording the fingerprint is what makes
