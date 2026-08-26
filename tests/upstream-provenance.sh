@@ -158,7 +158,13 @@ _scan_sigs() {
         if (url) printf("%s: names a second signature %s before naming a key for %s\n", F, w[4], url)
         url = w[4]; next
       }
-      if (lc ~ /^with[[:space:]]+key[[:space:]]+/) {
+      # Only a hex-ish token is read as a pin. "with key rotation pending
+      # upstream" is prose a maintainer might reasonably write, and treating
+      # its third word as a fingerprint failed the whole gate on a comment.
+      # A token that IS hex but the wrong length or case stays loud, because
+      # that is a malformed pin rather than prose -- the distinction is
+      # "did someone mean this as a fingerprint", and only hex says yes.
+      if (lc ~ /^with[[:space:]]+key[[:space:]]+[0-9a-f]+[[:space:]]*$/) {
         split(l, w, /[[:space:]]+/)
         if (key) printf("%s: names a second key %s before naming a signature for %s\n", F, w[3], key)
         key = w[3]
@@ -479,6 +485,27 @@ EOF
 sha256  $_H64  a.tar.gz
 size    1  a.tar.gz
 EOF
+  # Prose a maintainer might write. Reading its third word as a fingerprint
+  # failed the entire gate on a comment; a lowercase hex token of the wrong
+  # length must still be loud, because that is a malformed pin, not prose.
+  cat > "$_fx/sig-prose.hash" <<EOF
+
+# pgp signature verified https://example.invalid/a.tar.gz.sig
+# with key $_FPR
+# with key rotation pending upstream
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+  cat > "$_fx/sig-shortfpr.hash" <<EOF
+
+# pgp signature verified https://example.invalid/a.tar.gz.sig
+# with key abc123
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+  _s_prose=$(_scan_sigs "$_fx/sig-prose.hash" | grep -vc '^SIGS ' || true)
+  _s_prosen=$(_scan_sigs "$_fx/sig-prose.hash" | awk '/^SIGS /{print $2}')
+  _s_short=$(_scan_sigs "$_fx/sig-shortfpr.hash" | grep -c 'not a 40-character' || true)
   _s_dblk=$(_scan_sigs "$_fx/sig-double-key.hash" | grep -c 'second key' || true)
   _s_dbl=$(_scan_sigs "$_fx/sig-double-url.hash" | grep -c 'second signature' || true)
   _s_sp=$(_scan_sigs "$_fx/sig-spaced.hash" | awk '/^SIGS /{print $2}')
@@ -500,11 +527,12 @@ EOF
      && [ "$_s_nourl" = 1 ] && [ "$_s_fpr" = 1 ] \
      && [ "$_s_adj" = 1 ] && [ "$_s_adjn" = 1 ] \
      && [ "$_s_dbl" = 1 ] && [ "$_s_dblk" = 1 ] \
-     && [ "$_s_sp" = 1 ] && [ "$_s_spe" = 0 ]; then
+     && [ "$_s_sp" = 1 ] && [ "$_s_spe" = 0 ] \
+     && [ "$_s_prose" = 0 ] && [ "$_s_prosen" = 1 ] && [ "$_s_short" = 1 ]; then
     _pass checker-detects-malformed-signature-block
   else
     _bad checker-detects-malformed-signature-block \
-      "good-errs=$_s_good (want 0) good-count=$_s_n nokey=$_s_nokey nourl=$_s_nourl badfpr=$_s_fpr adjacent=$_s_adj adjacent-sigs=$_s_adjn double-url=$_s_dbl double-key=$_s_dblk spaced-sigs=$_s_sp spaced-errs=$_s_spe"
+      "good-errs=$_s_good (want 0) good-count=$_s_n nokey=$_s_nokey nourl=$_s_nourl badfpr=$_s_fpr adjacent=$_s_adj adjacent-sigs=$_s_adjn double-url=$_s_dbl double-key=$_s_dblk spaced-sigs=$_s_sp spaced-errs=$_s_spe prose-errs=$_s_prose prose-sigs=$_s_prosen shortfpr=$_s_short"
   fi
 
   # The whole reason for splitting the grammar: one block states both a digest
