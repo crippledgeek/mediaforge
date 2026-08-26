@@ -39,14 +39,15 @@ else
   _pass "libressl pins $_want"
 fi
 
-# The ROOT CAUSE of the staleness, not merely the symptom: lib/updates.sh:72
-# takes the no-repo branch and reports "(not on GitHub)" for any recipe without
+# The ROOT CAUSE of the staleness, not merely the symptom: check_updates
+# (lib/updates.sh) takes its no-PKG_GITHUB_REPO branch and reports
+# "(not on GitHub)" for any recipe without
 # PKG_GITHUB_REPO, so `check-updates` never queried this pin at all. Upstream
 # tags are v-prefixed, which _strip_tag_prefix already normalises.
 if grep -q '^PKG_GITHUB_REPO="libressl/portable"' "$_recipe"; then
   _pass "libressl is visible to check-updates"
 else
-  _bad "libressl has no PKG_GITHUB_REPO — check-updates skips it (lib/updates.sh:72)"
+  _bad "libressl has no PKG_GITHUB_REPO — check-updates skips it (check_updates in lib/updates.sh)"
 fi
 
 # Sourced the way lib/updates.sh sources it, and the variable read back. This is
@@ -107,8 +108,9 @@ else
   _pass "libressl builds with assembly enabled"
 fi
 
-# --with-pic is NOT what gives these objects -fPIC — mediaforge.sh:251-257
-# exports that for every recipe unconditionally. It adds libtool's own -DPIC,
+# --with-pic is NOT what gives these objects -fPIC — cmd_build's
+# `export CFLAGS CXXFLAGS` (mediaforge.sh) applies that to every recipe
+# unconditionally. It adds libtool's own -DPIC,
 # which LibreSSL's C and perlasm paths read, and makes the recipe independent of
 # a CFLAGS assignment several files away.
 if grep -v '^[[:space:]]*#' "$_recipe" | grep -q -- '--with-pic'; then

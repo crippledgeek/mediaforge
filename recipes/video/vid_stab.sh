@@ -10,10 +10,15 @@ PKG_GPL=true
 PKG_CMAKE=true
 PKG_CMAKE_FLAGS="-DUSE_OMP=OFF -DENABLE_SHARED=off"
 
+# Routed through fetch() rather than a raw curl so the patch is verified
+# against vid_stab.hash like every other fetched file. The old call had neither
+# -f nor a digest, so an HTTP error page was written under the patch's name and
+# fed straight to `patch -p1`. fetch() verifies before its *patch* early
+# return, and leaves the file in $DISTDIR rather than the source tree.
 pkg_prepare() {
   if [ "$OS_MACOS_ARM" = true ]; then
-    curl -L -sS -o fix_cmake_quoting.patch \
-      "https://raw.githubusercontent.com/Homebrew/formula-patches/5bf1a0e0cfe666ee410305cece9c9c755641bfdf/libvidstab/fix_cmake_quoting.patch"
-    patch -p1 < fix_cmake_quoting.patch
+    fetch "https://raw.githubusercontent.com/Homebrew/formula-patches/5bf1a0e0cfe666ee410305cece9c9c755641bfdf/libvidstab/fix_cmake_quoting.patch" \
+      "vid_stab-fix_cmake_quoting.patch"
+    patch -p1 < "$DISTDIR/vid_stab-fix_cmake_quoting.patch"
   fi
 }

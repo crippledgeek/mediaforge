@@ -150,9 +150,10 @@ _run_no "quirc OFF on 6.1"  "--enable-libquirc"    ./mediaforge.sh build --profi
 # GPL codec coverage — xavs2/davs2/libcdio are GPL (only with --enable-gpl).
 #
 # lcevc carries TWO gates, and this block used to account for only one of them.
-# It is FFmpeg-version-gated (>=7.1, recipes/other/lcevc.sh:28) AND opt-in
-# (PKG_DISABLED=true, :19 — V-Nova patent encumbrance, decode-only, and eight
-# circular static archives that break a downstream single-pass link unless
+# It is FFmpeg-version-gated (recipes/other/lcevc.sh guards PKG_FFMPEG_OPT with
+# `ffmpeg_version_ge 7.1`) AND opt-in (the same file's PKG_DISABLED=true —
+# V-Nova patent encumbrance, decode-only, and circular static archives that
+# break a downstream single-pass link unless
 # merged). The row below asserted that a DEFAULT 8.x build emits
 # --enable-liblcevc-dec, which the version gate alone would imply but the
 # opt-in gate forbids. Both were introduced in the same commit (beba26c), so
@@ -168,7 +169,7 @@ _run "libcdio on (gpl)"     "--enable-libcdio"      ./mediaforge.sh build --enab
 # greps the `Would configure FFmpeg with:` line specifically, where _run/_run_no grep
 # the whole log — and that log mentions lcevc for other reasons. Asserting it
 # here as well would also make this matrix Linux-only, since lcevc.sh sets
-# PKG_LINUX_ONLY=true and check_guards (lib/framework.sh:140) skips it on macOS
+# PKG_LINUX_ONLY=true and check_guards (lib/framework.sh) skips it on macOS
 # regardless of --enable=.
 _run_no "lcevc off by default (8.x)" "--enable-liblcevc-dec" ./mediaforge.sh build
 _run_no "lcevc OFF on 7.0"  "--enable-liblcevc-dec" ./mediaforge.sh build --profile=7.0

@@ -6,8 +6,8 @@
 # THE BUG THIS PINS. librtmp cloned with `--branch "v${PKG_VERSION}"`, which
 # accepts only branches and tags. Every profile sets PKG_VERSION_LIBRTMP to a
 # 40-hex commit SHA, so the interpolated ref was `v<sha>` -- a ref that cannot
-# exist. `git clone` exits non-zero, `run` (lib/utils.sh:21-28) dies, and every
-# `--profile=` build failed at recipes/_order.conf:99. Without a profile it
+# exist. `git clone` exits non-zero, `run` (lib/utils.sh) dies, and every
+# `--profile=` build failed at the librtmp line of recipes/_order.conf. Without a profile it
 # worked only because the recipe default `2.6` happens to be a real tag.
 #
 # THE INTEGRITY HALF. A git tag is a mutable server-side pointer, so pinning
@@ -248,7 +248,8 @@ done
 # PKG_VERSION_* and PKG_COMMIT_* are now independent knobs and nothing couples
 # them. A profile that sets only PKG_VERSION_* to a SHA -- the exact #28 shape
 # -- silently gets the recipe's DEFAULT commit under a foreign version label,
-# and the stamp (av1-$PKG_VERSION, lib/utils.sh:70) then records the lie.
+# and the stamp (av1-$PKG_VERSION, named by stamp_check in lib/utils.sh) then
+# records the lie.
 for _p in profiles/ffmpeg-*.conf; do
   for _v in PKG_VERSION_LIBRTMP PKG_VERSION_LIBPLACEBO PKG_VERSION_AV1; do
     _val=$(awk -F'"' -v k="^$_v=" '$0 ~ k { print $2; exit }' "$_p")

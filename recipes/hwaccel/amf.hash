@@ -1,0 +1,24 @@
+
+# Locally calculated 2026-08-25
+sha256  d569647fa26f289affe81a206259fa92f819d06db1e80cc334559953e82a3f01  AMF-headers-v1.5.0.tar.gz
+size    82755  AMF-headers-v1.5.0.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  5f4e5670f1fea6a38d381ff137b9ed88658311030b1bc4294472d41b736893b8  AMF-headers-v1.4.33.tar.gz
+size    79459  AMF-headers-v1.4.33.tar.gz
+
+# Locally calculated 2026-08-25
+# The only record here pinned against an artifact upstream does not promise to
+# keep byte-stable: 1.4.32 published no headers asset, so the recipe falls back
+# to GitHub's auto-generated tag archive, whose byte-stability commitment
+# expired Feb 2024. A mismatch on THIS line is far more likely to be GitHub
+# regenerating the archive than tampering -- see recipes/hwaccel/amf.sh's
+# PKG_URL case for why there is no alternative. It is also ~198 MB against the
+# ~80 KB of every other record here, because it is a full source tree rather
+# than a headers asset; that size is expected, not an attack.
+sha256  f08c048e818f71bc7909c447bd810e727818d442db649d479ef87fb5a44a3474  AMF-src-v1.4.32.tar.gz
+size    198373985  AMF-src-v1.4.32.tar.gz
+
+# Locally calculated 2026-08-25
+sha256  5393759308f6d7bc9eb1ed8013c954e03aadb85f0ed6e96f969a5df447b0f79c  AMF-headers-v1.4.34.tar.gz
+size    80230  AMF-headers-v1.4.34.tar.gz

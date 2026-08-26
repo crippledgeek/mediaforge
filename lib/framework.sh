@@ -1,6 +1,8 @@
 #!/bin/sh
 # shellcheck disable=SC1090,SC2034
 # Build engine — recipe loading and phase execution.
+# Requires lib/registry.sh to be sourced first: check_guards resolves a
+# recipe's CLI-facing name through recipe_key, which lives there.
 # SC2034: PKG_* defaults below are read by recipe pkg_* functions after this
 # file is sourced; shellcheck can't see the cross-file consumer.
 
@@ -37,6 +39,10 @@ reset_recipe() {
   PKG_VERSION=""
   PKG_URL=""
   PKG_COMMIT=""
+  # Framework-derived, never recipe-set: the path of this recipe's .hash file.
+  # Nested fetch calls inside pkg_install() inherit it as ordinary shell state,
+  # which is how lv2's sub-tarballs all land in one lv2.hash.
+  PKG_HASH_FILE=""
   PKG_FILENAME=""
   PKG_DIRNAME=""
   PKG_FFMPEG_OPT=""
@@ -74,9 +80,27 @@ reset_recipe() {
 # Check whether a recipe should be skipped based on guards
 # Returns 0 if recipe should run, 1 if it should be skipped
 check_guards() {
+  # Every name the user can type -- --disable=, --enable=, and the mutex
+  # exclusions lib/resolve.sh writes into DISABLE_PKGS -- is a recipe FILENAME,
+  # because that is what the registry validates against. PKG_NAME is the
+  # display name and three recipes diverge from their filename, so comparing
+  # against it made --disable=vapoursynth validate, warn nothing, and do
+  # nothing. recipe_key (lib/registry.sh) is that one identity; PKG_NAME stays
+  # in the log lines, which is what it is for.
+  #
+  # FATAL rather than a fallback to PKG_NAME. load_recipe derives a hash-file
+  # path for every recipe, so this cannot fire in a well-formed run -- and when
+  # something structural IS wrong, degrading quietly to the identity we just
+  # removed is the worst available answer. That is not hypothetical: this guard
+  # was written with a `|| _guard_key="$PKG_NAME"` fallback, and it silently
+  # absorbed a test file that sourced this module without lib/registry.sh --
+  # recipe_key was undefined, the fallback fired, the comparison ran against the
+  # wrong identity, and the suite stayed green.
+  _guard_key=$(recipe_key) || die "Cannot derive a CLI identity for '$PKG_NAME': no hash-file path is set for this recipe, so --disable=/--enable= cannot be matched against it. load_recipe (lib/framework.sh) sets PKG_HASH_FILE for every recipe -- reaching here means this recipe was loaded some other way, or lib/registry.sh was never sourced."
+
   # Generic CLI disable list (drives --disable= and --tls=/--aac=/etc.)
   for _d in $DISABLE_PKGS; do
-    if [ "$_d" = "$PKG_NAME" ]; then
+    if [ "$_d" = "$_guard_key" ]; then
       log "Skipping $PKG_NAME (disabled via CLI)"
       return 1
     fi
@@ -86,13 +110,13 @@ check_guards() {
   if [ "$PKG_DISABLED" = true ]; then
     _force=false
     for _e in $ENABLE_PKGS; do
-      [ "$_e" = "$PKG_NAME" ] && _force=true && break
+      [ "$_e" = "$_guard_key" ] && _force=true && break
     done
     if [ "$_force" != true ]; then
       log "Skipping $PKG_NAME (disabled)"
       return 1
     fi
-    log "Force-enabling $PKG_NAME via --enable=$PKG_NAME"
+    log "Force-enabling $PKG_NAME via --enable=$_guard_key"
   fi
 
   # GPL guard
@@ -115,7 +139,7 @@ check_guards() {
   if [ -n "$PKG_REQUIRES_CMD" ]; then
     for _cmd in $PKG_REQUIRES_CMD; do
       if ! command_exists "$_cmd"; then
-        die "$PKG_NAME requires '$_cmd', which is not installed. Install it, or skip this package with --disable=$PKG_NAME."
+        die "$PKG_NAME requires '$_cmd', which is not installed. Install it, or skip this package with --disable=$_guard_key."
       fi
     done
   fi
@@ -125,7 +149,7 @@ check_guards() {
   # recipes were disabled or failed to build. Fail loud rather than skip.
   if [ "$PKG_REQUIRES_MESON" = true ]; then
     if ! command_exists meson || ! command_exists ninja; then
-      die "$PKG_NAME requires meson and ninja, which mediaforge builds in recipes/tools/. They are missing — the meson/ninja recipe was disabled or failed. Re-enable it, or skip this package with --disable=$PKG_NAME."
+      die "$PKG_NAME requires meson and ninja, which mediaforge builds in recipes/tools/. They are missing — the meson/ninja recipe was disabled or failed. Re-enable it, or skip this package with --disable=$_guard_key."
     fi
   fi
 
@@ -144,8 +168,13 @@ check_guards() {
   return 0
 }
 
-# Run a single recipe file through the build lifecycle
-run_recipe() {
+# load_recipe RECIPE_PATH
+# Reset recipe state, derive PKG_HASH_FILE from the recipe's own path, source
+# the recipe, and validate the fields every recipe must set. Shared by
+# run_recipe() (full build lifecycle) and cmd_makesum() (fetch-only, in
+# lib/makesum.sh) so the derivation lives in exactly one place — a helper only
+# the new caller used would just be a second copy that drifts from this one.
+load_recipe() {
   _recipe_path="$1"
 
   if [ ! -f "$_recipe_path" ]; then
@@ -154,6 +183,12 @@ run_recipe() {
 
   # Reset state
   reset_recipe
+
+  # Every recipe's checksums live in a sidecar beside its own .sh file, so the
+  # lookup is derived from the path the caller already gave us rather than
+  # threaded through fetch()'s argument list (which is already at its
+  # three-argument ceiling).
+  PKG_HASH_FILE="${_recipe_path%.sh}.hash"
 
   # Source the recipe to load its variables and phase overrides
   . "$_recipe_path"
@@ -165,6 +200,11 @@ run_recipe() {
   if [ -z "$PKG_URL" ] && [ "$PKG_SKIP_EXTRACT" != true ]; then
     die "Recipe $_recipe_path missing PKG_URL (set PKG_SKIP_EXTRACT=true for header-only packages)"
   fi
+}
+
+# Run a single recipe file through the build lifecycle
+run_recipe() {
+  load_recipe "$1"
 
   # Queue this recipe's .pc files for removal if it's a transitive utility.
   # We do this BEFORE check_guards / stamp_check so the queue is populated
@@ -185,8 +225,19 @@ run_recipe() {
     # guards (missing cmd/meson, platform, arch) still re-accumulate, since the
     # stamped lib is present, linkable, and carries no license objection.
     _excluded=false
+    # Same registry identity check_guards used to decide the skip; comparing a
+    # different name here would let a --disable=d recipe re-accumulate the very
+    # FFmpeg flag the skip exists to suppress -- and "the skip" includes the
+    # LICENCE tiers, so a wrong match here re-emits --enable-libx264 for a build
+    # that never asked for --enable-gpl. Failing loud is the only answer that
+    # cannot silently mislicense a binary; a fallback to any other identity can.
+    # Fatal on the same terms as check_guards, and on stronger ones: this line is
+    # only reached after check_guards returned, which means it already derived
+    # the key, so a failure here is a state change between the two rather than a
+    # missing value.
+    _excl_key=$(recipe_key) || die "Cannot derive a CLI identity for '$PKG_NAME' while deciding whether to re-accumulate its FFmpeg flag, though check_guards derived one moments earlier. PKG_HASH_FILE changed mid-recipe."
     for _d in $DISABLE_PKGS; do
-      [ "$_d" = "$PKG_NAME" ] && _excluded=true && break
+      [ "$_d" = "$_excl_key" ] && _excluded=true && break
     done
     [ "$PKG_GPL" = true ] && [ "$ENABLE_GPL" != true ] && _excluded=true
     [ "$PKG_NONFREE" = true ] && [ "$ENABLE_NONFREE" != true ] && _excluded=true

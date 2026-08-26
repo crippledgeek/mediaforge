@@ -25,6 +25,36 @@ registry_init() {
   ' "$SCRIPT_DIR/recipes/_order.conf")
 }
 
+# recipe_key
+# The registry identity of the recipe currently loaded: its filename without
+# the .sh suffix. Prints nothing and returns 1 when there is no loaded recipe
+# to name, so a caller can tell "no key" from "the empty key" -- an empty key
+# is not a recipe, and treating one as a name matches things it should not.
+#
+# THIS, NOT PKG_NAME, IS WHAT EVERY CLI-FACING RECIPE NAME MEANS. The registry
+# above is built from _order.conf paths, so --disable=/--enable=/--skip-checksum=
+# are all validated against filenames, and lib/resolve.sh writes its mutex
+# exclusions into DISABLE_PKGS by filename too. PKG_NAME is a DISPLAY name and
+# three recipes deliberately diverge -- vapoursynth/VapourSynth,
+# freetype2/FreeType2, freetype2-harfbuzz/FreeType2-hb -- so matching a user's
+# name against PKG_NAME accepted `--disable=vapoursynth`, warned nothing, and
+# did nothing. Renaming those three the other way is the riskier direction:
+# PKG_NAME reaches log output and the stamp filenames a built workspace
+# already carries.
+#
+# Derived from PKG_HASH_FILE, which load_recipe (lib/framework.sh) sets from
+# the recipe's own path for every recipe, recipes/ffmpeg.sh sets explicitly,
+# and a nested fetch() inherits unchanged -- so it is always present and always
+# agrees with the registry, which PKG_NAME is not.
+recipe_key() {
+  _rk="${PKG_HASH_FILE:-}"
+  [ -n "$_rk" ] || return 1
+  _rk="${_rk##*/}"
+  _rk="${_rk%.hash}"
+  [ -n "$_rk" ] || return 1
+  printf '%s' "$_rk"
+}
+
 # Return 0 if $1 is a known recipe name.
 is_known_pkg() {
   registry_init
@@ -32,6 +62,32 @@ is_known_pkg() {
     [ "$_r" = "$1" ] && return 0
   done
   return 1
+}
+
+# validate_pkg_names LIST [EXTRA]
+# Die on the first name in LIST that is neither a recipe in the registry nor
+# one of the whitespace-separated names in EXTRA, naming near matches.
+#
+# One implementation for all three call sites (cmd_build's --disable=/--enable=,
+# cmd_build's --skip-checksum=, cmd_makesum's package filter). Those three were
+# served by TWO byte-identical copies of this loop, not three -- cmd_build's
+# single loop covered both of its own flags -- and a copy is where the
+# suggestion text and the die wording drift apart.
+validate_pkg_names() {
+  _vpn_extra="${2:-}"
+  registry_init
+  for _vpn in $1; do
+    is_known_pkg "$_vpn" && continue
+    for _vpn_e in $_vpn_extra; do
+      [ "$_vpn_e" = "$_vpn" ] && continue 2
+    done
+    _vpn_hint=$(suggest_pkg "$_vpn")
+    if [ -n "$_vpn_hint" ]; then
+      die "Unknown package: $_vpn. Did you mean: $_vpn_hint ?"
+    else
+      die "Unknown package: $_vpn. Run '$PROGNAME build --list-pkgs' to see all."
+    fi
+  done
 }
 
 # Print substring-matching recipe names, comma-separated, max 3.

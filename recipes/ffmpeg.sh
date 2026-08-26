@@ -20,8 +20,18 @@ log ""
 log "Building FFmpeg $FFMPEG_VERSION"
 log "======================="
 
-fetch "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" \
-  "FFmpeg-release-${FFMPEG_VERSION}.tar.gz"
+# Sourced directly by mediaforge.sh rather than through run_recipe(), so
+# unlike every other recipe it must set its own identity. Nothing resets the
+# PKG_* globals before this file is sourced, so without the PKG_NAME line it
+# reports whichever name the last recipe in _order.conf left behind. Both are
+# read by fetch()/makesum in lib/download.sh, a cross-file consumer shellcheck
+# can't see.
+# shellcheck disable=SC2034
+PKG_NAME="ffmpeg"
+# shellcheck disable=SC2034
+PKG_HASH_FILE="$(ffmpeg_hash_file)"
+
+fetch "$(ffmpeg_tarball_url)" "$(ffmpeg_tarball_filename)"
 
 # Local patch: mark AVS2 as AV_CODEC_PROP_REORDER so libavcodec/encode.c does
 # NOT clobber libxavs2's B-frame decode-order DTS with dts=pts (which yields a

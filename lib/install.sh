@@ -403,10 +403,15 @@ do_install() {
   # so without this read OPENSSLDIR is empty here and the probe silently
   # returns a different answer than the build baked.
   #
-  # Parsed with sed rather than sourced. load_stored_choices sources it, but
-  # this function runs privileged commands, and sourcing build output into a
-  # process that shells out under sudo is a worse trust posture than parsing a
-  # value out of it.
+  # Parsed by name with _stored_choice, never sourced -- and neither is the
+  # build's own read of this file. $PREFIX is where every dependency's
+  # `make install` writes, so anything that can compromise a build can leave
+  # shell here for a later process to execute; asking for values by name means a
+  # setting nobody asked for cannot arrive at all. That matters most right here,
+  # because this function runs mkdir and cp under sudo for a system prefix. The
+  # value read below is additionally put through _validate_openssldir before it
+  # reaches _install_file, so what a privileged command receives is an absolute
+  # path with no shell metacharacter and no '..' segment.
   #
   # A stale bundle from a previous arm is ignored rather than deleted: reading
   # the arm cannot damage a workspace, and deleting build state from an
@@ -414,9 +419,12 @@ do_install() {
   _stored_tls=""
   _stored_od=""
   if [ -f "$PREFIX/.mediaforge-choices" ]; then
-    _stored_tls=$(sed -n 's/^STORED_TLS_BACKEND=//p' "$PREFIX/.mediaforge-choices")
-    # save_stored_choices single-quotes this one; strip the quotes.
-    _stored_od=$(sed -n "s/^STORED_OPENSSLDIR='\(.*\)'$/\1/p" "$PREFIX/.mediaforge-choices")
+    # Same by-name parser load_stored_choices uses (lib/resolve.sh), rather
+    # than a second pair of extraction expressions here: the quoting
+    # save_stored_choices applies is a property of the writer, and two readers
+    # that each re-derive it drift the first time it changes.
+    _stored_tls=$(_stored_choice "$PREFIX/.mediaforge-choices" STORED_TLS_BACKEND)
+    _stored_od=$(_stored_choice "$PREFIX/.mediaforge-choices" STORED_OPENSSLDIR)
   fi
   if [ -n "$_stored_od" ]; then
     _validate_openssldir "STORED_OPENSSLDIR (from $PREFIX/.mediaforge-choices)" \
@@ -473,7 +481,7 @@ do_install() {
     # process through die(), so the rm below is unreachable on exactly the path
     # that matters, and a leak inside $PREFIX is one `clean` removes. A trap is
     # not the answer here — mediaforge.sh installs on_exit as the EXIT handler
-    # (lib/cleanup.sh:37) and a local trap would replace it.
+    # (lib/cleanup.sh's setup_traps) and a local trap would replace it.
     #
     # Unlike the manifest accumulator, this file never outlives the build
     # prefix's own ownership: $PREFIX is the tree we just built as this user,

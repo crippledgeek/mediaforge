@@ -143,19 +143,25 @@ openssldir_warn_if_changed() {
 # metacharacter or a traversal. This is the first free-form value in that
 # pipeline, and it reaches two places where unconstrained content is dangerous:
 #
-#   * save_stored_choices writes it to $PREFIX/.mediaforge-choices, which
-#     load_stored_choices SOURCES. Without a charset restriction,
-#     --openssldir='/tmp/x$(...)' is stored verbatim and then EXECUTED on the
-#     next build. The malformed-file guard there checks that sourcing succeeds,
-#     which a working payload does — it detects syntax errors, not code.
 #   * lib/install.sh matches it with `case "$_install_prefix"/*` and passes the
 #     result to _install_file, which runs mkdir -p and cp under $_priv (sudo,
 #     for a system prefix). The glob constrains the prefix but not the suffix,
 #     so '/usr/local/../../etc/ssl' matches and escapes — a privileged write to
-#     an arbitrary path, e.g. over the host's real trust store.
+#     an arbitrary path, e.g. over the host's real trust store. A glob
+#     metacharacter in the value changes what that same `case` matches.
+#   * save_stored_choices writes it as ONE LINE of $PREFIX/.mediaforge-choices,
+#     and both readers (_stored_choice here, and lib/install.sh) split that
+#     line at its first '=' and take the remainder. A newline in the value
+#     forges a second record; a single quote breaks the quoting the writer
+#     wraps it in.
 #
-# Rejecting both classes here means neither consumer has to defend itself
-# against content that can no longer exist.
+# NOT because the file is sourced — it no longer is. It was, and that made this
+# the difference between a stored string and arbitrary code on the next build;
+# _stored_choice replaced the source with a by-name parser, so that specific
+# consequence is gone. The check stays because the privileged write path above
+# is unchanged and is reason enough on its own, and because a value that cannot
+# carry shell syntax is one fewer thing every future reader of this file has to
+# be careful with.
 _validate_openssldir() {
   _name=$1; _value=$2; _why=$3
   [ -z "$_value" ] && return 0
@@ -171,8 +177,9 @@ _validate_openssldir() {
     *[!A-Za-z0-9_./+-]*)
       die "Invalid $_name: '$_value' contains characters that are not allowed.
   Permitted: letters, digits, and _ . / + -
-  The value is stored in $PREFIX/.mediaforge-choices, which is read back as
-  shell on the next build, so it must not be able to carry shell syntax." ;;
+  The value is stored as one line in $PREFIX/.mediaforge-choices and read back
+  on the next build, and it is used as an install destination that may be
+  written with sudo." ;;
   esac
 
   case "$_value" in
@@ -307,24 +314,53 @@ resolve_choices() {
 
 # Load previously-stored choices, if present. Stored values are applied
 # *under* CLI flags (i.e. CLI overrides storage).
+# _stored_choice FILE NAME
+# Print the value of the STORED_* assignment called NAME in FILE, stripping the
+# single quotes save_stored_choices wraps STORED_OPENSSLDIR in.
+#
+# Parsed, never sourced. $PREFIX is the workspace every dependency's
+# `make install` writes into, so anything that can compromise a build can also
+# leave shell in this file for the NEXT one to execute -- including settings no
+# caller ever asked about, such as MAKESUM_MODE=true, which turns verification
+# into digest recording with the sidecars rewritten from whatever is fetched.
+# Asking for values by name means a setting we did not ask for cannot arrive at
+# all, which is a smaller thing to get right than enumerating what to reject.
+# lib/install.sh reads the same file the same way.
+_stored_choice() {
+  awk -v k="$2" -v q="'" '
+    {
+      eq = index($0, "=")
+      if (eq == 0) next
+      if (substr($0, 1, eq - 1) != k) next
+      v = substr($0, eq + 1)
+      if (length(v) > 1 && substr(v, 1, 1) == q && substr(v, length(v), 1) == q) {
+        v = substr(v, 2, length(v) - 2)
+      }
+      print v
+      exit
+    }
+  ' "$1"
+}
+
 load_stored_choices() {
   [ "${USE_MENU:-false}" = true ] && return 0
   [ "${DRY_RUN:-false}" = true ] && return 0
   _file="$PREFIX/.mediaforge-choices"
   [ -f "$_file" ] || return 0
-  if ! ( . "$_file" ) >/dev/null 2>&1; then
-    warn "$_file is malformed — ignoring"
-    return 0
-  fi
-  # shellcheck disable=SC1090
-  . "$_file"
-  : "${TLS_BACKEND:=${STORED_TLS_BACKEND:-}}"
-  : "${AAC_IMPL:=${STORED_AAC_IMPL:-}}"
-  : "${H264_IMPL:=${STORED_H264_IMPL:-}}"
-  : "${H265_IMPL:=${STORED_H265_IMPL:-}}"
-  : "${AV1_ENC_IMPL:=${STORED_AV1_ENC_IMPL:-}}"
-  : "${SPIRV_IMPL:=${STORED_SPIRV_IMPL:-}}"
-  : "${OPENSSLDIR:=${STORED_OPENSSLDIR:-}}"
+  : "${TLS_BACKEND:=$(_stored_choice "$_file" STORED_TLS_BACKEND)}"
+  : "${AAC_IMPL:=$(_stored_choice "$_file" STORED_AAC_IMPL)}"
+  : "${H264_IMPL:=$(_stored_choice "$_file" STORED_H264_IMPL)}"
+  : "${H265_IMPL:=$(_stored_choice "$_file" STORED_H265_IMPL)}"
+  : "${AV1_ENC_IMPL:=$(_stored_choice "$_file" STORED_AV1_ENC_IMPL)}"
+  : "${SPIRV_IMPL:=$(_stored_choice "$_file" STORED_SPIRV_IMPL)}"
+  # Kept in its own variable as well as backfilled, because resolve_choices
+  # needs the PREVIOUS value even when the current one came from the CLI --
+  # that is the entire case openssldir_warn_if_changed exists for. This used to
+  # arrive as a side effect of sourcing the file; nothing assigned it once the
+  # by-name parser replaced the source, and the warning went silently dead
+  # while its own unit tests, which call it directly, stayed green.
+  STORED_OPENSSLDIR=$(_stored_choice "$_file" STORED_OPENSSLDIR)
+  : "${OPENSSLDIR:=$STORED_OPENSSLDIR}"
 }
 
 # Save resolved choices for next run.

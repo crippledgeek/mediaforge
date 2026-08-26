@@ -23,6 +23,13 @@ sh tests/libressl-trust-store.sh
 sh tests/git-commit-pinning.sh
 sh tests/install-containment.sh
 sh tests/install-privileged-execs.sh
+sh tests/checksum-verification.sh
+# Prose hygiene, not behaviour: a comment citing an in-tree file by LINE is
+# correct only until the next edit above it, and nothing else in this suite
+# reads a comment. It found fifteen such citations on the branch that added it,
+# two of them already stale.
+sh tests/comment-citations.sh
+sh tests/recipe-identity.sh
 # Runs the unmerged test files against the merge base and fails if any assertion
 # passes there. Catches the oracle that drifted into matching an error message,
 # and the fixture whose path collided with the value it was distinguishing —
