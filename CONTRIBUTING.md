@@ -3,11 +3,62 @@
 ## Getting Started
 
 1. Fork the repository
-2. Create a feature branch from `develop`
-3. Make your changes
-4. Run syntax checks: `for f in lib/*.sh recipes/**/*.sh; do sh -n "$f"; done`
-5. Test a full build: `./mediaforge.sh build --enable-nonfree`
-6. Submit a pull request targeting `develop`
+2. Register the repo's git hooks: `git config core.hooksPath .githooks` (see [Git Hooks](#git-hooks))
+3. Create a feature branch from `develop`
+4. Make your changes
+5. Run the lint gate: `./tests/shellcheck.sh`
+6. Run the test suite: `sh tests/run.sh`
+7. Test a full build: `./mediaforge.sh build --enable-nonfree`
+8. Submit a pull request targeting `develop`
+
+## Git Hooks
+
+`.githooks/pre-push` runs `tests/shellcheck.sh` and refuses the push if it fails.
+
+Git does not install hooks from a checkout, so cloning does not enable it. Each
+clone opts in once:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+`core.hooksPath` replaces the hook directory **for every hook type**, not just
+`pre-push`. If you keep personal hooks in `.git/hooks/` for this repo, move them
+into `.githooks/` (or expect them to stop firing — silently, with no error).
+
+Things worth knowing about what the hook checks:
+
+- It lints the **working tree**, not the commits being pushed. Pushing from a
+  clean tree makes those the same thing; pushing with unrelated dirty edits does
+  not.
+- A **deletion-only** push (`git push origin --delete <branch>`) ships no content
+  and is let through, so a lint failure that predates the deletion cannot block
+  the branch cleanup this workflow expects.
+- It sets `REQUIRE_SHELLCHECK=1`, so the gate **refuses to report a pass** when
+  `shellcheck` is not installed. An ad-hoc `./tests/shellcheck.sh` still degrades
+  to the `sh -n` half and says so; a gate that blocks a push does not get to.
+- The gate covers every executable file under `.githooks/` — checked first, so
+  a hook you just broke is reported in a fraction of a second — plus
+  `mediaforge.sh` itself and every `.sh` file under `lib/`, `recipes/`, and
+  `tests/`. A syntax error in the hook would otherwise block every push with a
+  failure nothing lints.
+- It refuses a linter that only *resolves*: `SHELLCHECK=` may name the binary,
+  but the binary must identify itself as ShellCheck. A no-op shim would
+  otherwise report every file clean, in silence.
+- It fails if `mediaforge.sh` or `tests/shellcheck.sh` has lost its executable
+  bit. Those are the two commands documented here as `./path`, and nothing else
+  in the tree depends on their mode — so if you see that error after a fresh
+  clone on a filesystem that drops modes (a zip export, a Windows checkout, a
+  copy over CIFS), it is this rule firing, not a broken checkout: `chmod +x`
+  them.
+
+Do not push past a failing hook with `--no-verify`; fix the findings.
+
+**Reviewing changes to `.githooks/`.** This is the one directory whose contents
+run automatically, on a contributor's machine, outside CI. The project already
+executes in-repo shell freely — every recipe is sourced during a build — so this
+is not a new class of trust, but a diff that touches `.githooks/` deserves the
+same attention as one that touches a recipe's `pkg_install`.
 
 ## Shell Style
 

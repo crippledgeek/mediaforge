@@ -30,6 +30,12 @@ sh tests/checksum-verification.sh
 # two of them already stale.
 sh tests/comment-citations.sh
 sh tests/recipe-identity.sh
+# Pins .githooks/pre-push, which runs tests/shellcheck.sh -- and only that -- at
+# push time. Asserts it forwards the gate's verdict both ways, demands a real
+# linter rather than sh -n alone, and lets a branch deletion through. A hook that
+# exited 0 regardless would leave the tree looking guarded when it is not, and
+# nothing else here would notice.
+sh tests/pre-push-hook.sh
 # Runs the unmerged test files against the merge base and fails if any assertion
 # passes there. Catches the oracle that drifted into matching an error message,
 # and the fixture whose path collided with the value it was distinguishing —
