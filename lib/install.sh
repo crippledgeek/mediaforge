@@ -120,6 +120,25 @@ _needs_priv() {
   return 0
 }
 
+# Read a privileged helper's TEXT into _helper_text, for a caller that will run
+# it as `$_priv sh -c "$text"`. Both helpers are read this way, so the two
+# refusals below exist once rather than once each.
+#
+# Assigns to a fixed name instead of printing, because a caller writing
+# `x=$(_load_helper_text ...)` would run die() inside a command substitution,
+# where it exits the SUBSHELL and leaves the caller running with an empty
+# helper — the exact state the emptiness check exists to prevent.
+#
+# Emptiness is a refusal, not a curiosity: a script with no commands exits 0
+# under POSIX, so an empty or truncated helper is indistinguishable from one
+# that did the work, and every caller here treats status 0 as "it happened".
+_load_helper_text() {
+  _helper_text=$(cat "$1") \
+    || die "Cannot read the privileged helper at $1"
+  [ -n "$_helper_text" ] \
+    || die "The privileged helper at $1 is empty."
+}
+
 # Copy a file, creating parent dirs as needed. Appends the installed-relative
 # path to the manifest accumulator at $_manifest_tmp_path.
 #
@@ -161,13 +180,8 @@ _install_file() {
   # Read lazily rather than at source time so that sourcing lib/install.sh stays
   # free of I/O for callers that never install (uninstall, the option parser).
   if [ -z "${_install_helper:-}" ]; then
-    _install_helper=$(cat "$SCRIPT_DIR/lib/install-one-file.sh") \
-      || die "Cannot read the install helper at $SCRIPT_DIR/lib/install-one-file.sh"
-    # An empty read is a truncated or missing helper. Caught here rather than
-    # later, because an empty script exits 0 under POSIX and every install would
-    # report success having copied nothing.
-    [ -n "$_install_helper" ] \
-      || die "The install helper at $SCRIPT_DIR/lib/install-one-file.sh is empty."
+    _load_helper_text "$SCRIPT_DIR/lib/install-one-file.sh"
+    _install_helper=$_helper_text
   fi
 
   # Under $_priv, so the check answers about the same filesystem view the copy
@@ -326,64 +340,66 @@ _select_prefix() {
 
 # ─── Manifest-driven removal ─────────────────────────────────────────
 
-# Remove every file a list names, relative to a target prefix, under a
-# privilege. The list is a manifest — the one uninstall acts on, or the subset
-# of it that install has decided is no longer shipped. Sets _mr_removed.
+# Act on a manifest through lib/remove-listed-files.sh: MODE 'files' deletes
+# what the list names, MODE 'dirs' collects the directories that emptied. $2 is
+# the list, $3 the RESOLVED target prefix. Sets _mr_removed.
 #
-# Shared by both callers rather than written twice: they had to apply the same
-# traversal refusal to the same file format, and a guard that exists in one copy
+# Reads $_priv from the caller's scope, like _install_file reads
+# $_install_prefix_real: both callers set it from the prefix's ownership, and it
+# is the same value for every entry in a run.
+#
+# ONE process does all of it, for both of the reasons lib/install-one-file.sh
+# does the same on the write side. The list is opened by that process, so a
+# root-owned 0600 manifest is readable — do_uninstall used to open it with plain
+# shell redirection as the invoking user, which on a system prefix silently read
+# nothing and reported "Removed 0 files" having removed none. And containment is
+# checked by entering each directory and deleting relative to it, rather than by
+# rejecting '..' in the text and hoping no component is a symlink.
+#
+# Shared by do_install's prune and do_uninstall rather than written twice: they
+# apply the same rules to the same file format, and a guard living in one copy
 # is a guard that stops existing the next time only the other copy is edited.
-_remove_listed_files() {
-  _mr_list="$1"
-  _mr_target="$2"
-  _mr_priv="$3"
+_remove_manifest_entries() {
+  _mr_mode="$1"
+  _mr_list="$2"
+  _mr_target_real="$3"
 
-  _mr_removed=0
-  while IFS= read -r _mr_rel; do
-    [ -z "$_mr_rel" ] && continue
-    # Reject entries that could traverse out of $_mr_target. A tampered manifest
-    # (or a compromised install) could otherwise drive `$_priv rm -f` against
-    # arbitrary paths under sudo.
-    case "$_mr_rel" in
-      /*|*/../*|../*|..)
-        warn "Suspicious manifest entry skipped: $_mr_rel"
-        continue ;;
-    esac
-    _mr_file="$_mr_target/$_mr_rel"
-    if [ -f "$_mr_file" ]; then
-      $_mr_priv rm -f "$_mr_file"
-      _mr_removed=$((_mr_removed + 1))
-    fi
-  done < "$_mr_list"
-}
+  # Read lazily and once per process, exactly like the install helper: running
+  # it from its path under sudo would re-read the file from disk as root once
+  # per call, and each read is a chance for the executed text to differ from the
+  # text this run started with.
+  if [ -z "${_remove_helper:-}" ]; then
+    _load_helper_text "$SCRIPT_DIR/lib/remove-listed-files.sh"
+    _remove_helper=$_helper_text
+  fi
 
-# Collect the directories a removal emptied, bottom-up. `rmdir` refuses a
-# non-empty directory, so a shared prefix where other packages live keeps
-# everything of theirs without this needing to know which is which.
-#
-# Carries the same traversal refusal as the removal above, which the sweep it
-# was extracted from did not have: dirname("../x") is "..", and the climb below
-# stops only at $_rd_target, so an entry starting with ../ would have walked the
-# rmdir up out of the prefix. Nothing was reachable through it — the removal
-# loop had already refused the same entry, so the directory it names was never
-# emptied by us — but the guard belongs on both loops rather than on one and by
-# luck on the other.
-_remove_emptied_dirs() {
-  _rd_list="$1"
-  _rd_target="$2"
-  _rd_priv="$3"
+  _mr_out=$($_priv sh -c "$_remove_helper" _ "$_mr_mode" "$_mr_target_real" "$_mr_list")
+  _mr_rc=$?
 
-  while IFS= read -r _rd_rel; do
-    [ -z "$_rd_rel" ] && continue
-    case "$_rd_rel" in
-      /*|*/../*|../*|..) continue ;;
-    esac
-    _rd_dir="$_rd_target/$(dirname "$_rd_rel")"
-    while [ "$_rd_dir" != "$_rd_target" ] && [ -d "$_rd_dir" ]; do
-      $_rd_priv rmdir "$_rd_dir" 2>/dev/null || break
-      _rd_dir=$(dirname "$_rd_dir")
-    done
-  done < "$_rd_list"
+  case "$_mr_rc" in
+    0) ;;
+    2) die "the removal helper failed to parse (exit 2). Its text is truncated or
+  altered; check $SCRIPT_DIR/lib/remove-listed-files.sh." ;;
+    3) die "cannot resolve '$_mr_target_real' — refusing to remove anything under it." ;;
+    4) die "internal: lib/remove-listed-files.sh rejected its arguments
+  (mode '$_mr_mode', list '$_mr_list')." ;;
+    1|126|127) die "could not run the removal helper (status $_mr_rc).
+  For a privileged prefix this runs '$_priv sh -c' over
+  $SCRIPT_DIR/lib/remove-listed-files.sh, which a sudoers policy permitting only
+  mkdir/cp/rm will refuse — that is one cause. A missing or unreadable helper is
+  the other. Re-running the whole command as root needs no per-file elevation." ;;
+    *) die "internal: the removal helper exited $_mr_rc" ;;
+  esac
+
+  # Status 0 alone is also what a helper mangled down to nothing returns, having
+  # checked nothing and removed nothing. Requiring the sentinel is what makes
+  # "removed 0 files" mean the list really held nothing left to remove.
+  case "$_mr_out" in
+    'REMOVED '*) _mr_removed="${_mr_out#REMOVED }" ;;
+    *) die "the removal helper reported success without completing — no REMOVED
+  sentinel. Its text may be truncated or altered; check
+  $SCRIPT_DIR/lib/remove-listed-files.sh." ;;
+  esac
 }
 
 # ─── Install ─────────────────────────────────────────────────────────
@@ -581,6 +597,12 @@ do_install() {
   # previous manifest is then an orphan and the prune would delete the whole
   # install. Both are skipped, out loud: silence here is indistinguishable from
   # a successful install.
+  #
+  # `return 0`, not `die`: `build` runs this as its last step and still has to
+  # reach the skipped-checksum banner afterwards, and an empty workspace is a
+  # state to report rather than a failure of the install itself. The exit status
+  # therefore stays 0, so a scripted `install && ...` proceeds — the warning is
+  # the whole signal. Say so out loud rather than leaving a caller to discover it.
   if [ ! -s "$_manifest_tmp" ]; then
     rm -f "$_manifest_tmp"
     warn "Nothing was installed to $_install_prefix — no files found in $PREFIX."
@@ -611,20 +633,28 @@ do_install() {
   # LC_ALL=C on both the sorts and the comm: `comm` requires its inputs sorted
   # in ITS collation, and a locale-sorted input silently yields wrong set
   # differences rather than an error.
-  _prev_manifest=$(mktemp /tmp/mediaforge-prev-manifest.XXXXXX) \
-    || die "Cannot create manifest tmp file in /tmp"
+  #
+  # The comparison is over the manifest's exact TEXT, one line per installed
+  # file, as _install_file writes it. Anything that changes how that line is
+  # spelled — the prefix-stripping, whitespace, a field added — makes every
+  # entry written by the old spelling fail to match its new one and become an
+  # orphan, so the install that re-installed a file would then delete it. A
+  # format change needs a migration here, not just at the writer.
+  #
+  # The intermediates live in $PREFIX/.logs, NOT /tmp, following the header-list
+  # temp below: a `die` in this block exits through cleanup.sh's EXIT trap and
+  # the `rm -f` at the end of the block is unreachable, so a leak wants to land
+  # somewhere `clean` removes. The manifest accumulator is in /tmp for a reason
+  # that does not apply to these — its destination may be root-owned, while
+  # every write here is plain unprivileged redirection into the build prefix we
+  # just built as this user.
+  mkdir -p "$PREFIX/.logs" || die "Cannot create $PREFIX/.logs"
+  _prev_manifest="$PREFIX/.logs/_prev_manifest_$$"
+  _prev_sorted="$PREFIX/.logs/_prev_sorted_$$"
+  _new_sorted="$PREFIX/.logs/_new_sorted_$$"
+  _orphans="$PREFIX/.logs/_orphans_$$"
   if $_priv cat "$_manifest" > "$_prev_manifest" 2>/dev/null \
      && [ -s "$_prev_manifest" ]; then
-    # Each intermediate gets its own mktemp rather than a suffix on another's
-    # name: mktemp's O_EXCL is what makes these safe to write in a world-writable
-    # /tmp, and a derived "$name.sorted" is created by plain redirection with
-    # none of that.
-    _prev_sorted=$(mktemp /tmp/mediaforge-prev-sorted.XXXXXX) \
-      || die "Cannot create manifest tmp file in /tmp"
-    _new_sorted=$(mktemp /tmp/mediaforge-new-sorted.XXXXXX) \
-      || die "Cannot create manifest tmp file in /tmp"
-    _orphans=$(mktemp /tmp/mediaforge-orphans.XXXXXX) \
-      || die "Cannot create manifest tmp file in /tmp"
     LC_ALL=C sort -u "$_prev_manifest" > "$_prev_sorted" \
       || die "Cannot sort the previous manifest read from $_manifest"
     LC_ALL=C sort -u "$_manifest_tmp" > "$_new_sorted" \
@@ -632,9 +662,15 @@ do_install() {
     LC_ALL=C comm -23 "$_prev_sorted" "$_new_sorted" > "$_orphans" \
       || die "Cannot compare the previous manifest at $_manifest against this run"
     if [ -s "$_orphans" ]; then
-      _remove_listed_files "$_orphans" "$_install_prefix" "$_priv"
-      _remove_emptied_dirs "$_orphans" "$_install_prefix" "$_priv"
-      log "  pruned $_mr_removed file(s) this build no longer ships"
+      _remove_manifest_entries files "$_orphans" "$_install_prefix_real"
+      # Reported only when something actually went, because _mr_removed counts
+      # what was ON DISK: an orphan list whose files a user already deleted by
+      # hand is a reconcile with nothing to do, and "pruned 0 file(s)" reads as
+      # a failure to prune rather than as nothing to prune.
+      if [ "$_mr_removed" -gt 0 ]; then
+        log "  pruned $_mr_removed file(s) this build no longer ships"
+      fi
+      _remove_manifest_entries dirs "$_orphans" "$_install_prefix_real"
     fi
     rm -f "$_orphans" "$_new_sorted" "$_prev_sorted"
   fi
@@ -761,7 +797,18 @@ do_uninstall() {
       esac
     fi
 
-    _remove_listed_files "$_manifest" "$_target" "$_priv"
+    # Resolved under $_priv, like do_install resolves its own prefix: the
+    # removals run under that privilege, so the containment boundary has to be
+    # the one they will see. This also normalises a trailing slash on --prefix,
+    # which `pwd -P` never emits — without it the rmdir climb below compares
+    # "<prefix>//lib" against "<prefix>/" and never reaches its terminator.
+    _target_real=$(_resolve_existing "$_target" "$_priv")
+    if [ -z "$_target_real" ]; then
+      warn "Cannot resolve $_target — skipping"
+      continue
+    fi
+
+    _remove_manifest_entries files "$_manifest" "$_target_real"
     _removed="$_mr_removed"
 
     # Sweep dangling symlinks under mediaforge's known install subtrees only.
@@ -780,7 +827,7 @@ do_uninstall() {
     done
 
     # Clean up empty directories left behind (bottom-up)
-    _remove_emptied_dirs "$_manifest" "$_target" "$_priv"
+    _remove_manifest_entries dirs "$_manifest" "$_target_real"
 
     # Second rmdir pass: clean directories left empty by the dangling-symlink
     # sweep. Includes the top-level $_target/{bin,lib,include,share/man,share}
