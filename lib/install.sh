@@ -848,7 +848,11 @@ do_uninstall() {
       done
     done
 
-    # Clean up empty directories left behind (bottom-up)
+    # Clean up empty directories left behind (bottom-up). This overwrites
+    # _mr_removed with a DIRECTORY count, which is why _removed was taken above;
+    # the count is deliberately not reported, because "removed N files" is what
+    # an operator is checking and a second number beside it invites the two to be
+    # read as one total.
     _remove_manifest_entries dirs "$_manifest" "$_target_real"
 
     # Second rmdir pass: clean directories left empty by the dangling-symlink

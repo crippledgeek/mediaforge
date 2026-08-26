@@ -18,9 +18,11 @@
 # nothing is pruned at all. Pairing each with a removal the base fails to
 # perform is what keeps the safety half asserted without buying a free pass.
 #
-# The two directory-guard cases are the exception and need no pairing: they are
-# driven through UNINSTALL with a tampered manifest, where the base really does
-# act and really does get it wrong.
+# The cases driven through UNINSTALL rather than install would not strictly need
+# the pairing — the base really does act on a manifest there, and really does
+# get it wrong — but they carry one anyway, because "the thing outside the
+# prefix is still there" is equally satisfied by a run that died before reaching
+# the sweep at all. The pairing proves the code under test ran.
 #
 # No `set -e`: every check reports independently and the script exits with the
 # accumulated status, so one early failure does not hide the rest — and the
@@ -313,7 +315,10 @@ fi
 # sentinel exists for, and the one the emptiness check above cannot see. Without
 # the sentinel this exits 0 having removed nothing and reads as a clean sweep.
 _run_with_damaged_helper silent ':'
-if printf '%s\n' "$_damaged_out" | grep -q 'REMOVED' && [ -f "$_d/bin/ffmpeg" ]; then
+# Greps the arm's own wording, not the word REMOVED: nothing else on this path
+# prints REMOVED today, so matching it would pass by coincidence and stop the
+# day a neighbouring message mentions the sentinel.
+if printf '%s\n' "$_damaged_out" | grep -q 'without completing' && [ -f "$_d/bin/ffmpeg" ]; then
   _pass "a helper that exits 0 without the sentinel is refused"
 else
   _bad "a helper that exits 0 without the sentinel is refused"
@@ -361,6 +366,12 @@ fi
 # this user cannot write is not something a test can create without being root.
 # Paired with "and the files really went", so a helper that wins the count by
 # refusing everything fails the same assertion.
+#
+# Honest about WHY this one fails on the merge base: _remove_manifest_entries
+# does not exist there, so the shim log is empty and the count is 0 — absence,
+# not a wrong count. Its oracle on the current tree is still the real thing: a
+# revert to the per-entry `$_priv rm -f` shape logs one exec per manifest entry
+# (five for this stage), which this refuses.
 _case execs
 _make_stage "$_s"
 _run_install "$_s" "$_d" >/dev/null

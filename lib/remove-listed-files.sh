@@ -87,11 +87,27 @@ _target_real=$(cd "$_target_real" 2>/dev/null && pwd -P) || exit 3
 # argues must not be purchasable — the root-owned 0600 manifest was one way in,
 # and running as root closed only that one.
 #
-# Probed by actually opening it, in a subshell, rather than with `[ -r ]`: -r
-# answers from the permission bits and can disagree with the open (ACLs, a
-# filesystem mounted differently, a name that stops resolving). The subshell is
-# what makes the failure observable — a bare `: < "$_list"` here would kill this
-# shell outright with a status the caller reads as "the helper never ran".
+# Probed by actually opening it, rather than with `[ -r ]`: -r answers from the
+# permission bits and can disagree with the open (ACLs, a filesystem mounted
+# differently, a name that stops resolving).
+#
+# The SUBSHELL is what makes the status ours to choose. A redirection failure on
+# a bare `: < "$_list"` — or on `exec 3< "$_list"` — kills a non-interactive
+# shell before the `|| exit 7` runs, with a status that depends on which /bin/sh
+# is present. Measured 2026-08-26 against a mode-000 list: bash-as-sh exits 1,
+# dash exits 2, and bash proper reaches exit 7 (it only dies on a special
+# builtin's redirection failure in POSIX mode). Both of the first two land on
+# the WRONG arm in the caller — 1 says the helper never ran, and 2 says its text
+# is truncated, sending an operator to audit a file that is perfectly intact
+# when the real problem is a manifest they cannot read. Wrapped, every shell
+# reports 7. (busybox ash is untested here; the wrapped form depends only on a
+# subshell's exit status, which is POSIX.)
+#
+# stderr is dropped, so EACCES and ENOENT arrive as one status. The caller's
+# message names the path and who needs to be able to read it, which is what an
+# operator acts on; distinguishing them would need the errno text, and it is not
+# worth a second probe to say "missing" instead of "unreadable" about a file the
+# caller is about to name anyway.
 ( : < "$_list" ) 2>/dev/null || exit 7
 
 _removed=0
