@@ -210,9 +210,10 @@ Same rule for uninstall.
 
 ### Installing over an existing install
 
-Install reconciles against the previous install's manifest before replacing it.
-Every file the earlier build put in the prefix and this one does not ship — a library that was renamed, merged into another archive, or dropped
-from the build entirely — is removed, and the directories that empties go with
+Install reconciles against the previous install's manifest before replacing
+it. Every file the earlier build put in the prefix and this one does not ship
+— a library that was renamed, merged into another archive, or dropped from the
+build entirely — is removed, and the directories that empties go with
 it. Without that step those files would stay on disk *and* disappear from the
 record, which makes them permanently invisible to `uninstall`: the prefix
 survives an uninstall that reports success, and a stale `.a` beside a matching

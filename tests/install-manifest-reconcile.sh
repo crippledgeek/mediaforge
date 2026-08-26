@@ -208,7 +208,10 @@ mkdir -p "$_out_dir/victim"
 _run_install "$_s" "$_d" >/dev/null
 printf '../victim/ghost\n' >> "$_d/.mediaforge-manifest"
 _run_uninstall "$_s" "$_d" >/dev/null
-if [ -d "$_out_dir/victim" ]; then
+# Paired with proof the sweep actually ran: "the victim is still there" is also
+# satisfied by an uninstall that died before reaching the directory pass, which
+# would turn this green for the wrong reason after some future change.
+if [ -d "$_out_dir/victim" ] && [ ! -e "$_d/bin/ffmpeg" ]; then
   _pass "an empty directory outside the prefix survives a traversing manifest entry"
 else
   _bad "an empty directory outside the prefix survives a traversing manifest entry"
@@ -260,33 +263,130 @@ else
   _bad "the refusal is reported, and entries outside the symlink still go"
 fi
 
-# ─── a truncated removal helper is refused, not read as success ────────────
-# An empty or truncated `sh -c` script exits 0 under POSIX, so without the
-# REMOVED sentinel a damaged helper is indistinguishable from a completed sweep
-# that found nothing to do — and uninstall would report success having deleted
-# nothing, which is #15's own failure mode arriving by another route.
+# ─── a damaged removal helper is refused, not read as success ──────────────
+# Three distinct ways the helper can be damaged, each caught by a DIFFERENT arm
+# of the caller, because a single case would credit whichever arm happens to run
+# first. An empty or truncated `sh -c` script exits 0 under POSIX, so a damaged
+# helper is otherwise indistinguishable from a completed sweep that found
+# nothing to do — uninstall would report success having deleted nothing, which
+# is #15's own failure mode arriving by another route.
 #
-# Runs against a COPY of the tree with the helper emptied, never the real one:
-# a test that mutates lib/ in the shared checkout is how a green suite gets left
-# behind on a broken tree.
-_case truncated
+# Every case runs against a COPY of the tree, never the real one: a test that
+# mutates lib/ in the shared checkout is how a green suite gets left behind on a
+# broken tree.
+#
+# $1 names the case, $2 is the helper's replacement text (empty for a zero-byte
+# file), $3 the message the caller must emit. Sets _damaged_out.
+_run_with_damaged_helper() {
+  _fake_root="$_out_dir/fake-$1"
+  mkdir -p "$_fake_root/lib" || exit 1
+  cp "$_root"/lib/*.sh "$_fake_root/lib/" || exit 1
+  if [ -n "$2" ]; then
+    printf '%s\n' "$2" > "$_fake_root/lib/remove-listed-files.sh"
+  else
+    : > "$_fake_root/lib/remove-listed-files.sh"
+  fi
+  _damaged_out=$(PREFIX="$_s" INSTALL_MANPAGES=0 AUTOINSTALL=yes \
+    SCRIPT_DIR="$_fake_root" VERBOSE=0 sh -c '
+      . "$SCRIPT_DIR/lib/utils.sh"
+      . "$SCRIPT_DIR/lib/resolve.sh"
+      . "$SCRIPT_DIR/lib/install.sh"
+      do_uninstall "$1"
+    ' _ "$_d" 2>&1)
+}
+
+# Paired with "the tree is untouched" throughout: a caller that aborts for the
+# right reason but only after deleting half the manifest is not the behaviour
+# any of these are asking for.
+_case damaged
 _make_stage "$_s"
 _run_install "$_s" "$_d" >/dev/null
-_fake_root="$_out_dir/fake-root"
-mkdir -p "$_fake_root/lib" || exit 1
-cp "$_root"/lib/*.sh "$_fake_root/lib/" || exit 1
-: > "$_fake_root/lib/remove-listed-files.sh"
-_trunc_out=$(PREFIX="$_s" INSTALL_MANPAGES=0 AUTOINSTALL=yes \
-  SCRIPT_DIR="$_fake_root" VERBOSE=0 sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    . "$SCRIPT_DIR/lib/resolve.sh"
-    . "$SCRIPT_DIR/lib/install.sh"
-    do_uninstall "$1"
-  ' _ "$_d" 2>&1)
-if printf '%s\n' "$_trunc_out" | grep -q 'is empty' && [ -f "$_d/bin/ffmpeg" ]; then
-  _pass "a truncated removal helper aborts the sweep instead of reporting zero"
+
+_run_with_damaged_helper empty ''
+if printf '%s\n' "$_damaged_out" | grep -q 'is empty' && [ -f "$_d/bin/ffmpeg" ]; then
+  _pass "an empty removal helper aborts the sweep instead of reporting zero"
 else
-  _bad "a truncated removal helper aborts the sweep instead of reporting zero"
+  _bad "an empty removal helper aborts the sweep instead of reporting zero"
+fi
+
+# A helper that is valid, non-empty, and does nothing — the input the REMOVED
+# sentinel exists for, and the one the emptiness check above cannot see. Without
+# the sentinel this exits 0 having removed nothing and reads as a clean sweep.
+_run_with_damaged_helper silent ':'
+if printf '%s\n' "$_damaged_out" | grep -q 'REMOVED' && [ -f "$_d/bin/ffmpeg" ]; then
+  _pass "a helper that exits 0 without the sentinel is refused"
+else
+  _bad "a helper that exits 0 without the sentinel is refused"
+fi
+
+# Truncated mid-construct: `sh` returns 2 for a syntax error, which the caller
+# maps to its own message precisely so a damaged file is never reported as the
+# containment refusal — sending an operator after an attack that is not
+# happening, for a file that is merely broken.
+_run_with_damaged_helper syntax 'if'
+if printf '%s\n' "$_damaged_out" | grep -q 'failed to parse' && [ -f "$_d/bin/ffmpeg" ]; then
+  _pass "a helper truncated mid-construct is reported as damaged, not as an attack"
+else
+  _bad "a helper truncated mid-construct is reported as damaged, not as an attack"
+fi
+
+# ─── an unreadable manifest is refused, not counted as zero ────────────────
+# `done < "$_list"` on a compound command does not abort a non-interactive
+# shell when the redirection fails — execution falls through to the sentinel,
+# which prints REMOVED 0 over a list that was never opened. Running the helper
+# as root closed the root-owned-0600 instance of this and nothing else; a
+# mode-000 manifest in a user-owned prefix reaches the same end state.
+_case unreadable
+_make_stage "$_s"
+_run_install "$_s" "$_d" >/dev/null
+chmod 000 "$_d/.mediaforge-manifest"
+_unreadable_out=$(_run_uninstall "$_s" "$_d")
+chmod 600 "$_d/.mediaforge-manifest"
+if printf '%s\n' "$_unreadable_out" | grep -q 'cannot open the manifest' \
+   && [ -f "$_d/bin/ffmpeg" ]; then
+  _pass "an unreadable manifest aborts the sweep instead of reporting zero removed"
+else
+  _bad "an unreadable manifest aborts the sweep instead of reporting zero removed"
+fi
+
+# ─── the whole list costs ONE privileged exec ──────────────────────────────
+# lib/remove-listed-files.sh's header argues that its containment is not the
+# trade #23 refused, because checking every entry now costs one exec for the
+# list instead of one per entry — ~250 on an install, 1527 on the uninstall that
+# surfaced #15. That is a load-bearing design claim and nothing asserted it;
+# tests/install-privileged-execs.sh pins the same property on the write side and
+# this borrows its counting-`sudo`-shim technique.
+#
+# _remove_manifest_entries is driven directly with _priv=sudo, because a prefix
+# this user cannot write is not something a test can create without being root.
+# Paired with "and the files really went", so a helper that wins the count by
+# refusing everything fails the same assertion.
+_case execs
+_make_stage "$_s"
+_run_install "$_s" "$_d" >/dev/null
+_shim="$_out_dir/shim"
+mkdir -p "$_shim" || exit 1
+cat > "$_shim/sudo" <<'SHIM'
+#!/bin/sh
+printf '%s\n' "$1" >> "$SUDO_LOG"
+exec "$@"
+SHIM
+chmod +x "$_shim/sudo"
+_sudo_log="$_out_dir/sudo.log"
+: > "$_sudo_log"
+PATH="$_shim:$PATH" SUDO_LOG="$_sudo_log" \
+PREFIX="$_s" SCRIPT_DIR="$_root" VERBOSE=0 sh -c '
+  . "$SCRIPT_DIR/lib/utils.sh"
+  . "$SCRIPT_DIR/lib/install.sh"
+  _priv=sudo
+  _remove_manifest_entries files "$1/.mediaforge-manifest" "$1"
+' _ "$_d" >/dev/null 2>&1
+_exec_count=$(wc -l < "$_sudo_log" | tr -d ' ')
+_entry_count=$(wc -l < "$_d/.mediaforge-manifest" | tr -d ' ')
+if [ "$_exec_count" = 1 ] && [ "$_entry_count" -gt 1 ] && [ ! -e "$_d/bin/ffmpeg" ]; then
+  _pass "removing a whole manifest costs one privileged exec, and the files go"
+else
+  _bad "removing a whole manifest costs one privileged exec, and the files go"
 fi
 
 # ─── an install that copies nothing changes nothing ─────────────────────────

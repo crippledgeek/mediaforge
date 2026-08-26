@@ -51,8 +51,11 @@
 #
 # Exit codes, because the messages belong with die() in the caller:
 #   0  completed — and REMOVED <n> printed on stdout; 0 without it is not success
+#      (n counts files in 'files' mode and directories in 'dirs' mode: what this
+#      invocation actually removed, so a caller can report it either way)
 #   3  TARGET_REAL itself could not be resolved — nothing was attempted
 #   4  wrong usage
+#   7  the list could not be opened — nothing was attempted
 #
 # Every status is one the shell cannot produce on its own, so 1/2/126/127
 # reaching the caller mean this file failed to run or to parse rather than
@@ -76,6 +79,21 @@ esac
 _target_real=$(cd "$_target_real" 2>/dev/null && pwd -P) || exit 3
 [ -n "$_target_real" ] || exit 3
 
+# The list must be OPENABLE before either loop starts. `done < "$_list"` on a
+# compound command does not abort a non-interactive shell when the redirection
+# fails: execution falls through to the sentinel, which prints REMOVED 0, and
+# the caller reads a clean "nothing left to remove" from a list it never read.
+# That is the same "reported success having removed nothing" this file's header
+# argues must not be purchasable — the root-owned 0600 manifest was one way in,
+# and running as root closed only that one.
+#
+# Probed by actually opening it, in a subshell, rather than with `[ -r ]`: -r
+# answers from the permission bits and can disagree with the open (ACLs, a
+# filesystem mounted differently, a name that stops resolving). The subshell is
+# what makes the failure observable — a bare `: < "$_list"` here would kill this
+# shell outright with a status the caller reads as "the helper never ran".
+( : < "$_list" ) 2>/dev/null || exit 7
+
 _removed=0
 
 # Enter $_target_real/$1 and confirm it really is inside $_target_real.
@@ -94,9 +112,19 @@ _enter_contained() {
   return 1
 }
 
-# Reject entries that could traverse out of the target. This is the LEXICAL
-# half — necessary but not sufficient, which is the whole point of the file —
-# and it is applied to both modes from one place so the two can never disagree.
+# Reject entries that SPELL a traversal. This is redundant with the containment
+# check above, not a necessary condition alongside it: traced against every
+# shape the tests feed it, `_enter_contained` refuses each one on its own — a
+# '../' entry lands in the real parent and fails the prefix match, and an
+# absolute entry names a directory under the prefix that does not exist, so the
+# `cd` fails. Mutation testing agrees: disabling this guard alone changes no
+# assertion, while loosening containment alone does.
+#
+# Kept as a cheap fast path and as defense in depth, applied to both modes from
+# one place so the two can never disagree — but it is NOT what makes the
+# deletion safe, and a reader must not come away believing it is. Containment
+# is. See the header, and tests/install-manifest-reconcile.sh's symlinked-class
+# -directory case, which is the assertion that actually pins it.
 _traverses() {
   case "$1" in
     /*|*/../*|../*|..) return 0 ;;
@@ -162,7 +190,21 @@ else
       esac
       ( _enter_contained "$_parent" || exit 6
         rmdir -- "./$_leaf" 2>/dev/null || exit 1
-      ) || break
+      )
+      case $? in
+        0) _removed=$((_removed + 1)) ;;
+        # Reported, like the file-mode refusal is. Both fail closed, so this is
+        # not a safety gap — but an operator whose directory cleanup stops
+        # because a component is a symlink gets no clue why from a silent break,
+        # and "the prefix was left behind" with no reason given is the exact
+        # shape of the #15 report this all came from.
+        6) printf 'mediaforge: refusing to remove directory %s — it resolves outside %s\n' \
+             "$_dir" "$_target_real" >&2
+           break ;;
+        # Not empty, or already gone. The ordinary outcome, and the signal to
+        # stop climbing: every level above this one holds it.
+        *) break ;;
+      esac
       _dir=$_parent
     done
   done < "$_list"

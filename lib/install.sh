@@ -342,7 +342,11 @@ _select_prefix() {
 
 # Act on a manifest through lib/remove-listed-files.sh: MODE 'files' deletes
 # what the list names, MODE 'dirs' collects the directories that emptied. $2 is
-# the list, $3 the RESOLVED target prefix. Sets _mr_removed.
+# the list, $3 the RESOLVED target prefix.
+#
+# Sets _mr_removed to what THIS invocation removed — files in 'files' mode,
+# directories in 'dirs' mode. Read it before the next call overwrites it; both
+# callers report the file count, so both read it between their two calls.
 #
 # Reads $_priv from the caller's scope, like _install_file reads
 # $_install_prefix_real: both callers set it from the prefix's ownership, and it
@@ -383,6 +387,9 @@ _remove_manifest_entries() {
     3) die "cannot resolve '$_mr_target_real' — refusing to remove anything under it." ;;
     4) die "internal: lib/remove-listed-files.sh rejected its arguments
   (mode '$_mr_mode', list '$_mr_list')." ;;
+    7) die "cannot open the manifest at '$_mr_list' — refusing to report a sweep
+  that removed nothing over files that are still there. Check that it is
+  readable$([ -n "$_priv" ] && printf ' by root' || printf ' by you')." ;;
     1|126|127) die "could not run the removal helper (status $_mr_rc).
   For a privileged prefix this runs '$_priv sh -c' over
   $SCRIPT_DIR/lib/remove-listed-files.sh, which a sudoers policy permitting only
@@ -394,8 +401,12 @@ _remove_manifest_entries() {
   # Status 0 alone is also what a helper mangled down to nothing returns, having
   # checked nothing and removed nothing. Requiring the sentinel is what makes
   # "removed 0 files" mean the list really held nothing left to remove.
+  # The digits are part of the contract, not just the word: `_mr_removed` is
+  # used in an arithmetic test by the caller, so a mangled helper printing
+  # "REMOVED x" would get past a looser pattern and surface as a shell error
+  # instead of the diagnostic this arm exists to give.
   case "$_mr_out" in
-    'REMOVED '*) _mr_removed="${_mr_out#REMOVED }" ;;
+    'REMOVED '[0-9]*) _mr_removed="${_mr_out#REMOVED }" ;;
     *) die "the removal helper reported success without completing — no REMOVED
   sentinel. Its text may be truncated or altered; check
   $SCRIPT_DIR/lib/remove-listed-files.sh." ;;
@@ -817,6 +828,17 @@ do_uninstall() {
     # removed; those become broken and we tidy them. Restricting the scope to
     # bin/lib/include/share/man avoids touching unrelated user trees like
     # share/pnpm or share/applications.
+    #
+    # KNOWN, and a decision rather than an oversight: this sweep and the second
+    # rmdir pass below are the last two privileged deletes that still run on a
+    # lexically-composed path — `[ ! -e ]` then `rm -f` on the same string is a
+    # check-then-act gap, and neither goes through the enter-then-delete rule
+    # lib/remove-listed-files.sh established. They are left as they are because
+    # their paths come from `find` over the real tree rather than from the
+    # manifest, which is the attacker-editable input #15's prune and the
+    # uninstall loop read; the exposure is materially smaller and the fix is a
+    # third and fourth helper mode. Recorded here so the next reader finds a
+    # stated boundary instead of an inconsistency.
     for _sweep in bin lib include share/man; do
       [ -d "$_target/$_sweep" ] || continue
       find "$_target/$_sweep" -type l 2>/dev/null | while IFS= read -r _link; do
