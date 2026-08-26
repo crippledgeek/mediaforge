@@ -1,5 +1,7 @@
 
 # Locally calculated 2026-08-25
+# pgp signature verified https://www.libssh.org/files/0.11/libssh-0.11.4.tar.xz.asc
+# with key 88A228D89B07C2C77D0C780903D5DF8CFDD3E8E7
 sha256  002ac320e3d66c9e100ec6576e3e84aa0c48949efde3bf5b40a2802992297701  libssh-0.11.4.tar.xz
 size    626652  libssh-0.11.4.tar.xz
 

@@ -1,5 +1,7 @@
 
 # Locally calculated 2026-08-25
+# pgp signature verified https://download.osgeo.org/libtiff/tiff-4.7.1.tar.xz.sig
+# with key B1FA7D81EEB8E66399178B9733EBBFC47B3DD87D
 sha256  b92017489bdc1db3a4c97191aa4b75366673cb746de0dce5d7a749d5954681ba  tiff-4.7.1.tar.xz
 size    2358600  tiff-4.7.1.tar.xz
 

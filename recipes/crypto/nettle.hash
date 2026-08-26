@@ -1,5 +1,7 @@
 
 # Locally calculated 2026-08-25
+# pgp signature verified https://ftp.gnu.org/gnu/nettle/nettle-3.10.2.tar.gz.sig
+# with key 343C2FF0FBEE5EC2EDBEF399F3599FF828C67298
 sha256  fe9ff51cb1f2abb5e65a6b8c10a92da0ab5ab6eaf26e7fc2b675c45f1fb519b5  nettle-3.10.2.tar.gz
 size    2644644  nettle-3.10.2.tar.gz
 

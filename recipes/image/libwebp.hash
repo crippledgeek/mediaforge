@@ -1,5 +1,7 @@
 
 # Locally calculated 2026-08-25
+# pgp signature verified https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz.asc
+# with key 6B0E6B70976DE303EDF2F601F9C3D6BDB8232B5D
 sha256  e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564  libwebp-1.6.0.tar.gz
 size    4296070  libwebp-1.6.0.tar.gz
 

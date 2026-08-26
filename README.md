@@ -377,6 +377,49 @@ calculated `sha256`. `md5` is unrepresentable here by design. Every recorded
 digest is checked — `verify_file` treats `sha512`/`sha1` as additional
 requirements, never as alternatives to the mandatory `sha256`.
 
+**Signature provenance.** A digest says the bytes match what was recorded; a
+signature says *who published them*. Where upstream publishes a detached
+OpenPGP signature and the signing key can be corroborated independently, the
+block records both:
+
+```
+# sha256 from https://downloads.xiph.org/releases/vorbis/SHA256SUMS
+# pgp signature verified https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz.asc
+# with key B7B00AEE1F960EEA0FED66FB9259A8F2D2D44C84
+sha256  0e982409…  libvorbis-1.3.7.tar.gz
+size    1658963  libvorbis-1.3.7.tar.gz
+```
+
+The two lines are separate from the digest-origin comment on purpose. Buildroot
+bundles them into one phrase (`# Locally calculated after checking pgp
+signature`), which cannot express a digest that came from upstream's own
+`SHA256SUMS` — the bundled wording would have to overwrite the origin in order
+to state the signature. Split, a block says both, truthfully.
+
+The fingerprint is the **primary** key's, even where a signing subkey made the
+signature (`bzip2` and `libressl` are both signed by a subkey), because the
+primary is what an independent packager pins and therefore what can be
+corroborated.
+
+**Corroboration is the whole point, and it bounds what this buys.** A signature
+checked against a key fetched from the same host as the artifact proves nothing
+— so every recorded key was cross-checked against Arch Linux's `validpgpkeys`,
+an independent packaging organization that vetted the same key; several also
+match the fingerprint Buildroot records. Where no independent source pins the
+key, no signature is recorded: `libtool`'s release signature verifies, but Arch
+pins no key for it and the signing key changed between 2.4.6 and 2.4.7, so its
+sidecar still says only what can be defended. Gentoo's `verify-sig` maintainer
+is blunt about the ceiling here — *"The verify-sig mechanics do not provide any
+way to verify the authenticity of installed OpenPGP keys"* — trust bottoms out
+in a human vetting a fingerprint, and recording the fingerprint is what makes
+that reviewable.
+
+Verification happens at pin time, not build time, so **`gpg` is a maintainer
+tool and never a build dependency**. Gentoo and Arch verify on the user's
+machine because the pinning maintainer is not present there; here the digests
+are already committed and diff-reviewed, so a build-time signature check would
+re-verify what the pinned digest already guarantees.
+
 These digests are transcribed by hand, once, and reviewed in the diff —
 deliberately, not for want of tooling. Re-fetching the sums file on every
 `makesum` run would re-derive the pin from the network each time and let

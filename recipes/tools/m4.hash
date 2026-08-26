@@ -1,4 +1,6 @@
 
 # Locally calculated 2026-08-25
+# pgp signature verified https://ftp.gnu.org/gnu/m4/m4-1.4.19.tar.gz.sig
+# with key 71C2CC22B1C4602927D2F3AAA7A16B4A2527436A
 sha256  3be4a26d825ffdfda52a56fc43246456989a3630093cced3fbddf4771ee58a70  m4-1.4.19.tar.gz
 size    2953876  m4-1.4.19.tar.gz

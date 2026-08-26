@@ -1,4 +1,6 @@
 
 # sha256 from https://downloads.xiph.org/releases/vorbis/SHA256SUMS
+# pgp signature verified https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz.asc
+# with key B7B00AEE1F960EEA0FED66FB9259A8F2D2D44C84
 sha256  0e982409a9c3fc82ee06e08205b1355e5c6aa4c36bca58146ef399621b0ce5ab  libvorbis-1.3.7.tar.gz
 size    1658963  libvorbis-1.3.7.tar.gz

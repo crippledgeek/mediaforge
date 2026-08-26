@@ -106,6 +106,60 @@ _size_claims() {
   grep -hiE '^#([^:]*[[:space:]])?size[[:space:]]+from[[:space:]]+[a-z][a-z0-9+.-]*://' "$@" 2>/dev/null || true
 }
 
+# _scan_sigs FILE
+# Emit one line per malformed signature-provenance block, then "SIGS <n>".
+#
+# The grammar is two lines, added to whatever digest-origin comment the block
+# already carries:
+#   # pgp signature verified <signature URL>
+#   # with key <40 uppercase hex fingerprint>
+#
+# Deliberately NOT Buildroot's single "Locally calculated after checking pgp
+# signature" phrase, which bundles two separate claims -- where the digest came
+# from, and that a signature was checked. That does not compose with the
+# "<algo> from <URL>" origin this tree already records: a digest taken from
+# upstream's SHA256SUMS was not locally calculated, so the bundled phrase would
+# have to overwrite the origin in order to state the signature. Splitting them
+# lets a block say both, and say them truthfully.
+#
+# Both lines are required together. A block asserting a check without naming
+# the key, or naming a key without saying what was verified, reads as a
+# stronger attestation than anything that was established -- the security
+# theatre issue #37 exists to avoid.
+#
+# The fingerprint is checked as uppercase because that is what `gpg
+# --fingerprint` prints and what Arch's validpgpkeys requires. It is the
+# PRIMARY key's fingerprint even when a signing subkey made the signature
+# (bzip2 and libressl are both signed by a subkey), because the primary is what
+# an independent packager pins and therefore what can be corroborated.
+_scan_sigs() {
+  awk -v F="$1" '''
+    function check(  ) {
+      if (!url && !key) return
+      if (url && !key) printf("%s: block verifies %s but names no key\n", F, url)
+      if (key && !url) printf("%s: block names key %s without naming a signature\n", F, key)
+      if (url && key) sigs++
+    }
+    function reset() { check(); url = ""; key = "" }
+    /^[[:space:]]*$/ { reset(); next }
+    /^[[:space:]]*#/ {
+      l = $0; sub(/^[[:space:]]*#[[:space:]]*/, "", l); lc = tolower(l)
+      if (lc ~ /^pgp signature verified[[:space:]]+[a-z][a-z0-9+.-]*:\/\//) {
+        split(l, w, /[[:space:]]+/); url = w[4]; next
+      }
+      if (lc ~ /^with key[[:space:]]+/) {
+        split(l, w, /[[:space:]]+/); key = w[3]
+        if (key !~ /^[0-9A-F]{40}$/)
+          printf("%s: %s is not a 40-character uppercase OpenPGP fingerprint\n", F, key)
+        next
+      }
+      next
+    }
+    { next }
+    END { check(); printf("SIGS %d\n", sigs + 0) }
+  ''' "$1"
+}
+
 _claims_ok=true
 _claims_seen=0
 for _h in recipes/*/*.hash recipes/*.hash; do
@@ -150,6 +204,28 @@ fi
 #
 # Runs the same _scan_claims / _size_claims the tree is checked with -- a
 # fixture exercising a separate copy would prove nothing about the tree.
+# ------------------------------------------------ signature provenance (#37)
+# A signature says WHO published the bytes; a digest only says the bytes match
+# what was recorded. The comment is the only record that the first check ever
+# happened, so a malformed one is the same class of false attestation the
+# claim checks above exist to catch.
+_MIN_SIG_BLOCKS=10
+_sig_ok=true
+_sig_seen=0
+for _h in recipes/*/*.hash recipes/*.hash; do
+  [ -f "$_h" ] || continue
+  _sout=$(_scan_sigs "$_h")
+  _sig_seen=$((_sig_seen + $(printf '%s\n' "$_sout" | awk '/^SIGS /{print $2}')))
+  _serrs=$(printf '%s\n' "$_sout" | grep -v '^SIGS ' || true)
+  if [ -n "$_serrs" ]; then _sig_ok=false; _bad signature-provenance-well-formed "$_serrs"; fi
+done
+
+if [ "$_sig_seen" -lt "$_MIN_SIG_BLOCKS" ]; then
+  _bad signature-provenance-well-formed \
+    "only $_sig_seen signature-provenance block(s) found, want >= $_MIN_SIG_BLOCKS"
+elif [ "$_sig_ok" = true ]; then
+  _pass signature-provenance-well-formed
+fi
 # Gated on the same floor as the checks above, and for the same reason rather
 # than for symmetry: these pin the checker that guards the tree's provenance
 # comments, so on a tree with none there is nothing for it to guard and a PASS
@@ -173,6 +249,9 @@ if [ -n "$_fx" ]; then
   # behaviour they are written for. Written out rather than generated -- `seq`
   # is not in the POSIX utilities, and this file is POSIX sh.
   _H64=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  # 40 uppercase hex: the shape `gpg --fingerprint` prints and the one Arch's
+  # validpgpkeys requires. Length and case are both load-bearing here.
+  _FPR=AAAABBBBCCCCDDDDEEEEFFFF00001111222233AA
   _H128=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
   # Claims sha512, records only sha256.
@@ -270,6 +349,86 @@ EOF
     _bad checker-counts-every-scheme-and-order "counted $_n_clean claim(s), want 3"
   fi
 
+  # Signature-provenance fixtures. Each names a way the two required lines can
+  # come apart, and each would read to a human as a stronger attestation than
+  # was actually established -- the failure #37 exists to avoid.
+  cat > "$_fx/sig-good.hash" <<EOF
+
+# Locally calculated
+# pgp signature verified https://example.invalid/a.tar.gz.sig
+# with key $_FPR
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+  cat > "$_fx/sig-no-key.hash" <<EOF
+
+# pgp signature verified https://example.invalid/a.tar.gz.sig
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+  cat > "$_fx/sig-no-url.hash" <<EOF
+
+# with key $_FPR
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+  cat > "$_fx/sig-bad-fpr.hash" <<EOF
+
+# pgp signature verified https://example.invalid/a.tar.gz.sig
+# with key deadbeef
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+  # Composes with an upstream-digest origin AND survives http, which the
+  # bundled Buildroot phrasing could not express without overwriting the origin.
+  cat > "$_fx/sig-with-origin.hash" <<EOF
+
+# sha256 from http://example.invalid/SUMS
+# pgp signature verified http://example.invalid/a.tar.gz.sig
+# with key $_FPR
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+
+  # Gated on the SIGNATURE floor, not the claims floor: these pin the checker
+  # that guards the tree's signature blocks, so on a tree with none there is
+  # nothing to guard and a PASS would assert about nothing. tests/oracle-baseline.sh
+  # cannot enforce that here -- it selects only ADDED test files, and this one is
+  # modified, which is the known gap its own header documents.
+  if [ "$_sig_seen" -lt "$_MIN_SIG_BLOCKS" ]; then
+    for _cf in checker-detects-malformed-signature-block signature-composes-with-digest-origin; do
+      _bad "$_cf" "vacuous: only $_sig_seen signature block(s) for the checker to guard"
+    done
+    _skip_sig_fixtures=yes
+  fi
+  _s_good=$(_scan_sigs "$_fx/sig-good.hash" | grep -vc '^SIGS ' || true)
+  _s_n=$(_scan_sigs "$_fx/sig-good.hash" | awk '/^SIGS /{print $2}')
+  _s_nokey=$(_scan_sigs "$_fx/sig-no-key.hash"  | grep -c 'names no key' || true)
+  _s_nourl=$(_scan_sigs "$_fx/sig-no-url.hash"  | grep -c 'without naming a signature' || true)
+  _s_fpr=$(_scan_sigs "$_fx/sig-bad-fpr.hash"   | grep -c 'not a 40-character' || true)
+  _s_orig=$(_scan_sigs "$_fx/sig-with-origin.hash" | awk '/^SIGS /{print $2}')
+  _s_origc=$(_scan_claims "$_fx/sig-with-origin.hash" | awk '/^CLAIMS /{print $2}')
+
+  if [ "${_skip_sig_fixtures:-no}" = yes ]; then
+    :
+  elif [ "$_s_good" = 0 ] && [ "$_s_n" = 1 ] && [ "$_s_nokey" = 1 ] \
+     && [ "$_s_nourl" = 1 ] && [ "$_s_fpr" = 1 ]; then
+    _pass checker-detects-malformed-signature-block
+  else
+    _bad checker-detects-malformed-signature-block \
+      "good-errs=$_s_good (want 0) good-count=$_s_n nokey=$_s_nokey nourl=$_s_nourl badfpr=$_s_fpr (each want 1)"
+  fi
+
+  # The whole reason for splitting the grammar: one block states both a digest
+  # origin and a signature check, and each checker sees its own.
+  if [ "${_skip_sig_fixtures:-no}" = yes ]; then
+    :
+  elif [ "$_s_orig" = 1 ] && [ "$_s_origc" = 1 ]; then
+    _pass signature-composes-with-digest-origin
+  else
+    _bad signature-composes-with-digest-origin "sigs=$_s_orig claims=$_s_origc (both want 1)"
+  fi
+
   if [ -n "$(_size_claims "$_fx/size-claim-http.hash")" ] \
      && [ -n "$(_size_claims "$_fx/size-claim-https.hash")" ] \
      && [ -n "$(_size_claims "$_fx/size-claim-upper.hash")" ] \
@@ -280,6 +439,7 @@ EOF
       "http=[$(_size_claims "$_fx/size-claim-http.hash")] https=[$(_size_claims "$_fx/size-claim-https.hash")] clean=[$(_size_claims "$_fx/clean.hash")]"
   fi
 fi
+
 
 # openssl and libgme moved off GitHub's /archive/refs/tags/ generated archives
 # onto tarballs upstream actually uploaded (#36, closing part of #19's

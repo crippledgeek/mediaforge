@@ -1,4 +1,6 @@
 
 # sha256 from https://cdn.openbsd.org/pub/OpenBSD/LibreSSL/SHA256
+# pgp signature verified https://cdn.openbsd.org/pub/OpenBSD/LibreSSL/libressl-4.3.2.tar.gz.asc
+# with key A1EB079B8D3EB92B4EBD3139663AF51BD5E4D8D5
 sha256  edf01aee24c65d69e6a9efcb9d44bcda682ff9d4f3bbbd95e794e1dfa90847b5  libressl-4.3.2.tar.gz
 size    9302254  libressl-4.3.2.tar.gz

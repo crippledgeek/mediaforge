@@ -1,5 +1,7 @@
 
 # Locally calculated 2026-08-25
+# pgp signature verified https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.11.tar.xz.sig
+# with key 462225C3B46F34879FC8496CD605848ED7E69871
 sha256  91bd23c4a86ebc6152e81303d20cf6ceaeb97bc8f84266d0faec6e29f17baa20  gnutls-3.8.11.tar.xz
 size    6939944  gnutls-3.8.11.tar.xz
 
