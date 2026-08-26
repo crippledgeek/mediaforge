@@ -3,11 +3,38 @@
 ## Getting Started
 
 1. Fork the repository
-2. Create a feature branch from `develop`
-3. Make your changes
-4. Run syntax checks: `for f in lib/*.sh recipes/**/*.sh; do sh -n "$f"; done`
-5. Test a full build: `./mediaforge.sh build --enable-nonfree`
-6. Submit a pull request targeting `develop`
+2. Register the repo's git hooks: `git config core.hooksPath .githooks` (see [Git Hooks](#git-hooks))
+3. Create a feature branch from `develop`
+4. Make your changes
+5. Run the lint gate: `./tests/shellcheck.sh`
+6. Run the test suite: `sh tests/run.sh`
+7. Test a full build: `./mediaforge.sh build --enable-nonfree`
+8. Submit a pull request targeting `develop`
+
+## Git Hooks
+
+`.githooks/pre-push` runs `tests/shellcheck.sh` and refuses the push if it fails.
+
+Git does not install hooks from a checkout, so cloning does not enable it. Each
+clone opts in once:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+Two things worth knowing about what it checks:
+
+- It lints the **working tree**, not the commits being pushed. Pushing from a
+  clean tree makes those the same thing; pushing with unrelated dirty edits does
+  not.
+- A **deletion-only** push (`git push origin --delete <branch>`) ships no content
+  and is let through, so a lint failure that predates the deletion cannot block
+  the branch cleanup this workflow expects.
+
+The gate covers `.githooks/*` as well as every `.sh` file — a syntax error in the
+hook itself would otherwise block every push with a failure nothing lints.
+
+Do not push past a failing hook with `--no-verify`; fix the findings.
 
 ## Shell Style
 

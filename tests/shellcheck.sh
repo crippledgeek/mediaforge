@@ -9,6 +9,15 @@ cd "$ROOT"
 _fail=0
 _files=$(find mediaforge.sh lib recipes tests -type f -name '*.sh')
 
+# The hook that RUNS this gate is a shell file too, and git requires hook
+# names to be exact -- so .githooks/* carry no extension and the *.sh glob
+# above cannot see them. A syntax error there would block every push with a
+# failure nothing in the tree lints.
+if [ -d .githooks ]; then
+  _files="$_files
+$(find .githooks -type f)"
+fi
+
 for f in $_files; do
   if ! sh -n "$f"; then
     printf 'sh -n FAILED: %s\n' "$f" >&2

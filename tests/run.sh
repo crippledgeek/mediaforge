@@ -30,6 +30,11 @@ sh tests/checksum-verification.sh
 # two of them already stale.
 sh tests/comment-citations.sh
 sh tests/recipe-identity.sh
+# The gate that runs the rest of this suite at push time. Asserts the hook
+# refuses a content push over a red gate and lets a branch deletion through --
+# a hook that exits 0 regardless would leave the tree looking guarded when it
+# is not, and nothing else here would notice.
+sh tests/pre-push-hook.sh
 # Runs the unmerged test files against the merge base and fails if any assertion
 # passes there. Catches the oracle that drifted into matching an error message,
 # and the fixture whose path collided with the value it was distinguishing —

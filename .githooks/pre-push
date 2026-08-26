@@ -1,0 +1,53 @@
+#!/bin/sh
+# Refuses a push whose tree fails tests/shellcheck.sh.
+#
+# WHY THIS EXISTS: the gate was runnable but not run. 434 findings accumulated
+# unseen before the 2026-05-22 cleanup precisely because every contributor
+# (including the one who wrote the gate) had to remember to invoke it.
+#
+# NOT CLONED WITH THE REPO. Git never installs hooks from a checkout, so each
+# clone registers this directory once -- see CONTRIBUTING.md:
+#     git config core.hooksPath .githooks
+#
+# SCOPE, stated rather than implied: this lints the WORKING TREE, not the
+# commits being pushed. Pushing from a clean tree makes the two the same thing;
+# pushing with unrelated dirty edits does not. The tree is what a contributor
+# can act on, and a per-commit gate would need a worktree export per ref for a
+# claim nobody has wanted yet.
+set -u
+
+_root=$(git rev-parse --show-toplevel) || exit 1
+cd "$_root" || exit 1
+
+# Git feeds one "<local ref> <local sha> <remote ref> <remote sha>" line per ref
+# being pushed. A branch DELETION carries an all-zero local sha and ships no
+# content, so the lint gate has nothing to say about it -- and blocking one
+# would obstruct the branch cleanup the gitflow policy requires, over a lint
+# failure that predates the deletion. Skip only when EVERY line is a deletion.
+#
+# An empty stdin (this file run by hand, or by tests/pre-push-hook.sh) reads no
+# lines at all and must NOT be mistaken for a deletion-only push, so the two
+# counters are separate.
+_lines=0
+_content=0
+while read -r _ _sha _ _; do
+  _lines=$((_lines + 1))
+  # An empty field counts as content: a malformed line is not evidence of a
+  # deletion, and the safe reading of "I could not tell" is to run the gate.
+  case "$_sha" in
+    ''|*[!0]*) _content=1 ;;
+  esac
+done
+if [ "$_lines" -gt 0 ] && [ "$_content" -eq 0 ]; then
+  printf 'pre-push: deletion-only push, nothing to lint.\n' >&2
+  exit 0
+fi
+
+printf 'pre-push: running tests/shellcheck.sh ...\n' >&2
+if sh tests/shellcheck.sh; then
+  exit 0
+fi
+
+printf 'pre-push: shell lint gate FAILED -- push aborted.\n' >&2
+printf 'pre-push: fix the findings above; do not bypass with --no-verify.\n' >&2
+exit 1
