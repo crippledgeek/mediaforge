@@ -614,31 +614,9 @@ _assert_build_forward makesum-build-consumes-profile-not-forwarded \
 # sections that exercise the CLI shell out to ./mediaforge.sh instead.
 unset -f cmd_build
 
-# -- --dry-run must not fetch/extract/build/install FFmpeg (#19) -------------
-# recipes/ffmpeg.sh is sourced directly by cmd_build rather than through
-# run_recipe(), so lib/framework.sh's DRY_RUN short-circuit never reached it:
-# a dry run downloaded and re-extracted the FFmpeg tarball regardless of
-# --dry-run. Asserted on process output, not the filesystem -- pointing
-# DISTDIR at a temp dir and asserting it stays empty would be stronger, but
-# tests/oracle-baseline.sh runs every added test against the unpatched merge
-# base, where that assertion would download a real tarball on every
-# tests/run.sh.
-_out=$(./mediaforge.sh build --dry-run --yes 2>&1) || true
-
-if printf '%s' "$_out" | grep -qF -- 'Would build FFmpeg'; then
-  _pass dry-run-logs-would-build-ffmpeg
-else
-  _bad dry-run-logs-would-build-ffmpeg "no 'Would build FFmpeg' line in dry-run output"
-fi
-
-# fetch() (lib/download.sh) logs "Extracted $_file" only after a real
-# tar-extract succeeds -- its presence here means recipes/ffmpeg.sh actually
-# ran despite --dry-run.
-if printf '%s' "$_out" | grep -qF -- 'Extracted '; then
-  _bad dry-run-does-not-extract-ffmpeg "dry-run output shows a real extraction"
-else
-  _pass dry-run-does-not-extract-ffmpeg
-fi
+# The --dry-run side-effect assertions that lived here moved to
+# tests/dry-run-matrix.sh, which owns dry-run behaviour and asserts the same
+# two properties through its own _run/_run_no helpers.
 
 # -- amf pkg_install probes for whichever known header layout landed --------
 # THE BUG THIS PINS (#7b). pkg_install() hardcoded `cp -r AMF/components
