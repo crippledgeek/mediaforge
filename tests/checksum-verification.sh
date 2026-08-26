@@ -1657,5 +1657,24 @@ if _require_fn validate_pkg_names validate-pkg-names-shared; then
   fi
 fi
 
+# -- every sidecar in the TREE parses, not just the fixtures ------------------
+# hash_file_validate is exercised above against fixtures built here. Nothing
+# checked the ~107 real sidecars, so a hand-edit to one -- adding a digest,
+# rewriting a provenance comment -- could ship a malformed record and only
+# surface at build time as a MISMATCH, which reads as tampering rather than as
+# the two-character typo it is. Cheap enough to run over the whole tree.
+if _require_fn hash_file_validate sidecars-in-tree-validate; then
+  _tv_ok=true
+  for _tv in "$ROOT"/recipes/*/*.hash "$ROOT"/recipes/*.hash; do
+    [ -f "$_tv" ] || continue
+    # Subshell: hash_file_validate dies on a defect, and die exits the shell.
+    if ! ( hash_file_validate "$_tv" ) >/dev/null 2>&1; then
+      _tv_ok=false
+      _bad sidecars-in-tree-validate "${_tv#"$ROOT"/} does not validate"
+    fi
+  done
+  [ "$_tv_ok" = true ] && _pass sidecars-in-tree-validate
+fi
+
 printf 'DONE:\n'
 exit "$_fail"

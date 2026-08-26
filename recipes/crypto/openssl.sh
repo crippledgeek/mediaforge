@@ -3,7 +3,10 @@
 PKG_NAME="openssl"
 PKG_VERSION="${PKG_VERSION_OPENSSL:-3.5.4}"
 PKG_GITHUB_REPO="openssl/openssl"
-PKG_URL="https://github.com/openssl/openssl/archive/refs/tags/openssl-${PKG_VERSION}.tar.gz"
+# The release asset, not /archive/refs/tags/. GitHub GENERATES a tag archive on
+# request, so its bytes are not a fixed artifact (#19); this tarball is one
+# upstream uploaded, and it is the only one they publish a digest beside.
+PKG_URL="https://github.com/openssl/openssl/releases/download/openssl-${PKG_VERSION}/openssl-${PKG_VERSION}.tar.gz"
 PKG_FILENAME="openssl-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-openssl"
 PKG_MUTEX_GROUP="tls"

@@ -1,8 +1,8 @@
 
-# Locally calculated 2026-08-25
+# sha256 from https://downloads.xiph.org/releases/theora/SHA256SUMS
 sha256  279327339903b544c28a92aeada7d0dcfd0397b59c2f368cc698ac56f515906e  libtheora-1.2.0.tar.gz
 size    2535283  libtheora-1.2.0.tar.gz
 
-# Locally calculated 2026-08-25
+# sha256 from https://downloads.xiph.org/releases/theora/SHA256SUMS
 sha256  40952956c47811928d1e7922cda3bc1f427eb75680c3c37249c91e949054916b  libtheora-1.1.1.tar.gz
 size    2111877  libtheora-1.1.1.tar.gz

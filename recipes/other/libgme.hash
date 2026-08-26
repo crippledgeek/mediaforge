@@ -1,4 +1,4 @@
 
-# Locally calculated 2026-08-25
-sha256  4c5a7614acaea44e5cb1423817d2889deb82674ddbc4e3e1291614304b86fca0  game-music-emu-0.6.3.tar.gz
-size    314980  game-music-emu-0.6.3.tar.gz
+# Locally calculated 2026-08-26 (upstream publishes no digest for this asset)
+sha256  4c4ea6279d112e30f0c6e401c2d5161a577c07b01ec071d6838a3a03204a8892  libgme-0.6.3-src.tar.gz
+size    314522  libgme-0.6.3-src.tar.gz
