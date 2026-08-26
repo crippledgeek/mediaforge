@@ -357,11 +357,24 @@ size    756323  libbluray-1.3.4.tar.bz2
 
 A comment names the provenance of the **digest** records only — `size` is
 derived here for every block, upstream ones included, and is never claimed by
-a `from <URL>` comment. Where upstream publishes more than one algorithm, all
-usable ones are recorded and all are checked; where it publishes only a weak
-one (`libzmq` ships `SHA1SUMS` and `MD5SUMS`), the upstream `sha1` is recorded
-alongside a locally calculated `sha256`, since `md5` is unrepresentable here by
-design.
+a `from <URL>` comment.
+
+**Which upstream digests get recorded.** The strongest one upstream publishes.
+Several publishers ship a weaker digest beside it — xiph serves `SHA1SUMS`
+next to `SHA256SUMS`, and openssl uploads a `.sha1` next to its `.sha256` —
+and those are deliberately *not* recorded: they come from the same publisher,
+in the same directory, over the same transport, so once that publisher's
+`sha256` is pinned their `sha1` is not an independent attestation, just a
+second copy of the same trust root with a collision-broken algorithm attached.
+This is a considered divergence from Buildroot, whose manual says it is "best
+to add all those hashes".
+
+Where upstream publishes **only** a weak digest the calculus inverts, because
+then it is the only upstream attestation on offer: `libzmq` ships `SHA1SUMS`
+and `MD5SUMS`, so its upstream `sha1` *is* recorded, alongside a locally
+calculated `sha256`. `md5` is unrepresentable here by design. Every recorded
+digest is checked — `verify_file` treats `sha512`/`sha1` as additional
+requirements, never as alternatives to the mandatory `sha256`.
 
 These digests are transcribed by hand, once, and reviewed in the diff —
 deliberately, not for want of tooling. Re-fetching the sums file on every
@@ -370,7 +383,7 @@ deliberately, not for want of tooling. Re-fetching the sums file on every
 makes a committed digest worth having. `makesum` therefore always writes
 `Locally calculated <date>`; an upstream attribution is something a human adds
 after checking. `tests/upstream-provenance.sh` enforces that a comment claiming
-`<algo> from <URL>` heads a block that actually records that algorithm — an
+`<algo> from <URL>` appears in a block that actually records that algorithm — an
 overclaiming comment reads as an upstream attestation and would otherwise be
 invisible.
 

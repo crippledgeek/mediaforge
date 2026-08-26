@@ -1663,17 +1663,30 @@ fi
 # rewriting a provenance comment -- could ship a malformed record and only
 # surface at build time as a MISMATCH, which reads as tampering rather than as
 # the two-character typo it is. Cheap enough to run over the whole tree.
+#
+# Floored, for the same reason tests/upstream-provenance.sh floors its claim
+# count: if the globs match nothing -- a directory rename, a partial checkout --
+# the loop body never runs and this would report PASS having validated zero
+# files. The tree carries 107 sidecars; 90 leaves room for recipes to come and
+# go without ever being satisfiable by an empty glob.
+_MIN_SIDECARS=90
 if _require_fn hash_file_validate sidecars-in-tree-validate; then
   _tv_ok=true
+  _tv_n=0
   for _tv in "$ROOT"/recipes/*/*.hash "$ROOT"/recipes/*.hash; do
     [ -f "$_tv" ] || continue
+    _tv_n=$((_tv_n + 1))
     # Subshell: hash_file_validate dies on a defect, and die exits the shell.
     if ! ( hash_file_validate "$_tv" ) >/dev/null 2>&1; then
       _tv_ok=false
       _bad sidecars-in-tree-validate "${_tv#"$ROOT"/} does not validate"
     fi
   done
-  [ "$_tv_ok" = true ] && _pass sidecars-in-tree-validate
+  if [ "$_tv_n" -lt "$_MIN_SIDECARS" ]; then
+    _bad sidecars-in-tree-validate "only $_tv_n sidecar(s) found, want >= $_MIN_SIDECARS"
+  elif [ "$_tv_ok" = true ]; then
+    _pass sidecars-in-tree-validate
+  fi
 fi
 
 printf 'DONE:\n'
