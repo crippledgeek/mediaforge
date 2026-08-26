@@ -201,9 +201,17 @@ if _min_tree; then
     _pass gate-refuses-a-pass-without-shellcheck
   else
     _bad gate-refuses-a-pass-without-shellcheck \
-      "strict rc=$_strictrc lenient rc=$_lenientrc; gate said: $(printf '%s' "$_strictout" | tail -2)"
+      "strict rc=$_strictrc lenient rc=$_lenientrc; gate said: $(printf '%s' "$_strictout" | tail -2 | tr '\n' ' ')"
   fi
 
+  # The spliced gate text is flattened to one line: tests/oracle-baseline.sh
+  # counts ^PASS / ^FAIL / ^DONE: on this file's own output, so a continuation
+  # line landing at column 0 could corrupt the baseline verdict of the file doing
+  # the splicing. Unreachable from the messages these two paths can produce, but
+  # a lint report quotes the offending SOURCE line at column 0, so any future
+  # splice that reaches one would inherit the hazard from linted content.
+  # (A comment line may not START with the linter's name -- it would be read as
+  # a directive, which is why that sentence is phrased around it.)
   # ── ...and will not accept a binary that merely resolves ──────────────────
   # SHELLCHECK exists so this file can reach the absent-linter path at all. An
   # env seam that names an EXECUTABLE is a trust decision, and an
@@ -214,7 +222,7 @@ if _min_tree; then
     _pass gate-rejects-a-linter-that-only-resolves
   else
     _bad gate-rejects-a-linter-that-only-resolves \
-      "SHELLCHECK=true bought rc=$_shimrc; gate said: $(printf '%s' "$_shimout" | tail -2)"
+      "SHELLCHECK=true bought rc=$_shimrc; gate said: $(printf '%s' "$_shimout" | tail -2 | tr '\n' ' ')"
   fi
 else
   _bad gate-refuses-a-pass-without-shellcheck "could not stage a minimal tree"
