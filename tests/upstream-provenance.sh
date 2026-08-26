@@ -253,7 +253,7 @@ fi
 # Runs the same _scan_claims / _size_claims the tree is checked with -- a
 # fixture exercising a separate copy would prove nothing about the tree.
 # Gated on _MIN_UPSTREAM_CLAIMS (the signature fixtures below gate on
-# _MIN_SIG_BLOCKS instead), and for the reason rather than for symmetry: these pin the checker that guards the tree's provenance
+# _MIN_SIG_BLOCKS instead), and for the same reason rather than for symmetry: these pin the checker that guards the tree's provenance
 # comments, so on a tree with none there is nothing for it to guard and a PASS
 # here would be an assertion about nothing. It also keeps the file honest under
 # tests/oracle-baseline.sh, whose contract is that every assertion in an added
@@ -271,7 +271,10 @@ fi
 # ran neither signature assertion -- no PASS and no FAIL, a silent skip, which
 # is the one outcome a gate must never produce.
 if [ "$_claims_seen" -ge "$_MIN_UPSTREAM_CLAIMS" ] || [ "$_sig_seen" -ge "$_MIN_SIG_BLOCKS" ]; then
-  _fx=$(mktemp -d) || { _bad checker-detects-overclaim "mktemp failed"; _fx=''; }
+  # Reported against the file, not against one assertion group: either floor
+  # may be the reason the scratch dir was wanted, so blaming a claims assertion
+  # would attribute it to a group that is not necessarily running.
+  _fx=$(mktemp -d) || { _bad fixture-scratch-dir "mktemp failed"; _fx=''; }
 fi
 if [ -n "$_fx" ]; then
   trap 'rm -rf "$_fx"' EXIT INT TERM
@@ -506,6 +509,12 @@ EOF
   _s_prose=$(_scan_sigs "$_fx/sig-prose.hash" | grep -vc '^SIGS ' || true)
   _s_prosen=$(_scan_sigs "$_fx/sig-prose.hash" | awk '/^SIGS /{print $2}')
   _s_short=$(_scan_sigs "$_fx/sig-shortfpr.hash" | grep -c 'not a 40-character' || true)
+  # The COUNT, not just the message. The shape error fires either way, so
+  # asserting only the message left "a malformed pin must not pair off or
+  # count" unpinned -- deleting that half kept the suite green while a block
+  # with a garbage fingerprint counted toward the floor as well formed.
+  _s_shortn=$(_scan_sigs "$_fx/sig-shortfpr.hash" | awk '/^SIGS /{print $2}')
+  _s_fprn=$(_scan_sigs "$_fx/sig-bad-fpr.hash" | awk '/^SIGS /{print $2}')
   _s_dblk=$(_scan_sigs "$_fx/sig-double-key.hash" | grep -c 'second key' || true)
   _s_dbl=$(_scan_sigs "$_fx/sig-double-url.hash" | grep -c 'second signature' || true)
   _s_sp=$(_scan_sigs "$_fx/sig-spaced.hash" | awk '/^SIGS /{print $2}')
@@ -528,11 +537,12 @@ EOF
      && [ "$_s_adj" = 1 ] && [ "$_s_adjn" = 1 ] \
      && [ "$_s_dbl" = 1 ] && [ "$_s_dblk" = 1 ] \
      && [ "$_s_sp" = 1 ] && [ "$_s_spe" = 0 ] \
-     && [ "$_s_prose" = 0 ] && [ "$_s_prosen" = 1 ] && [ "$_s_short" = 1 ]; then
+     && [ "$_s_prose" = 0 ] && [ "$_s_prosen" = 1 ] && [ "$_s_short" = 1 ] \
+     && [ "$_s_shortn" = 0 ] && [ "$_s_fprn" = 0 ]; then
     _pass checker-detects-malformed-signature-block
   else
     _bad checker-detects-malformed-signature-block \
-      "good-errs=$_s_good (want 0) good-count=$_s_n nokey=$_s_nokey nourl=$_s_nourl badfpr=$_s_fpr adjacent=$_s_adj adjacent-sigs=$_s_adjn double-url=$_s_dbl double-key=$_s_dblk spaced-sigs=$_s_sp spaced-errs=$_s_spe prose-errs=$_s_prose prose-sigs=$_s_prosen shortfpr=$_s_short"
+      "good-errs=$_s_good (want 0) good-count=$_s_n nokey=$_s_nokey nourl=$_s_nourl badfpr=$_s_fpr adjacent=$_s_adj adjacent-sigs=$_s_adjn double-url=$_s_dbl double-key=$_s_dblk spaced-sigs=$_s_sp spaced-errs=$_s_spe prose-errs=$_s_prose prose-sigs=$_s_prosen shortfpr=$_s_short shortfpr-sigs=$_s_shortn (want 0) badfpr-sigs=$_s_fprn (want 0)"
   fi
 
   # The whole reason for splitting the grammar: one block states both a digest

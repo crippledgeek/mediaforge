@@ -422,6 +422,14 @@ signature that verifies and are still deliberately absent:
 | `libressl` | signed 2026-05-26 by a key that expired 2026-03-03 |
 | `nettle` | signed 2025-06-26 by a key that expired 2025-01-15 |
 
+The last two are **withheld, not disqualified.** Key expiry is a self-signature
+the holder can extend at any time, and extending it flips every past signature
+from `EXPKEYSIG` to `GOODSIG` — nothing about the signature or the bytes
+changes. `nettle` shares `gmp`'s key, so if Niels Möller extends
+`343C2FF0…828C67298` then `nettle` becomes recordable on exactly the evidence
+that is failing today. The dates above are what a future maintainer needs to
+re-check; do not read their absence as a permanent verdict.
+
 The last two are worth knowing about as a trap, not just an outcome: **`gpgv`'s
 human-readable output prints "Good signature" for a signature made by an expired
 key.** Only the status codes distinguish them — `gpg --status-fd` returns
