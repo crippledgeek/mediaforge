@@ -23,6 +23,11 @@ sh tests/libressl-trust-store.sh
 sh tests/git-commit-pinning.sh
 sh tests/install-containment.sh
 sh tests/install-privileged-execs.sh
+# Pins #15: install reconciles against the previous manifest instead of
+# overwriting it, so a file an older build shipped and this one does not is
+# removed rather than orphaned. Nothing else in the suite runs install TWICE,
+# which is the only way the defect is reachable.
+sh tests/install-manifest-reconcile.sh
 sh tests/checksum-verification.sh
 # Prose hygiene, not behaviour: a comment citing an in-tree file by LINE is
 # correct only until the next edit above it, and nothing else in this suite

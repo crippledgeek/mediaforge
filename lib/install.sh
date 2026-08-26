@@ -324,6 +324,68 @@ _select_prefix() {
   fi
 }
 
+# ─── Manifest-driven removal ─────────────────────────────────────────
+
+# Remove every file a list names, relative to a target prefix, under a
+# privilege. The list is a manifest — the one uninstall acts on, or the subset
+# of it that install has decided is no longer shipped. Sets _mr_removed.
+#
+# Shared by both callers rather than written twice: they had to apply the same
+# traversal refusal to the same file format, and a guard that exists in one copy
+# is a guard that stops existing the next time only the other copy is edited.
+_remove_listed_files() {
+  _mr_list="$1"
+  _mr_target="$2"
+  _mr_priv="$3"
+
+  _mr_removed=0
+  while IFS= read -r _mr_rel; do
+    [ -z "$_mr_rel" ] && continue
+    # Reject entries that could traverse out of $_mr_target. A tampered manifest
+    # (or a compromised install) could otherwise drive `$_priv rm -f` against
+    # arbitrary paths under sudo.
+    case "$_mr_rel" in
+      /*|*/../*|../*|..)
+        warn "Suspicious manifest entry skipped: $_mr_rel"
+        continue ;;
+    esac
+    _mr_file="$_mr_target/$_mr_rel"
+    if [ -f "$_mr_file" ]; then
+      $_mr_priv rm -f "$_mr_file"
+      _mr_removed=$((_mr_removed + 1))
+    fi
+  done < "$_mr_list"
+}
+
+# Collect the directories a removal emptied, bottom-up. `rmdir` refuses a
+# non-empty directory, so a shared prefix where other packages live keeps
+# everything of theirs without this needing to know which is which.
+#
+# Carries the same traversal refusal as the removal above, which the sweep it
+# was extracted from did not have: dirname("../x") is "..", and the climb below
+# stops only at $_rd_target, so an entry starting with ../ would have walked the
+# rmdir up out of the prefix. Nothing was reachable through it — the removal
+# loop had already refused the same entry, so the directory it names was never
+# emptied by us — but the guard belongs on both loops rather than on one and by
+# luck on the other.
+_remove_emptied_dirs() {
+  _rd_list="$1"
+  _rd_target="$2"
+  _rd_priv="$3"
+
+  while IFS= read -r _rd_rel; do
+    [ -z "$_rd_rel" ] && continue
+    case "$_rd_rel" in
+      /*|*/../*|../*|..) continue ;;
+    esac
+    _rd_dir="$_rd_target/$(dirname "$_rd_rel")"
+    while [ "$_rd_dir" != "$_rd_target" ] && [ -d "$_rd_dir" ]; do
+      $_rd_priv rmdir "$_rd_dir" 2>/dev/null || break
+      _rd_dir=$(dirname "$_rd_dir")
+    done
+  done < "$_rd_list"
+}
+
 # ─── Install ─────────────────────────────────────────────────────────
 
 do_install() {
@@ -511,6 +573,73 @@ do_install() {
     log "  share/man/man1/ (man pages)"
   fi
 
+  # An accumulator with nothing in it means this run copied nothing — an empty
+  # or unbuilt $PREFIX, most likely. Finalizing it would replace a good manifest
+  # with an empty one and make `uninstall` a no-op over a tree that is really
+  # there, which is the same end state the copy-check below exists to prevent;
+  # reconciling against it would be worse still, since every entry in the
+  # previous manifest is then an orphan and the prune would delete the whole
+  # install. Both are skipped, out loud: silence here is indistinguishable from
+  # a successful install.
+  if [ ! -s "$_manifest_tmp" ]; then
+    rm -f "$_manifest_tmp"
+    warn "Nothing was installed to $_install_prefix — no files found in $PREFIX."
+    warn "  The existing installation and its manifest are left untouched."
+    warn "  Run './mediaforge.sh build' first."
+    return 0
+  fi
+
+  # Reconcile against the previous manifest before replacing it (#15).
+  #
+  # do_install only ever copies IN. A file an older build shipped and the
+  # current one no longer does — a renamed library, a merged archive, a dropped
+  # recipe — stays on disk, and overwriting the manifest destroys the only
+  # record that it was ever installed. `uninstall` iterates the manifest and
+  # nothing else, so from that point the file is invisible to it permanently:
+  # the prefix root survives an uninstall that reports success, and a stale .a
+  # can still be picked up by a downstream static link. V-Nova's split lcevc
+  # archives are the instance that surfaced it (eight files, 1.4M, after 829b927
+  # merged them into one), but any recipe that changes its installed file set
+  # has the same shape.
+  #
+  # Read under $_priv, like every other access to the prefix here: a system
+  # install writes this file as root:root 0600, so an unprivileged read would
+  # find nothing and prune nothing on exactly the prefixes where an orphan
+  # matters most. A read that fails for any reason is the "no previous install"
+  # answer — the conservative one, since it prunes nothing.
+  #
+  # LC_ALL=C on both the sorts and the comm: `comm` requires its inputs sorted
+  # in ITS collation, and a locale-sorted input silently yields wrong set
+  # differences rather than an error.
+  _prev_manifest=$(mktemp /tmp/mediaforge-prev-manifest.XXXXXX) \
+    || die "Cannot create manifest tmp file in /tmp"
+  if $_priv cat "$_manifest" > "$_prev_manifest" 2>/dev/null \
+     && [ -s "$_prev_manifest" ]; then
+    # Each intermediate gets its own mktemp rather than a suffix on another's
+    # name: mktemp's O_EXCL is what makes these safe to write in a world-writable
+    # /tmp, and a derived "$name.sorted" is created by plain redirection with
+    # none of that.
+    _prev_sorted=$(mktemp /tmp/mediaforge-prev-sorted.XXXXXX) \
+      || die "Cannot create manifest tmp file in /tmp"
+    _new_sorted=$(mktemp /tmp/mediaforge-new-sorted.XXXXXX) \
+      || die "Cannot create manifest tmp file in /tmp"
+    _orphans=$(mktemp /tmp/mediaforge-orphans.XXXXXX) \
+      || die "Cannot create manifest tmp file in /tmp"
+    LC_ALL=C sort -u "$_prev_manifest" > "$_prev_sorted" \
+      || die "Cannot sort the previous manifest read from $_manifest"
+    LC_ALL=C sort -u "$_manifest_tmp" > "$_new_sorted" \
+      || die "Cannot sort the manifest accumulator at $_manifest_tmp"
+    LC_ALL=C comm -23 "$_prev_sorted" "$_new_sorted" > "$_orphans" \
+      || die "Cannot compare the previous manifest at $_manifest against this run"
+    if [ -s "$_orphans" ]; then
+      _remove_listed_files "$_orphans" "$_install_prefix" "$_priv"
+      _remove_emptied_dirs "$_orphans" "$_install_prefix" "$_priv"
+      log "  pruned $_mr_removed file(s) this build no longer ships"
+    fi
+    rm -f "$_orphans" "$_new_sorted" "$_prev_sorted"
+  fi
+  rm -f "$_prev_manifest"
+
   # Finalize manifest: move /tmp accumulator into the prefix (privileged if needed)
   #
   # Not routed through _install_file — the source is in /tmp and the manifest is
@@ -632,23 +761,8 @@ do_uninstall() {
       esac
     fi
 
-    _removed=0
-    while IFS= read -r _rel; do
-      [ -z "$_rel" ] && continue
-      # Reject manifest entries that could traverse out of $_target. A
-      # tampered manifest (or compromised install) could otherwise drive
-      # `$_priv rm -f` against arbitrary paths under sudo.
-      case "$_rel" in
-        /*|*/../*|../*|..)
-          warn "Suspicious manifest entry skipped: $_rel"
-          continue ;;
-      esac
-      _file="$_target/$_rel"
-      if [ -f "$_file" ]; then
-        $_priv rm -f "$_file"
-        _removed=$((_removed + 1))
-      fi
-    done < "$_manifest"
+    _remove_listed_files "$_manifest" "$_target" "$_priv"
+    _removed="$_mr_removed"
 
     # Sweep dangling symlinks under mediaforge's known install subtrees only.
     # User-created shim dirs (e.g. lib/pkgconfig-ffmpeg/) commonly contain
@@ -666,15 +780,7 @@ do_uninstall() {
     done
 
     # Clean up empty directories left behind (bottom-up)
-    # Sort deepest paths first so rmdir works bottom-up
-    while IFS= read -r _rel; do
-      [ -z "$_rel" ] && continue
-      _dir="$_target/$(dirname "$_rel")"
-      while [ "$_dir" != "$_target" ] && [ -d "$_dir" ]; do
-        $_priv rmdir "$_dir" 2>/dev/null || break
-        _dir=$(dirname "$_dir")
-      done
-    done < "$_manifest"
+    _remove_emptied_dirs "$_manifest" "$_target" "$_priv"
 
     # Second rmdir pass: clean directories left empty by the dangling-symlink
     # sweep. Includes the top-level $_target/{bin,lib,include,share/man,share}

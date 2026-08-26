@@ -208,6 +208,24 @@ can't modify or delete without sudo on every operation.
 
 Same rule for uninstall.
 
+### Installing over an existing install
+
+Install reconciles against the manifest of the previous install rather than
+replacing it. Every file the earlier build put in the prefix and this one does
+not ship — a library that was renamed, merged into another archive, or dropped
+from the build entirely — is removed, and the directories that empties go with
+it. Without that step those files would stay on disk *and* disappear from the
+record, which makes them permanently invisible to `uninstall`: the prefix
+survives an uninstall that reports success, and a stale `.a` beside a matching
+`.pc` can still be picked up by a downstream static link.
+
+Two things it deliberately will not do. It never touches a file the manifest
+did not list, so anything else living in a shared prefix is left alone. And an
+install that copies nothing at all — an unbuilt or cleaned workspace — prunes
+nothing and leaves the existing manifest in place, because with nothing
+installed every previous entry would look like an orphan; it says so rather
+than reporting a successful install of zero files.
+
 ### Recommended prefix for downstream-link use cases
 
 If anything else on your system links against mediaforge (e.g. a Rust
