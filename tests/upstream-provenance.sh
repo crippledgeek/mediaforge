@@ -167,7 +167,13 @@ fi
 if [ -n "$_fx" ]; then
   trap 'rm -rf "$_fx"' EXIT INT TERM
 
+  # Sentinel digests. The VALUE is irrelevant but the LENGTH is not:
+  # hash_file_validate enforces 64/128 hex characters per keyword, so a short
+  # stand-in would make these fixtures test the length check instead of the
+  # behaviour they are written for. Written out rather than generated -- `seq`
+  # is not in the POSIX utilities, and this file is POSIX sh.
   _H64=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  _H128=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
   # Claims sha512, records only sha256.
   cat > "$_fx/over-https.hash" <<EOF
@@ -220,7 +226,7 @@ size    2  b.tar.gz
 
 # sha512 from https://example.invalid/b.sha512
 # sha256 locally calculated 2026-08-26
-sha512  $(printf 'b%.0s' $(seq 1 128))  c.tar.gz
+sha512  $_H128  c.tar.gz
 sha256  $_H64  c.tar.gz
 size    3  c.tar.gz
 EOF

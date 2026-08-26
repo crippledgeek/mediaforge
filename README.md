@@ -360,8 +360,9 @@ derived here for every block, upstream ones included, and is never claimed by
 a `from <URL>` comment.
 
 **Which upstream digests get recorded.** The strongest one upstream publishes.
-Several publishers ship a weaker digest beside it — xiph serves `SHA1SUMS`
-next to `SHA256SUMS`, and openssl uploads a `.sha1` next to its `.sha256` —
+Several publishers ship a weaker digest beside it — most xiph directories
+serve `SHA1SUMS` next to `SHA256SUMS` (`speex` is the exception, publishing
+only `SHA256SUMS.txt`), and openssl uploads a `.sha1` next to its `.sha256` —
 and those are deliberately *not* recorded: they come from the same publisher,
 in the same directory, over the same transport, so once that publisher's
 `sha256` is pinned their `sha1` is not an independent attestation, just a
