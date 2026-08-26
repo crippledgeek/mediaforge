@@ -56,7 +56,9 @@ _MIN_UPSTREAM_CLAIMS=10
 # while still reading to a human as an upstream attestation, which is the exact
 # false-attestation this file exists to catch. Both downloads.xiph.org and
 # ftp.gnu.org serve sums files over plain http, so that is a shape this tree
-# could really grow.
+# could really grow. The match is case-folded for the same reason: RFC 3986
+# section 3.1 makes scheme names case-insensitive, so "HTTPS://" is a plausible
+# copy-paste and would otherwise be invisible in exactly the same way.
 #
 # One definition, used for both the real tree and the fixtures below: a checker
 # that the negative test exercises must be the same one the tree is checked
@@ -74,8 +76,18 @@ _scan_claims() {
     /^[[:space:]]*$/ { reset(); next }
     /^[[:space:]]*#/ {
       l = $0; sub(/^[[:space:]]*#[[:space:]]*/, "", l)
-      if (l ~ /^(sha256|sha512|sha1)[[:space:]]+from[[:space:]]+[a-z][a-z0-9+.-]*:\/\//) {
-        split(l, w, /[[:space:]]+/); nc++; calgo[nc] = w[1]; curl[nc] = w[3]; claims++
+      # Matched case-folded: RFC 3986 section 3.1 makes scheme names
+      # case-insensitive, so "HTTPS://" copy-pasted out of a vendor page is a
+      # human transcription rather than a contrived input -- and an
+      # unrecognised claim is INVISIBLE here, neither flagged nor counted,
+      # which is the same failure the scheme-genericisation above exists to
+      # close. Folding covers the algorithm name in one move: `rec` is keyed by
+      # the record keywords, which the grammar already fixes as lowercase.
+      lc = tolower(l)
+      if (lc ~ /^(sha256|sha512|sha1)[[:space:]]+from[[:space:]]+[a-z][a-z0-9+.-]*:\/\//) {
+        split(lc, wl, /[[:space:]]+/)   # algo, for the `in rec` lookup
+        split(l,  w,  /[[:space:]]+/)   # URL, reported as written
+        nc++; calgo[nc] = wl[1]; curl[nc] = w[3]; claims++
       }
       next
     }
@@ -91,7 +103,7 @@ _scan_claims() {
 # it is a GNU extension, not POSIX ERE, and on a BSD/macOS grep it can degrade
 # to matching nothing -- an always-pass check.
 _size_claims() {
-  grep -hE '^#([^:]*[[:space:]])?size[[:space:]]+from[[:space:]]+[a-z][a-z0-9+.-]*://' "$@" 2>/dev/null || true
+  grep -hiE '^#([^:]*[[:space:]])?size[[:space:]]+from[[:space:]]+[a-z][a-z0-9+.-]*://' "$@" 2>/dev/null || true
 }
 
 _claims_ok=true
@@ -173,6 +185,28 @@ EOF
 sha256  $_H64  a.tar.gz
 size    1  a.tar.gz
 EOF
+  # Uppercase scheme AND uppercase algorithm name. Before the tolower() fold
+  # each of these was invisible -- CLAIMS 0, no error -- reopening the exact
+  # hole the http fixture above closes.
+  cat > "$_fx/over-upper-scheme.hash" <<EOF
+
+# sha512 from HTTPS://example.invalid/SUMS
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+  cat > "$_fx/over-upper-algo.hash" <<EOF
+
+# SHA512 from https://example.invalid/SUMS
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+  cat > "$_fx/size-claim-upper.hash" <<EOF
+
+# size from HTTPS://example.invalid/SUMS
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+
   # Claims exactly what it records, in both orders, plus a mixed block.
   cat > "$_fx/clean.hash" <<EOF
 
@@ -208,14 +242,17 @@ EOF
 
   _e_https=$(_scan_claims "$_fx/over-https.hash" | grep -c 'records no sha512' || true)
   _e_http=$(_scan_claims "$_fx/over-http.hash"  | grep -c 'records no sha512' || true)
+  _e_uscheme=$(_scan_claims "$_fx/over-upper-scheme.hash" | grep -c 'records no sha512' || true)
+  _e_ualgo=$(_scan_claims "$_fx/over-upper-algo.hash"     | grep -c 'records no sha512' || true)
   _e_clean=$(_scan_claims "$_fx/clean.hash"     | grep -vc '^CLAIMS ' || true)
   _n_clean=$(_scan_claims "$_fx/clean.hash"     | awk '/^CLAIMS /{print $2}')
 
-  if [ "$_e_https" = 1 ] && [ "$_e_http" = 1 ] && [ "$_e_clean" = 0 ]; then
+  if [ "$_e_https" = 1 ] && [ "$_e_http" = 1 ] \
+     && [ "$_e_uscheme" = 1 ] && [ "$_e_ualgo" = 1 ] && [ "$_e_clean" = 0 ]; then
     _pass checker-detects-overclaim
   else
     _bad checker-detects-overclaim \
-      "https=$_e_https (want 1) http=$_e_http (want 1) clean-errors=$_e_clean (want 0)"
+      "https=$_e_https http=$_e_http HTTPS=$_e_uscheme SHA512=$_e_ualgo (each want 1) clean-errors=$_e_clean (want 0)"
   fi
 
   # Three claims in clean.hash, one of them http and one written BELOW its
@@ -229,6 +266,7 @@ EOF
 
   if [ -n "$(_size_claims "$_fx/size-claim-http.hash")" ] \
      && [ -n "$(_size_claims "$_fx/size-claim-https.hash")" ] \
+     && [ -n "$(_size_claims "$_fx/size-claim-upper.hash")" ] \
      && [ -z "$(_size_claims "$_fx/clean.hash")" ]; then
     _pass checker-detects-size-claim
   else
