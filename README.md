@@ -404,11 +404,32 @@ corroborated.
 **Corroboration is the whole point, and it bounds what this buys.** A signature
 checked against a key fetched from the same host as the artifact proves nothing
 — so every recorded key was cross-checked against Arch Linux's `validpgpkeys`,
-an independent packaging organization that vetted the same key; several also
-match the fingerprint Buildroot records. Where no independent source pins the
-key, no signature is recorded: `libtool`'s release signature verifies, but Arch
-pins no key for it and the signing key changed between 2.4.6 and 2.4.7, so its
-sidecar still says only what can be defended. Gentoo's `verify-sig` maintainer
+an independent packaging organization that vetted the same key; `libssh` and
+`libtiff` also match the fingerprint Buildroot records. Two of those
+cross-checks are weaker than the rest and say so here rather than in a footnote:
+Arch pins `gnutls`'s key (Daiki Ueno) in its **gettext** recipe, having
+commented it out of `gnutls` in favour of a newer signer, and `pkg-config`'s pin
+lives in a PKGBUILD Arch has frozen since migrating to `pkgconf` — every other
+distro checked pins nothing there, so Arch is its sole corroborator.
+
+**Nothing is recorded that cannot be defended.** Four recipes publish a
+signature that verifies and are still deliberately absent:
+
+| Recipe | Why not recorded |
+|---|---|
+| `libtool` | Arch pins no key, and the signing key changed between 2.4.6 and 2.4.7 |
+| `speex` | verifies, but no independent source pins the key |
+| `libressl` | signed 2026-05-26 by a key that expired 2026-03-03 |
+| `nettle` | signed 2025-06-26 by a key that expired 2025-01-15 |
+
+The last two are worth knowing about as a trap, not just an outcome: **`gpgv`'s
+human-readable output prints "Good signature" for a signature made by an expired
+key.** Only the status codes distinguish them — `gpg --status-fd` returns
+`EXPKEYSIG` rather than `GOODSIG`. Six of the sixteen signatures checked here
+return `EXPKEYSIG`; for four of them the signature predates the expiry and the
+key has merely lapsed since, which is ordinary key hygiene, but for `libressl`
+and `nettle` the signature postdates it. Verify with status codes, not with the
+message a human reads. Gentoo's `verify-sig` maintainer
 is blunt about the ceiling here — *"The verify-sig mechanics do not provide any
 way to verify the authenticity of installed OpenPGP keys"* — trust bottoms out
 in a human vetting a fingerprint, and recording the fingerprint is what makes

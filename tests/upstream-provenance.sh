@@ -153,13 +153,19 @@ _scan_sigs() {
     NF == 3 && $1 ~ /^(sha256|sha512|sha1|size)$/ { reset(); next }
     /^[[:space:]]*#/ {
       l = $0; sub(/^[[:space:]]*#[[:space:]]*/, "", l); lc = tolower(l)
-      if (lc ~ /^pgp signature verified[[:space:]]+[a-z][a-z0-9+.-]*:\/\//) {
-        split(l, w, /[[:space:]]+/); url = w[4]; next
+      if (lc ~ /^pgp[[:space:]]+signature[[:space:]]+verified[[:space:]]+[a-z][a-z0-9+.-]*:\/\//) {
+        split(l, w, /[[:space:]]+/)
+        if (url) printf("%s: names a second signature %s before naming a key for %s\n", F, w[4], url)
+        url = w[4]; next
       }
-      if (lc ~ /^with key[[:space:]]+/) {
-        split(l, w, /[[:space:]]+/); key = w[3]
-        if (key !~ /^[0-9A-F]{40}$/)
+      if (lc ~ /^with[[:space:]]+key[[:space:]]+/) {
+        split(l, w, /[[:space:]]+/)
+        if (key) printf("%s: names a second key %s before naming a signature for %s\n", F, w[3], key)
+        key = w[3]
+        if (key !~ /^[0-9A-F]{40}$/) {
           printf("%s: %s is not a 40-character uppercase OpenPGP fingerprint\n", F, key)
+          key = ""   # not a usable pin, so it must not pair off or count
+        }
         next
       }
       next
@@ -203,21 +209,16 @@ else
   _bad provenance-never-claims-size "$_szclaim"
 fi
 
-# -------------------------------------------------- the checker actually fires
-# _MIN_UPSTREAM_CLAIMS makes claim COUNTING non-vacuous; it says nothing about
-# claim CHECKING. Sabotage the predicate (`if (!(a in rec))` -> `if (0)`) and
-# every assertion above still reports PASS, because the tree has no overclaim to
-# find. So the one check carrying this file's whole purpose needs a case where
-# an overclaim is known to be present. tests/oracle-baseline.sh cannot supply
-# it: on the merge base these assertions fail on the FLOOR, never on the check.
-#
-# Runs the same _scan_claims / _size_claims the tree is checked with -- a
-# fixture exercising a separate copy would prove nothing about the tree.
 # ------------------------------------------------ signature provenance (#37)
 # A signature says WHO published the bytes; a digest only says the bytes match
 # what was recorded. The comment is the only record that the first check ever
 # happened, so a malformed one is the same class of false attestation the
 # claim checks above exist to catch.
+# Floor, mirroring _MIN_UPSTREAM_CLAIMS above and for the same reason: this
+# branch recorded 15 signature blocks, and a sidecar legitimately loses one
+# when a profile drops a pinned version or upstream stops signing. Ten is far
+# enough below 15 to survive that, and far enough above zero that no stray
+# comment can satisfy it -- which is what keeps the checks non-vacuous.
 _MIN_SIG_BLOCKS=10
 _sig_ok=true
 _sig_seen=0
@@ -235,18 +236,35 @@ if [ "$_sig_seen" -lt "$_MIN_SIG_BLOCKS" ]; then
 elif [ "$_sig_ok" = true ]; then
   _pass signature-provenance-well-formed
 fi
-# Gated on the same floor as the checks above, and for the same reason rather
-# than for symmetry: these pin the checker that guards the tree's provenance
+# -------------------------------------------------- the checker actually fires
+# _MIN_UPSTREAM_CLAIMS makes claim COUNTING non-vacuous; it says nothing about
+# claim CHECKING. Sabotage the predicate (`if (!(a in rec))` -> `if (0)`) and
+# every assertion above still reports PASS, because the tree has no overclaim to
+# find. So the one check carrying this file's whole purpose needs a case where
+# an overclaim is known to be present. tests/oracle-baseline.sh cannot supply
+# it: on the merge base these assertions fail on the FLOOR, never on the check.
+#
+# Runs the same _scan_claims / _size_claims the tree is checked with -- a
+# fixture exercising a separate copy would prove nothing about the tree.
+# Gated on _MIN_UPSTREAM_CLAIMS (the signature fixtures below gate on
+# _MIN_SIG_BLOCKS instead), and for the reason rather than for symmetry: these pin the checker that guards the tree's provenance
 # comments, so on a tree with none there is nothing for it to guard and a PASS
 # here would be an assertion about nothing. It also keeps the file honest under
 # tests/oracle-baseline.sh, whose contract is that every assertion in an added
 # test file fails against the merge base.
 _fx=''
+_skip_claim_fixtures=no
 if [ "$_claims_seen" -lt "$_MIN_UPSTREAM_CLAIMS" ]; then
   for _cf in checker-detects-overclaim checker-counts-every-scheme-and-order checker-detects-size-claim; do
     _bad "$_cf" "vacuous: only $_claims_seen upstream-provenance comment(s) for the checker to guard"
   done
-else
+  _skip_claim_fixtures=yes
+fi
+# The scratch dir is created when EITHER floor is met, not just the claims one.
+# Gating it on claims alone meant a tree with signature blocks but few claims
+# ran neither signature assertion -- no PASS and no FAIL, a silent skip, which
+# is the one outcome a gate must never produce.
+if [ "$_claims_seen" -ge "$_MIN_UPSTREAM_CLAIMS" ] || [ "$_sig_seen" -ge "$_MIN_SIG_BLOCKS" ]; then
   _fx=$(mktemp -d) || { _bad checker-detects-overclaim "mktemp failed"; _fx=''; }
 fi
 if [ -n "$_fx" ]; then
@@ -341,7 +359,9 @@ EOF
   _e_clean=$(_scan_claims "$_fx/clean.hash"     | grep -vc '^CLAIMS ' || true)
   _n_clean=$(_scan_claims "$_fx/clean.hash"     | awk '/^CLAIMS /{print $2}')
 
-  if [ "$_e_https" = 1 ] && [ "$_e_http" = 1 ] \
+  if [ "$_skip_claim_fixtures" = yes ]; then
+    :
+  elif [ "$_e_https" = 1 ] && [ "$_e_http" = 1 ] \
      && [ "$_e_uscheme" = 1 ] && [ "$_e_ualgo" = 1 ] && [ "$_e_clean" = 0 ]; then
     _pass checker-detects-overclaim
   else
@@ -352,7 +372,9 @@ EOF
   # Three claims in clean.hash, one of them http and one written BELOW its
   # records: all three must count, or the floor could be satisfied by fewer
   # comments than are really there.
-  if [ "$_n_clean" = 3 ]; then
+  if [ "$_skip_claim_fixtures" = yes ]; then
+    :
+  elif [ "$_n_clean" = 3 ]; then
     _pass checker-counts-every-scheme-and-order
   else
     _bad checker-counts-every-scheme-and-order "counted $_n_clean claim(s), want 3"
@@ -424,6 +446,43 @@ size    1  a.tar.gz
 sha256  $_H64  b.tar.gz
 size    2  b.tar.gz
 EOF
+  # Two signatures in ONE comment run. Silently overwriting the first paired
+  # the second URL with the first key -- a recorded key that does not
+  # correspond to the recorded signature, which is the false attestation this
+  # checker exists to catch.
+  cat > "$_fx/sig-double-url.hash" <<EOF
+
+# pgp signature verified https://example.invalid/a.tar.gz.sig
+# with key $_FPR
+# pgp signature verified https://example.invalid/b.tar.gz.sig
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+  # Extra whitespace between the literal words. Hard-coded single spaces made
+  # the whole block INVISIBLE -- neither counted nor flagged -- which is the
+  # failure mode _scan_claims argues against at length in its own header.
+  cat > "$_fx/sig-spaced.hash" <<EOF
+
+#  pgp   signature   verified   https://example.invalid/a.tar.gz.sig
+#  with   key   $_FPR
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+  # The mirror case: two keys in one run. Silently overwriting pairs the first
+  # signature with the SECOND key -- the same false attestation as double-url,
+  # and it had no fixture until a mutation test found the gap.
+  cat > "$_fx/sig-double-key.hash" <<EOF
+
+# pgp signature verified https://example.invalid/a.tar.gz.sig
+# with key $_FPR
+# with key AAAABBBBCCCCDDDDEEEEFFFF00001111222233BB
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+EOF
+  _s_dblk=$(_scan_sigs "$_fx/sig-double-key.hash" | grep -c 'second key' || true)
+  _s_dbl=$(_scan_sigs "$_fx/sig-double-url.hash" | grep -c 'second signature' || true)
+  _s_sp=$(_scan_sigs "$_fx/sig-spaced.hash" | awk '/^SIGS /{print $2}')
+  _s_spe=$(_scan_sigs "$_fx/sig-spaced.hash" | grep -vc '^SIGS ' || true)
   _s_adj=$(_scan_sigs "$_fx/sig-adjacent.hash" | grep -c 'names no key' || true)
   _s_adjn=$(_scan_sigs "$_fx/sig-adjacent.hash" | awk '/^SIGS /{print $2}')
 
@@ -439,11 +498,13 @@ EOF
     :
   elif [ "$_s_good" = 0 ] && [ "$_s_n" = 1 ] && [ "$_s_nokey" = 1 ] \
      && [ "$_s_nourl" = 1 ] && [ "$_s_fpr" = 1 ] \
-     && [ "$_s_adj" = 1 ] && [ "$_s_adjn" = 1 ]; then
+     && [ "$_s_adj" = 1 ] && [ "$_s_adjn" = 1 ] \
+     && [ "$_s_dbl" = 1 ] && [ "$_s_dblk" = 1 ] \
+     && [ "$_s_sp" = 1 ] && [ "$_s_spe" = 0 ]; then
     _pass checker-detects-malformed-signature-block
   else
     _bad checker-detects-malformed-signature-block \
-      "good-errs=$_s_good (want 0) good-count=$_s_n nokey=$_s_nokey nourl=$_s_nourl badfpr=$_s_fpr adjacent=$_s_adj adjacent-sigs=$_s_adjn (each want 1)"
+      "good-errs=$_s_good (want 0) good-count=$_s_n nokey=$_s_nokey nourl=$_s_nourl badfpr=$_s_fpr adjacent=$_s_adj adjacent-sigs=$_s_adjn double-url=$_s_dbl double-key=$_s_dblk spaced-sigs=$_s_sp spaced-errs=$_s_spe"
   fi
 
   # The whole reason for splitting the grammar: one block states both a digest
@@ -456,7 +517,9 @@ EOF
     _bad signature-composes-with-digest-origin "sigs=$_s_orig claims=$_s_origc (both want 1)"
   fi
 
-  if [ -n "$(_size_claims "$_fx/size-claim-http.hash")" ] \
+  if [ "$_skip_claim_fixtures" = yes ]; then
+    :
+  elif [ -n "$(_size_claims "$_fx/size-claim-http.hash")" ] \
      && [ -n "$(_size_claims "$_fx/size-claim-https.hash")" ] \
      && [ -n "$(_size_claims "$_fx/size-claim-upper.hash")" ] \
      && [ -z "$(_size_claims "$_fx/clean.hash")" ]; then
@@ -466,7 +529,6 @@ EOF
       "http=[$(_size_claims "$_fx/size-claim-http.hash")] https=[$(_size_claims "$_fx/size-claim-https.hash")] clean=[$(_size_claims "$_fx/clean.hash")]"
   fi
 fi
-
 
 # openssl and libgme moved off GitHub's /archive/refs/tags/ generated archives
 # onto tarballs upstream actually uploaded (#36, closing part of #19's
