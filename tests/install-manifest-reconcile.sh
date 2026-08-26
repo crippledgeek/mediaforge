@@ -214,6 +214,81 @@ else
   _bad "an empty directory outside the prefix survives a traversing manifest entry"
 fi
 
+# ─── a symlinked intermediate cannot redirect the deletion ─────────────────
+# The case NO lexical check can catch, and the one the guards above do not
+# actually pin: `lib/libmediaforge-keep.a` spells nothing suspicious, so the
+# '..'-and-leading-'/' refusal passes it, and if <prefix>/lib is a symlink the
+# privileged `rm -f` follows it and deletes the file at the real target instead.
+# That is #21's finding on the write path, arriving on the delete path.
+#
+# Measured while writing this file: mutating the containment check to accept
+# everything, and separately mutating the lexical guard to refuse nothing, were
+# BOTH uncaught by the traversal cases above — each guard alone still refused a
+# `../`-spelled entry, so neither was being detected. This case is detected by
+# containment only, which is what makes it the oracle for it. The lexical guard
+# stays as defense in depth, and is deliberately not claimed to be pinned
+# independently.
+#
+# Driven through uninstall, because that is where the base performs a deletion
+# from a manifest at all: the base has no prune, so an install-side version of
+# this would pass there and buy a free gate pass.
+_case symlinked
+_make_stage "$_s"
+mkdir -p "$_out_dir/elsewhere"
+printf 'NOT-OURS\n' > "$_out_dir/elsewhere/libmediaforge-keep.a"
+_run_install "$_s" "$_d" >/dev/null
+# Swap the class directory for a symlink out of the prefix, exactly as
+# tests/install-privileged-execs.sh does for the write side. Moved aside rather
+# than deleted: an attacker preserves the files, since a vanished lib/ is
+# noticed and a redirected one is not.
+mv "$_d/lib" "$_d/lib.orig"
+ln -s "$_out_dir/elsewhere" "$_d/lib"
+_sym_out=$(_run_uninstall "$_s" "$_d")
+if [ -f "$_out_dir/elsewhere/libmediaforge-keep.a" ]; then
+  _pass "a symlinked class directory cannot redirect a privileged deletion"
+else
+  _bad "a symlinked class directory cannot redirect a privileged deletion"
+fi
+
+# Refusing quietly would leave an operator with a partial uninstall and no idea
+# why. Paired with a removal that DID happen, so a helper that refuses
+# everything cannot satisfy this.
+if printf '%s\n' "$_sym_out" | grep -q 'resolves outside' \
+   && [ ! -e "$_d/bin/ffmpeg" ]; then
+  _pass "the refusal is reported, and entries outside the symlink still go"
+else
+  _bad "the refusal is reported, and entries outside the symlink still go"
+fi
+
+# ─── a truncated removal helper is refused, not read as success ────────────
+# An empty or truncated `sh -c` script exits 0 under POSIX, so without the
+# REMOVED sentinel a damaged helper is indistinguishable from a completed sweep
+# that found nothing to do — and uninstall would report success having deleted
+# nothing, which is #15's own failure mode arriving by another route.
+#
+# Runs against a COPY of the tree with the helper emptied, never the real one:
+# a test that mutates lib/ in the shared checkout is how a green suite gets left
+# behind on a broken tree.
+_case truncated
+_make_stage "$_s"
+_run_install "$_s" "$_d" >/dev/null
+_fake_root="$_out_dir/fake-root"
+mkdir -p "$_fake_root/lib" || exit 1
+cp "$_root"/lib/*.sh "$_fake_root/lib/" || exit 1
+: > "$_fake_root/lib/remove-listed-files.sh"
+_trunc_out=$(PREFIX="$_s" INSTALL_MANPAGES=0 AUTOINSTALL=yes \
+  SCRIPT_DIR="$_fake_root" VERBOSE=0 sh -c '
+    . "$SCRIPT_DIR/lib/utils.sh"
+    . "$SCRIPT_DIR/lib/resolve.sh"
+    . "$SCRIPT_DIR/lib/install.sh"
+    do_uninstall "$1"
+  ' _ "$_d" 2>&1)
+if printf '%s\n' "$_trunc_out" | grep -q 'is empty' && [ -f "$_d/bin/ffmpeg" ]; then
+  _pass "a truncated removal helper aborts the sweep instead of reporting zero"
+else
+  _bad "a truncated removal helper aborts the sweep instead of reporting zero"
+fi
+
 # ─── an install that copies nothing changes nothing ─────────────────────────
 # The prune's own boundary. Its input is "everything the previous manifest lists
 # that this run did not install", so a run that installs NOTHING — an unbuilt or
