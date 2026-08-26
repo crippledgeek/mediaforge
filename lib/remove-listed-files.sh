@@ -87,28 +87,37 @@ _target_real=$(cd "$_target_real" 2>/dev/null && pwd -P) || exit 3
 # argues must not be purchasable — the root-owned 0600 manifest was one way in,
 # and running as root closed only that one.
 #
-# Probed by actually opening it, rather than with `[ -r ]`: -r answers from the
-# permission bits and can disagree with the open (ACLs, a filesystem mounted
-# differently, a name that stops resolving).
+# Read ONCE, here, and iterate the text below. Not `[ -r ]`, which answers from
+# the permission bits and can disagree with the open (ACLs, a filesystem mounted
+# differently, a name that stops resolving) — this is a real open, and its
+# failure is the refusal.
 #
-# The SUBSHELL is what makes the status ours to choose. A redirection failure on
-# a bare `: < "$_list"` — or on `exec 3< "$_list"` — kills a non-interactive
-# shell before the `|| exit 7` runs, with a status that depends on which /bin/sh
-# is present. Measured 2026-08-26 against a mode-000 list: bash-as-sh exits 1,
-# dash exits 2, and bash proper reaches exit 7 (it only dies on a special
-# builtin's redirection failure in POSIX mode). Both of the first two land on
-# the WRONG arm in the caller — 1 says the helper never ran, and 2 says its text
-# is truncated, sending an operator to audit a file that is perfectly intact
-# when the real problem is a manifest they cannot read. Wrapped, every shell
-# reports 7. (busybox ash is untested here; the wrapped form depends only on a
-# subshell's exit status, which is POSIX.)
+# ONE open, deliberately. A probe followed by `done < "$_list"` opens the path
+# twice, and a list that becomes unopenable between them puts the loop straight
+# back into the silent fall-through this exists to prevent — narrowing a
+# deterministic bug into a race rather than closing it. There is no window here:
+# what the loops iterate is the text this line already read.
 #
-# stderr is dropped, so EACCES and ENOENT arrive as one status. The caller's
-# message names the path and who needs to be able to read it, which is what an
-# operator acts on; distinguishing them would need the errno text, and it is not
-# worth a second probe to say "missing" instead of "unreadable" about a file the
-# caller is about to name anyway.
-( : < "$_list" ) 2>/dev/null || exit 7
+# `cat` in a command substitution rather than a redirection, because the obvious
+# spellings are fatal before their own error handling runs. Measured 2026-08-26
+# against a mode-000 list, `|| exit 7` attached to each:
+#
+#   form                              bash-as-sh   dash
+#   exec 3< "$_list"                           1      2
+#   : < "$_list"                               1      2
+#   _list_text=$(cat "$_list")                 7      7
+#
+# A redirection failure on a special builtin kills a non-interactive shell
+# before the `||` is reached, and the status it dies with is shell-dependent —
+# both values land on the WRONG arm in the caller, 1 saying the helper never ran
+# and 2 saying its text is truncated, sending an operator to audit a file that
+# is perfectly intact when the real problem is a manifest they cannot read.
+# `cat` is an ordinary command owning its own redirection, so it simply fails.
+#
+# stderr is dropped, so EACCES and ENOENT arrive as one status; the caller's
+# message names the path and who needs to read it, which is what an operator
+# acts on either way.
+_list_text=$(cat "$_list" 2>/dev/null) || exit 7
 
 _removed=0
 
@@ -148,6 +157,12 @@ _traverses() {
   return 1
 }
 
+# Both loops iterate the text read above via a here-document, NOT a pipe: a
+# pipeline puts the loop body in a subshell, where every _removed increment is
+# discarded when it exits and the sentinel would report 0 for a sweep that
+# removed everything. The here-doc body is a parameter expansion, and an
+# expansion's RESULT is not rescanned — a manifest line containing $(...) or a
+# backtick arrives as those literal characters. Verified 2026-08-26.
 if [ "$_mode" = files ]; then
   while IFS= read -r _rel; do
     [ -z "$_rel" ] && continue
@@ -177,7 +192,9 @@ if [ "$_mode" = files ]; then
       5) printf 'mediaforge: failed to delete %s\n' "$_rel" >&2 ;;
       *) : ;;   # not present: the ordinary case for an already-removed entry
     esac
-  done < "$_list"
+  done <<EOF
+$_list_text
+EOF
 else
   # Climb from each entry's own directory up toward the target, removing what
   # `rmdir` finds empty. The refusal to remove a non-empty directory is the
@@ -223,7 +240,9 @@ else
       esac
       _dir=$_parent
     done
-  done < "$_list"
+  done <<EOF
+$_list_text
+EOF
 fi
 
 # The sentinel, last: reaching EOF is not evidence the work happened, but

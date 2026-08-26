@@ -405,7 +405,15 @@ _remove_manifest_entries() {
   # used in an arithmetic test by the caller, so a mangled helper printing
   # "REMOVED x" would get past a looser pattern and surface as a shell error
   # instead of the diagnostic this arm exists to give.
+  # Rejected before accepted, because `[0-9]*` in a case pattern is "one digit
+  # then anything" — `*` is unrestricted, not digit-only — so it would admit
+  # "REMOVED 5garbage". Nothing eval's this value, so the consequence is a
+  # `test: integer expression expected` instead of a diagnostic naming the
+  # helper; the reject arm is what makes the contract say what it means.
   case "$_mr_out" in
+    'REMOVED '*[!0-9]*) die "the removal helper printed a malformed count
+  ('$_mr_out'). Its text may be truncated or altered; check
+  $SCRIPT_DIR/lib/remove-listed-files.sh." ;;
     'REMOVED '[0-9]*) _mr_removed="${_mr_out#REMOVED }" ;;
     *) die "the removal helper reported success without completing — no REMOVED
   sentinel. Its text may be truncated or altered; check

@@ -335,6 +335,17 @@ else
   _bad "a helper truncated mid-construct is reported as damaged, not as an attack"
 fi
 
+# A count that is not a number. `[0-9]*` in a case pattern means "one digit then
+# anything", so the accepting arm alone would admit this and the value would
+# reach an arithmetic test — surfacing as a shell error about an integer
+# expression rather than as a message naming the helper.
+_run_with_damaged_helper malformed 'printf "REMOVED 5garbage\n"'
+if printf '%s\n' "$_damaged_out" | grep -q 'malformed count' && [ -f "$_d/bin/ffmpeg" ]; then
+  _pass "a non-numeric count is rejected by name, not passed to arithmetic"
+else
+  _bad "a non-numeric count is rejected by name, not passed to arithmetic"
+fi
+
 # ─── an unreadable manifest is refused, not counted as zero ────────────────
 # `done < "$_list"` on a compound command does not abort a non-interactive
 # shell when the redirection fails — execution falls through to the sentinel,
