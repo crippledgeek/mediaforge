@@ -142,6 +142,15 @@ _scan_sigs() {
     }
     function reset() { check(); url = ""; key = "" }
     /^[[:space:]]*$/ { reset(); next }
+    # A RECORD line ends the comment run above it, not just a blank line.
+    # Resetting only on blanks let two signature blocks written back to back
+    # with no separator merge: the second one, naming a signature but no key,
+    # would inherit the key from the first and be counted well formed instead
+    # of flagged. Every stanza in the tree is blank-separated today, so this
+    # closes the gap before a hand-edit opens it.
+    # (No apostrophes in this comment: the awk program is inside a
+    # single-quoted shell string, and one would end it.)
+    NF == 3 && $1 ~ /^(sha256|sha512|sha1|size)$/ { reset(); next }
     /^[[:space:]]*#/ {
       l = $0; sub(/^[[:space:]]*#[[:space:]]*/, "", l); lc = tolower(l)
       if (lc ~ /^pgp signature verified[[:space:]]+[a-z][a-z0-9+.-]*:\/\//) {
@@ -401,6 +410,23 @@ EOF
     done
     _skip_sig_fixtures=yes
   fi
+  # Two signature blocks back to back with NO blank line between them. The
+  # second names a signature and no key; if the scanner only reset on blanks it
+  # would inherit the first key and score the second block as well formed --
+  # the reviewer finding this pins.
+  cat > "$_fx/sig-adjacent.hash" <<EOF
+
+# pgp signature verified https://example.invalid/a.tar.gz.sig
+# with key $_FPR
+sha256  $_H64  a.tar.gz
+size    1  a.tar.gz
+# pgp signature verified https://example.invalid/b.tar.gz.sig
+sha256  $_H64  b.tar.gz
+size    2  b.tar.gz
+EOF
+  _s_adj=$(_scan_sigs "$_fx/sig-adjacent.hash" | grep -c 'names no key' || true)
+  _s_adjn=$(_scan_sigs "$_fx/sig-adjacent.hash" | awk '/^SIGS /{print $2}')
+
   _s_good=$(_scan_sigs "$_fx/sig-good.hash" | grep -vc '^SIGS ' || true)
   _s_n=$(_scan_sigs "$_fx/sig-good.hash" | awk '/^SIGS /{print $2}')
   _s_nokey=$(_scan_sigs "$_fx/sig-no-key.hash"  | grep -c 'names no key' || true)
@@ -412,11 +438,12 @@ EOF
   if [ "${_skip_sig_fixtures:-no}" = yes ]; then
     :
   elif [ "$_s_good" = 0 ] && [ "$_s_n" = 1 ] && [ "$_s_nokey" = 1 ] \
-     && [ "$_s_nourl" = 1 ] && [ "$_s_fpr" = 1 ]; then
+     && [ "$_s_nourl" = 1 ] && [ "$_s_fpr" = 1 ] \
+     && [ "$_s_adj" = 1 ] && [ "$_s_adjn" = 1 ]; then
     _pass checker-detects-malformed-signature-block
   else
     _bad checker-detects-malformed-signature-block \
-      "good-errs=$_s_good (want 0) good-count=$_s_n nokey=$_s_nokey nourl=$_s_nourl badfpr=$_s_fpr (each want 1)"
+      "good-errs=$_s_good (want 0) good-count=$_s_n nokey=$_s_nokey nourl=$_s_nourl badfpr=$_s_fpr adjacent=$_s_adj adjacent-sigs=$_s_adjn (each want 1)"
   fi
 
   # The whole reason for splitting the grammar: one block states both a digest
