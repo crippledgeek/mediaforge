@@ -43,10 +43,11 @@ LIVE=1111111111111111111111111111111111111111
 BAD_SYNTAX=.githooks/.pre-push-fixture-syntax
 BAD_LINT=.githooks/.pre-push-fixture-lint
 _stubs=""
-# shellcheck disable=SC2064
-# Expanded NOW, deliberately: $_stubs accumulates temp dirs as the file runs, and
-# a deferred expansion would read whatever it happens to hold at trap time --
-# which is the right value only by luck of ordering.
+# Deferred expansion, deliberately: $_stubs accumulates temp dirs as the file
+# runs, so the trap must read it when it FIRES, not when it is installed. That
+# is also why _stub_repo assigns STUB_DIR in this shell -- an assignment inside
+# $( ) lands in a subshell, the parent's $_stubs stays empty, and the trap
+# cleans nothing while every assertion still passes.
 trap 'rm -rf "$BAD_SYNTAX" "$BAD_LINT" $_stubs' EXIT INT TERM
 
 # Both fixtures must be EXECUTABLE or the gate will not look at them: it filters
@@ -62,10 +63,11 @@ LINT_ERR='#!/bin/sh
 cd /tmp
 '
 
-# The stub gates. Quoted heredocs rather than quoted strings: this text is the
-# stub's own source, so ${REQUIRE_SHELLCHECK} must survive into the file rather
-# than expand here -- which is indistinguishable, to a linter, from the mistake
-# of single-quoting an expansion you meant to interpolate.
+# The stub gates. GATE_REQ carries a ${...} that is the stub's own source and
+# must survive into the file rather than expand here -- which is
+# indistinguishable, to a linter, from the mistake of single-quoting an
+# expansion you meant to interpolate. A quoted heredoc says it unambiguously;
+# the other two follow the same form for consistency, not necessity.
 GATE_OK=$(cat <<'EOF'
 #!/bin/sh
 exit 0
@@ -84,16 +86,18 @@ EOF
 )
 
 # Builds a throwaway git repo whose tests/shellcheck.sh is $1, with the real
-# hook copied in. Prints the path; the caller runs the hook from inside it.
+# hook copied in, and leaves its path in STUB_DIR for the caller to run from.
+# STUB_DIR rather than stdout: a caller writing _d=$(_stub_repo ...) would run
+# this whole body in a subshell, so the temp dir would never reach $_stubs and
+# every run would leak one.
 _stub_repo() {
-  _d=$(mktemp -d) || return 1
-  _stubs="$_stubs $_d"
-  mkdir -p "$_d/tests" || return 1
-  printf '%s' "$1" > "$_d/tests/shellcheck.sh" || return 1
-  git init -q "$_d" >/dev/null 2>&1 || return 1
-  cp "$ROOT/$HOOK" "$_d/pre-push" || return 1
-  chmod +x "$_d/pre-push" || return 1
-  printf '%s' "$_d"
+  STUB_DIR=$(mktemp -d) || return 1
+  _stubs="$_stubs $STUB_DIR"
+  mkdir -p "$STUB_DIR/tests" || return 1
+  printf '%s' "$1" > "$STUB_DIR/tests/shellcheck.sh" || return 1
+  git init -q "$STUB_DIR" >/dev/null 2>&1 || return 1
+  cp "$ROOT/$HOOK" "$STUB_DIR/pre-push" || return 1
+  chmod +x "$STUB_DIR/pre-push" || return 1
 }
 
 # Runs the hook inside stub repo $1 with one content-push line on stdin.
@@ -119,8 +123,8 @@ fi
 # ── the hook forwards the gate's verdict, both ways ─────────────────────────
 # Against a stub gate, so a regression in either the hook or the gate lands on
 # exactly one of these assertions instead of both.
-if [ -x "$HOOK" ] && _stub_ok=$(_stub_repo "$GATE_OK"); then
-  _okout=$(_run_stub "$_stub_ok"); _okrc=$?
+if [ -x "$HOOK" ] && _stub_repo "$GATE_OK"; then
+  _okout=$(_run_stub "$STUB_DIR"); _okrc=$?
   # The message proves the gate was CONSULTED. Exit 0 on its own is also what a
   # hook that returns early -- or ignores the gate entirely -- produces, and
   # that hook is the failure mode this file exists to catch.
@@ -133,8 +137,8 @@ else
   _bad hook-passes-when-gate-passes "could not stage a stub repo around $HOOK"
 fi
 
-if [ -x "$HOOK" ] && _stub_bad=$(_stub_repo "$GATE_FAIL"); then
-  _failout=$(_run_stub "$_stub_bad"); _failrc=$?
+if [ -x "$HOOK" ] && _stub_repo "$GATE_FAIL"; then
+  _failout=$(_run_stub "$STUB_DIR"); _failrc=$?
   if [ "$_failrc" -ne 0 ] && printf '%s' "$_failout" | grep -qF 'push aborted'; then
     _pass hook-blocks-when-gate-fails
   else
@@ -147,8 +151,8 @@ fi
 # ── the hook demands a real linter, not just a parser ───────────────────────
 # The stub gate fails unless REQUIRE_SHELLCHECK reached it, so a hook that
 # stopped exporting it turns this red -- the propagation is the assertion.
-if [ -x "$HOOK" ] && _stub_req=$(_stub_repo "$GATE_REQ"); then
-  _reqout=$(_run_stub "$_stub_req"); _reqrc=$?
+if [ -x "$HOOK" ] && _stub_repo "$GATE_REQ"; then
+  _reqout=$(_run_stub "$STUB_DIR"); _reqrc=$?
   if [ "$_reqrc" -eq 0 ]; then
     _pass hook-requires-shellcheck
   else
@@ -171,6 +175,18 @@ if [ "$_strictrc" -ne 0 ] && printf '%s' "$_strictout" | grep -qF 'REQUIRE_SHELL
   _pass gate-refuses-a-pass-without-shellcheck
 else
   _bad gate-refuses-a-pass-without-shellcheck "strict rc=$_strictrc lenient rc=$_lenientrc"
+fi
+
+# ── ...and will not accept a binary that merely resolves ────────────────────
+# SHELLCHECK=true is the accident this guards: a stale value in a shell profile
+# would otherwise strip every shellcheck finding from every push, silently, with
+# the gate still reporting green.
+_shimout=$(REQUIRE_SHELLCHECK=1 SHELLCHECK=true sh tests/shellcheck.sh 2>&1)
+_shimrc=$?
+if [ "$_shimrc" -ne 0 ] && printf '%s' "$_shimout" | grep -qF 'does not identify itself as ShellCheck'; then
+  _pass gate-rejects-a-linter-that-only-resolves
+else
+  _bad gate-rejects-a-linter-that-only-resolves "SHELLCHECK=true bought rc=$_shimrc"
 fi
 
 # ── the gate lints the hook directory itself, in both of its passes ─────────

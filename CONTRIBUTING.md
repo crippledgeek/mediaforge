@@ -37,10 +37,20 @@ Things worth knowing about what the hook checks:
 - It sets `REQUIRE_SHELLCHECK=1`, so the gate **refuses to report a pass** when
   `shellcheck` is not installed. An ad-hoc `./tests/shellcheck.sh` still degrades
   to the `sh -n` half and says so; a gate that blocks a push does not get to.
-- The gate covers every executable file under `.githooks/` as well as every
-  `.sh` file under `mediaforge.sh`, `lib/`, `recipes/`, and `tests/`. A syntax
-  error in the hook itself would otherwise block every push with a failure
-  nothing lints.
+- The gate covers every executable file under `.githooks/` — checked first, so
+  a hook you just broke is reported in a fraction of a second — plus
+  `mediaforge.sh` itself and every `.sh` file under `lib/`, `recipes/`, and
+  `tests/`. A syntax error in the hook would otherwise block every push with a
+  failure nothing lints.
+- It refuses a linter that only *resolves*: `SHELLCHECK=` may name the binary,
+  but the binary must identify itself as ShellCheck. A no-op shim would
+  otherwise report every file clean, in silence.
+- It fails if `mediaforge.sh` or `tests/shellcheck.sh` has lost its executable
+  bit. Those are the two commands documented here as `./path`, and nothing else
+  in the tree depends on their mode — so if you see that error after a fresh
+  clone on a filesystem that drops modes (a zip export, a Windows checkout, a
+  copy over CIFS), it is this rule firing, not a broken checkout: `chmod +x`
+  them.
 
 Do not push past a failing hook with `--no-verify`; fix the findings.
 
