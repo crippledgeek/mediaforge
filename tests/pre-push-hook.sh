@@ -101,7 +101,9 @@ _stub_repo() {
 }
 
 # Builds a minimal tree around a COPY of the real gate: one trivial clean file
-# under each root the gate walks, and the two entry points it checks the mode of.
+# under each root the gate walks EXCEPT .githooks, plus the two entry points it
+# checks the mode of. .githooks is absent on purpose -- the coverage assertions
+# below make that claim against the real tree, where it means something.
 # The three assertions that follow ask whether the gate HONOURS its environment
 # -- SHELLCHECK, REQUIRE_SHELLCHECK, the identity check -- which is a question
 # about control flow, not about which files exist. Answering it over the real
@@ -198,7 +200,8 @@ if _min_tree; then
      && [ "$_lenientrc" -eq 0 ]; then
     _pass gate-refuses-a-pass-without-shellcheck
   else
-    _bad gate-refuses-a-pass-without-shellcheck "strict rc=$_strictrc lenient rc=$_lenientrc"
+    _bad gate-refuses-a-pass-without-shellcheck \
+      "strict rc=$_strictrc lenient rc=$_lenientrc; gate said: $(printf '%s' "$_strictout" | tail -2)"
   fi
 
   # ── ...and will not accept a binary that merely resolves ──────────────────
@@ -210,7 +213,8 @@ if _min_tree; then
   if [ "$_shimrc" -ne 0 ] && printf '%s' "$_shimout" | grep -qF 'does not identify itself as ShellCheck'; then
     _pass gate-rejects-a-linter-that-only-resolves
   else
-    _bad gate-rejects-a-linter-that-only-resolves "SHELLCHECK=true bought rc=$_shimrc"
+    _bad gate-rejects-a-linter-that-only-resolves \
+      "SHELLCHECK=true bought rc=$_shimrc; gate said: $(printf '%s' "$_shimout" | tail -2)"
   fi
 else
   _bad gate-refuses-a-pass-without-shellcheck "could not stage a minimal tree"

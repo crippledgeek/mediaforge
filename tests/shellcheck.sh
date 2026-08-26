@@ -40,8 +40,8 @@ fi
 # ./ commands in CONTRIBUTING.md, so a third one added there belongs here too.
 # Nothing else depends on their mode (every internal caller uses `sh <file>`), so
 # the bit can drop with no test noticing and the failure surfaces as a permission
-# error in a contributor's very first command. That is not hypothetical: an awk rewrite of
-# this file dropped this file's own bit, and the whole suite stayed green.
+# error in a contributor's very first command. Not hypothetical: an awk rewrite
+# of this file dropped this file's own bit, and the whole suite stayed green.
 for f in mediaforge.sh tests/shellcheck.sh; do
   if [ ! -x "$f" ]; then
     printf 'not executable, but documented as ./%s\n' "$f" >&2
@@ -65,9 +65,10 @@ done
 # identify itself, and anything that does not is treated as absent.
 #
 # A plausibility check, not proof: a decoy that echoes the banner and no-ops
-# would still pass. That is the right depth. This hook runs on the machine of
-# the person pushing, who can already edit this file or pass --no-verify, so the
-# threat it can actually address is a MISCONFIGURED linter, not a chosen one.
+# would still pass. That is the right depth: this gate runs on the machine of the
+# person pushing, who can already edit it, or bypass the hook that calls it with
+# --no-verify. The threat it can address is a MISCONFIGURED linter, not a chosen
+# one.
 _shellcheck=${SHELLCHECK:-shellcheck}
 if ! command -v "$_shellcheck" >/dev/null 2>&1; then
   _shellcheck_ok=false
