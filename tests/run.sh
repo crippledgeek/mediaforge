@@ -36,6 +36,11 @@ sh tests/recipe-identity.sh
 # exited 0 regardless would leave the tree looking guarded when it is not, and
 # nothing else here would notice.
 sh tests/pre-push-hook.sh
+# Pins the sidecar provenance convention (#36): a comment claiming "<algo> from
+# <URL>" must head a block that actually records that algo, and the extra
+# upstream digests must be CHECKED rather than inert. Nothing else in the suite
+# reads a provenance comment, so an overclaiming one is otherwise invisible.
+sh tests/upstream-provenance.sh
 # Runs the unmerged test files against the merge base and fails if any assertion
 # passes there. Catches the oracle that drifted into matching an error message,
 # and the fixture whose path collided with the value it was distinguishing —

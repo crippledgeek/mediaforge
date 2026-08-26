@@ -333,9 +333,60 @@ not count as verifiable, and the file is treated as unattested rather than
 silently passed. Size is checked first (cheap, catches truncation before any
 hashing); `sha512` and `sha1` are optional extra records, checked when
 present. `md5`, `sha224` and `sha384` are rejected by the parser outright —
-there is no code path that accepts them. The comment above each block
-records how the digest was obtained; `makesum` always writes
-`Locally calculated <date>`.
+there is no code path that accepts them.
+
+**Provenance comments.** The comment above each block records how the digest
+was obtained, and the distinction is the point: a locally calculated digest
+attests *these are the bytes we received*, while an upstream-published one
+attests *these are the bytes upstream published*. Two forms, following
+[Buildroot's `.hash` convention](https://buildroot.org/downloads/manual/manual.html):
+
+```
+# sha256 from https://downloads.xiph.org/releases/opus/SHA256SUMS.txt
+sha256  b7637334527201fdfd6dd6a02e67aceffb0e5e60155bbd89175647a80301c92c  opus-1.6.tar.gz
+size    36317446  opus-1.6.tar.gz
+```
+
+```
+# sha512 from https://download.videolan.org/pub/videolan/libbluray/1.3.4/libbluray-1.3.4.tar.bz2.sha512
+# sha256 locally calculated 2026-08-25 (upstream publishes sha512 only)
+sha512  94dbf3b6...  libbluray-1.3.4.tar.bz2
+sha256  478ffd68...  libbluray-1.3.4.tar.bz2
+size    756323  libbluray-1.3.4.tar.bz2
+```
+
+A comment names the provenance of the **digest** records only — `size` is
+derived here for every block, upstream ones included, and is never claimed by
+a `from <URL>` comment.
+
+**Which upstream digests get recorded.** The strongest one upstream publishes.
+Several publishers ship a weaker digest beside it — most xiph directories
+serve `SHA1SUMS` next to `SHA256SUMS` (`speex` is the exception, publishing
+only `SHA256SUMS.txt`), and openssl uploads a `.sha1` next to its `.sha256` —
+and those are deliberately *not* recorded: they come from the same publisher,
+in the same directory, over the same transport, so once that publisher's
+`sha256` is pinned their `sha1` is not an independent attestation, just a
+second copy of the same trust root with a collision-broken algorithm attached.
+This is a considered divergence from Buildroot, whose manual says it is "best
+to add all those hashes".
+
+Where upstream publishes **only** a weak digest the calculus inverts, because
+then it is the only upstream attestation on offer: `libzmq` ships `SHA1SUMS`
+and `MD5SUMS`, so its upstream `sha1` *is* recorded, alongside a locally
+calculated `sha256`. `md5` is unrepresentable here by design. Every recorded
+digest is checked — `verify_file` treats `sha512`/`sha1` as additional
+requirements, never as alternatives to the mandatory `sha256`.
+
+These digests are transcribed by hand, once, and reviewed in the diff —
+deliberately, not for want of tooling. Re-fetching the sums file on every
+`makesum` run would re-derive the pin from the network each time and let
+`--update` silently re-pin from it, which gives up exactly the property that
+makes a committed digest worth having. `makesum` therefore always writes
+`Locally calculated <date>`; an upstream attribution is something a human adds
+after checking. `tests/upstream-provenance.sh` enforces that a comment claiming
+`<algo> from <URL>` appears in a block that actually records that algorithm — an
+overclaiming comment reads as an upstream attestation and would otherwise be
+invisible.
 
 Three recipes carry no `.hash` sidecar, by design: `librtmp`, `libplacebo`
 and `av1` pin an exact 40-character git commit SHA instead

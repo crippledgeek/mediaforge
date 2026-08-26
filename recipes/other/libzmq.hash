@@ -1,4 +1,7 @@
 
-# Locally calculated 2026-08-25
+# sha1 from https://github.com/zeromq/libzmq/releases/download/v4.3.5/SHA1SUMS
+# sha256 locally calculated 2026-08-25 (upstream publishes md5 and sha1 only;
+# md5 is deliberately unrepresentable in this format, so the strong digest is ours)
+sha1    bdbf686c8a40ba638e21cf74e34dbb425e108500  zeromq-4.3.5.tar.gz
 sha256  6653ef5910f17954861fe72332e68b03ca6e4d9c7160eb3a8de5a5a913bfab43  zeromq-4.3.5.tar.gz
 size    2530237  zeromq-4.3.5.tar.gz
