@@ -50,9 +50,10 @@ if [ "$_lines" -gt 0 ] && [ "$_content" -eq 0 ]; then
   exit 0
 fi
 
-# REQUIRE_SHELLCHECK: an absent linter makes the gate report a pass having run
-# only sh -n, which is the wrong answer to give a gate that BLOCKS a push -- the
-# findings this exists to catch are the ones sh -n cannot see.
+# REQUIRE_SHELLCHECK: a linter that is absent -- or that will not identify itself
+# -- makes the gate report a pass having run only sh -n, which is the wrong
+# answer to give a gate that BLOCKS a push. The findings this exists to catch are
+# the ones sh -n cannot see.
 printf 'pre-push: running tests/shellcheck.sh ...\n' >&2
 if REQUIRE_SHELLCHECK=1 sh tests/shellcheck.sh; then
   exit 0

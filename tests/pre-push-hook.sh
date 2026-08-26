@@ -100,6 +100,28 @@ _stub_repo() {
   chmod +x "$STUB_DIR/pre-push" || return 1
 }
 
+# Builds a minimal tree around a COPY of the real gate: one trivial clean file
+# under each root the gate walks, and the two entry points it checks the mode of.
+# The three assertions that follow ask whether the gate HONOURS its environment
+# -- SHELLCHECK, REQUIRE_SHELLCHECK, the identity check -- which is a question
+# about control flow, not about which files exist. Answering it over the real
+# corpus costs a full lint per invocation, and three of them dominated this
+# file's cost on the merge base. Same reasoning as the stub repo above, same
+# $_stubs cleanup.
+_min_tree() {
+  MIN_DIR=$(mktemp -d) || return 1
+  _stubs="$_stubs $MIN_DIR"
+  mkdir -p "$MIN_DIR/lib" "$MIN_DIR/recipes" "$MIN_DIR/tests" || return 1
+  for _f in mediaforge.sh lib/probe.sh recipes/probe.sh tests/probe.sh; do
+    printf '#!/bin/sh\nexit 0\n' > "$MIN_DIR/$_f" || return 1
+  done
+  cp "$ROOT/tests/shellcheck.sh" "$MIN_DIR/tests/shellcheck.sh" || return 1
+  # The gate refuses to pass a tree whose ./-invoked entry points are not
+  # executable, so a fabricated tree has to satisfy that too or every assertion
+  # here fails for a reason that has nothing to do with what it asks.
+  chmod +x "$MIN_DIR/mediaforge.sh" "$MIN_DIR/tests/shellcheck.sh" || return 1
+}
+
 # Runs the hook inside stub repo $1 with one content-push line on stdin.
 _run_stub() {
   ( cd "$1" && printf 'refs/heads/x %s refs/heads/x %s\n' "$LIVE" "$LIVE" | ./pre-push 2>&1 )
@@ -166,27 +188,33 @@ fi
 # One assertion for both halves on purpose. The lenient half alone holds on the
 # pre-REQUIRE_SHELLCHECK tree too, so asserting it separately would tell
 # tests/oracle-baseline.sh this file detects something it does not.
-_strictout=$(REQUIRE_SHELLCHECK=1 SHELLCHECK=mediaforge-no-such-linter sh tests/shellcheck.sh 2>&1)
-_strictrc=$?
-SHELLCHECK=mediaforge-no-such-linter sh tests/shellcheck.sh >/dev/null 2>&1
-_lenientrc=$?
-if [ "$_strictrc" -ne 0 ] && printf '%s' "$_strictout" | grep -qF 'REQUIRE_SHELLCHECK=1' \
-   && [ "$_lenientrc" -eq 0 ]; then
-  _pass gate-refuses-a-pass-without-shellcheck
-else
-  _bad gate-refuses-a-pass-without-shellcheck "strict rc=$_strictrc lenient rc=$_lenientrc"
-fi
+if _min_tree; then
+  _gate=$MIN_DIR/tests/shellcheck.sh
+  _strictout=$(REQUIRE_SHELLCHECK=1 SHELLCHECK=mediaforge-no-such-linter sh "$_gate" 2>&1)
+  _strictrc=$?
+  SHELLCHECK=mediaforge-no-such-linter sh "$_gate" >/dev/null 2>&1
+  _lenientrc=$?
+  if [ "$_strictrc" -ne 0 ] && printf '%s' "$_strictout" | grep -qF 'REQUIRE_SHELLCHECK=1' \
+     && [ "$_lenientrc" -eq 0 ]; then
+    _pass gate-refuses-a-pass-without-shellcheck
+  else
+    _bad gate-refuses-a-pass-without-shellcheck "strict rc=$_strictrc lenient rc=$_lenientrc"
+  fi
 
-# ── ...and will not accept a binary that merely resolves ────────────────────
-# SHELLCHECK=true is the accident this guards: a stale value in a shell profile
-# would otherwise strip every shellcheck finding from every push, silently, with
-# the gate still reporting green.
-_shimout=$(REQUIRE_SHELLCHECK=1 SHELLCHECK=true sh tests/shellcheck.sh 2>&1)
-_shimrc=$?
-if [ "$_shimrc" -ne 0 ] && printf '%s' "$_shimout" | grep -qF 'does not identify itself as ShellCheck'; then
-  _pass gate-rejects-a-linter-that-only-resolves
+  # ── ...and will not accept a binary that merely resolves ──────────────────
+  # SHELLCHECK exists so this file can reach the absent-linter path at all. An
+  # env seam that names an EXECUTABLE is a trust decision, and an
+  # always-succeeds shim would otherwise report every file clean, in silence.
+  _shimout=$(REQUIRE_SHELLCHECK=1 SHELLCHECK=true sh "$_gate" 2>&1)
+  _shimrc=$?
+  if [ "$_shimrc" -ne 0 ] && printf '%s' "$_shimout" | grep -qF 'does not identify itself as ShellCheck'; then
+    _pass gate-rejects-a-linter-that-only-resolves
+  else
+    _bad gate-rejects-a-linter-that-only-resolves "SHELLCHECK=true bought rc=$_shimrc"
+  fi
 else
-  _bad gate-rejects-a-linter-that-only-resolves "SHELLCHECK=true bought rc=$_shimrc"
+  _bad gate-refuses-a-pass-without-shellcheck "could not stage a minimal tree"
+  _bad gate-rejects-a-linter-that-only-resolves "could not stage a minimal tree"
 fi
 
 # ── the gate lints the hook directory itself, in both of its passes ─────────

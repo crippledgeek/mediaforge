@@ -38,10 +38,9 @@ fi
 
 # The entry points the docs tell people to run as ./path -- this list tracks the
 # ./ commands in CONTRIBUTING.md, so a third one added there belongs here too.
-# Nothing else depends
-# on their mode -- every internal caller uses `sh <file>` -- so the bit can drop
-# with no test noticing, and the failure surfaces as a permission error in a
-# contributor's very first command. That is not hypothetical: an awk rewrite of
+# Nothing else depends on their mode (every internal caller uses `sh <file>`), so
+# the bit can drop with no test noticing and the failure surfaces as a permission
+# error in a contributor's very first command. That is not hypothetical: an awk rewrite of
 # this file dropped this file's own bit, and the whole suite stayed green.
 for f in mediaforge.sh tests/shellcheck.sh; do
   if [ ! -x "$f" ]; then
@@ -64,6 +63,11 @@ done
 # a silent no-op gate, which is a worse version of the absent-linter case this
 # REQUIRE_SHELLCHECK machinery exists to close. So the binary is asked to
 # identify itself, and anything that does not is treated as absent.
+#
+# A plausibility check, not proof: a decoy that echoes the banner and no-ops
+# would still pass. That is the right depth. This hook runs on the machine of
+# the person pushing, who can already edit this file or pass --no-verify, so the
+# threat it can actually address is a MISCONFIGURED linter, not a chosen one.
 _shellcheck=${SHELLCHECK:-shellcheck}
 if ! command -v "$_shellcheck" >/dev/null 2>&1; then
   _shellcheck_ok=false
