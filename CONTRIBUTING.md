@@ -22,7 +22,11 @@ clone opts in once:
 git config core.hooksPath .githooks
 ```
 
-Two things worth knowing about what it checks:
+`core.hooksPath` replaces the hook directory **for every hook type**, not just
+`pre-push`. If you keep personal hooks in `.git/hooks/` for this repo, move them
+into `.githooks/` (or expect them to stop firing — silently, with no error).
+
+Things worth knowing about what the hook checks:
 
 - It lints the **working tree**, not the commits being pushed. Pushing from a
   clean tree makes those the same thing; pushing with unrelated dirty edits does
@@ -30,11 +34,21 @@ Two things worth knowing about what it checks:
 - A **deletion-only** push (`git push origin --delete <branch>`) ships no content
   and is let through, so a lint failure that predates the deletion cannot block
   the branch cleanup this workflow expects.
-
-The gate covers `.githooks/*` as well as every `.sh` file — a syntax error in the
-hook itself would otherwise block every push with a failure nothing lints.
+- It sets `REQUIRE_SHELLCHECK=1`, so the gate **refuses to report a pass** when
+  `shellcheck` is not installed. An ad-hoc `./tests/shellcheck.sh` still degrades
+  to the `sh -n` half and says so; a gate that blocks a push does not get to.
+- The gate covers every executable file under `.githooks/` as well as every
+  `.sh` file under `mediaforge.sh`, `lib/`, `recipes/`, and `tests/`. A syntax
+  error in the hook itself would otherwise block every push with a failure
+  nothing lints.
 
 Do not push past a failing hook with `--no-verify`; fix the findings.
+
+**Reviewing changes to `.githooks/`.** This is the one directory whose contents
+run automatically, on a contributor's machine, outside CI. The project already
+executes in-repo shell freely — every recipe is sourced during a build — so this
+is not a new class of trust, but a diff that touches `.githooks/` deserves the
+same attention as one that touches a recipe's `pkg_install`.
 
 ## Shell Style
 

@@ -1,9 +1,10 @@
 #!/bin/sh
 # Refuses a push whose tree fails tests/shellcheck.sh.
 #
-# WHY THIS EXISTS: the gate was runnable but not run. 434 findings accumulated
-# unseen before the 2026-05-22 cleanup precisely because every contributor
-# (including the one who wrote the gate) had to remember to invoke it.
+# WHY THIS EXISTS: the gate was runnable, and wired into tests/run.sh -- but
+# nothing ran either one at push time, so it depended on a contributor
+# remembering. Findings accumulated unseen that way until the -S info cleanup in
+# 81c17a0 fixed them in bulk.
 #
 # NOT CLONED WITH THE REPO. Git never installs hooks from a checkout, so each
 # clone registers this directory once -- see CONTRIBUTING.md:
@@ -16,8 +17,14 @@
 # claim nobody has wanted yet.
 set -u
 
-_root=$(git rev-parse --show-toplevel) || exit 1
-cd "$_root" || exit 1
+if ! _root=$(git rev-parse --show-toplevel); then
+  printf 'pre-push: cannot locate the repository root -- push aborted.\n' >&2
+  exit 1
+fi
+if ! cd "$_root"; then
+  printf 'pre-push: cannot enter %s -- push aborted.\n' "$_root" >&2
+  exit 1
+fi
 
 # Git feeds one "<local ref> <local sha> <remote ref> <remote sha>" line per ref
 # being pushed. A branch DELETION carries an all-zero local sha and ships no
@@ -43,8 +50,11 @@ if [ "$_lines" -gt 0 ] && [ "$_content" -eq 0 ]; then
   exit 0
 fi
 
+# REQUIRE_SHELLCHECK: an absent linter makes the gate report a pass having run
+# only sh -n, which is the wrong answer to give a gate that BLOCKS a push -- the
+# findings this exists to catch are the ones sh -n cannot see.
 printf 'pre-push: running tests/shellcheck.sh ...\n' >&2
-if sh tests/shellcheck.sh; then
+if REQUIRE_SHELLCHECK=1 sh tests/shellcheck.sh; then
   exit 0
 fi
 

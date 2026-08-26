@@ -17,3 +17,8 @@ GEMINI.md
 docs/
 packages/
 workspace/
+
+# Deliberately-broken fixtures planted by tests/pre-push-hook.sh. Trapped on
+# every ordinary exit; ignored here for the kill a trap cannot catch, so a leaked
+# one cannot be adopted as a test by tests/oracle-baseline.sh.
+.githooks/.pre-push-fixture-*
