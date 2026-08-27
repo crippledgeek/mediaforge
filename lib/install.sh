@@ -463,14 +463,14 @@ do_install() {
     || die "Cannot resolve the install prefix '$_install_prefix' after creating it."
 
   # Composed onto the RESOLVED prefix, not the string the user typed: this path
-  # is unlinked and written under $_priv below, and the guard that makes those
-  # safe is that nothing sits between the containment boundary and this leaf.
-  # That is only true when the boundary is what the path names.
+  # is written under $_priv below, through the same _place_file every installed
+  # file goes through, so the boundary it is composed onto has to be the
+  # resolved one rather than the string the user typed.
   _manifest="$_install_prefix_real/.mediaforge-manifest"
   # Manifest accumulator lives in /tmp so unprivileged appends always work,
   # even when $_install_prefix is root-owned. mktemp uses O_EXCL — closes the
   # PID-predictable symlink-race window of a bare `/tmp/<name>.$$`.
-  # Finalised via $_priv cp at end.
+  # Finalised by _place_file at the end of this function.
   _manifest_tmp=$(mktemp /tmp/mediaforge-manifest.XXXXXX) \
     || die "Cannot create manifest tmp file in /tmp"
 
