@@ -126,10 +126,16 @@ fi
 rm -rf "$_s" "$_d" "$_out"
 
 # ─── a symlink at the manifest path must not redirect the manifest write ────
-# The manifest is finalized by its own `cp`, outside _install_file, so it never
-# had the unlink that function does. It is also the one destination an attacker
-# can name without knowing anything about the build: <prefix>/.mediaforge-manifest
-# is a constant.
+# The manifest is the one destination an attacker can name without knowing
+# anything about the build: <prefix>/.mediaforge-manifest is a constant.
+#
+# It is finalized through _place_file — the same unlink-then-copy path every
+# installed file gets — so what this pins is that the guard applies to the
+# manifest too, not that the manifest needs one of its own. It used to need one:
+# the finalize ran its own `rm -f` + `cp` with a comment saying the guards "have
+# to be repeated here", and this paragraph used to say so. Routing it through
+# the shared path is what made the special case go away, and the assertions
+# below are unchanged by that — they were always about the outcome.
 _s=$(mktemp -d) || exit 1
 _d=$(mktemp -d) || exit 1
 _sentinel=$(mktemp) || exit 1

@@ -139,28 +139,35 @@ _load_helper_text() {
     || die "The privileged helper at $1 is empty."
 }
 
-# Copy a file, creating parent dirs as needed. Appends the installed-relative
-# path to the manifest accumulator at $_manifest_tmp_path.
+# Place a file AND record it: $1 source, $2 destination, $3 the manifest
+# accumulator, $4 the privilege. Everything about the placing is _place_file's;
+# this adds the one line that makes the file removable later.
 #
 # The accumulator lives in /tmp (user-writable regardless of $_install_prefix
-# ownership). Without this split, root-owned prefixes silently corrupt the
-# manifest because the >> redirection here is plain shell I/O, NOT gated by
-# $_priv. /tmp keeps the accumulator outside any sudo concern.
+# ownership). Without that split, root-owned prefixes silently corrupt the
+# manifest, because the >> below is plain shell I/O and is NOT gated by $_priv.
 #
-# Reads $_install_prefix_real, which do_install resolves once after creating the
-# prefix: it is the containment BOUNDARY, it cannot change mid-install, and
-# resolving it per file would put back an exec the helper below exists to avoid.
-# Each DESTINATION is still resolved per file, inside that helper.
+# The recorded path is relative to $_install_prefix — the string the user named,
+# not the resolved boundary. Both name the same tree, and uninstall resolves the
+# prefix itself before composing anything onto it, so the entries stay portable
+# across a prefix whose path acquires or loses a symlink between runs.
 _install_file() {
-  _if_manifest_tmp_path="$3"
+  # Positionals used directly on both sides of the call: POSIX restores a
+  # function's own $1..$n when a function it called returns, so neither needed
+  # saving. Saving one and not the other read as though one of them did.
   _place_file "$1" "$2" "$4"
-  printf '%s\n' "${2#"$_install_prefix"/}" >> "$_if_manifest_tmp_path"
+  printf '%s\n' "${2#"$_install_prefix"/}" >> "$3"
 }
 
 # Place ONE file, with every privileged step in one process, and record nothing.
 # This is _install_file minus the manifest line — split out because the manifest
 # itself has to be written this way too, and it is the one file that must NOT
 # appear in its own record.
+#
+# Reads $_install_prefix_real, which do_install resolves once after creating the
+# prefix: it is the containment BOUNDARY, it cannot change mid-install, and
+# resolving it per file would put back an exec the helper below exists to avoid.
+# Each DESTINATION is still resolved per file, inside that helper.
 #
 # Before the split the finalize did its own `$_priv rm -f "$_manifest"` followed
 # by `$_priv cp`, with a comment explaining that the unlink-first and
@@ -173,6 +180,12 @@ _place_file() {
   _src="$1"
   _dest="$2"
   _priv="$3"
+
+  # Consumed at entry, not left for the caller to clear. The override applies to
+  # exactly ONE call, and taking it here makes that true by construction rather
+  # than by a set/clear pair a future caller has to remember to write.
+  _pf_context="${_place_context:-}"
+  _place_context=""
 
   # Belt-and-braces against the irreversible path: _select_prefix already
   # refuses an install prefix that resolves to the build prefix, which is the
@@ -238,9 +251,12 @@ _place_file() {
   (exit 2). Its text is truncated or altered; check
   $SCRIPT_DIR/lib/install-one-file.sh." ;;
     3) die "cannot resolve the install destination '$_dest' — refusing to write." ;;
-    5) die "${_place_context:-"failed to install $_dest (source: $_src).
+    5) if [ -n "$_pf_context" ]; then
+         die "$_pf_context"
+       fi
+       die "failed to install $_dest (source: $_src).
   Nothing is at that path now — the previous file, if any, was removed before
-  the copy. Re-run install once the cause is fixed."}" ;;
+  the copy. Re-run install once the cause is fixed." ;;
     4) die "internal: lib/install-one-file.sh rejected its arguments for '$_dest'.
   A destination with a trailing slash is one cause: it names a directory, and
   this installs files." ;;
@@ -729,18 +745,21 @@ do_install() {
   # It is NOT recorded in itself, which is why this calls _place_file rather
   # than _install_file: the manifest is the record, not an entry in it.
   #
-  # _place_context replaces the copy-failure message for this one call. The
-  # generic one names a file and a source, which is the right thing to say about
-  # a header or a library; for the manifest the consequence is what matters and
-  # it is specific — every file is already on disk by now, so losing the record
-  # leaves a tree `uninstall` cannot touch. tests/install-containment.sh pins
-  # that this failure aborts AND says so.
+  # _place_context replaces the copy-failure message for this one call — an
+  # implicit fourth parameter, since a real one would put _place_file at four
+  # positionals. _place_file consumes and clears it on entry, so it cannot
+  # survive into any other call.
+  #
+  # The generic message names a file and a source, which is the right thing to
+  # say about a header or a library; for the manifest the consequence is what
+  # matters and it is specific — every file is already on disk by now, so losing
+  # the record leaves a tree `uninstall` cannot touch.
+  # tests/install-containment.sh pins that this failure aborts AND says so.
   if [ -f "$_manifest_tmp" ]; then
     _place_context="failed to write the manifest at $_manifest.
   The files listed in $_manifest_tmp were installed and are NOT recorded, so
   'uninstall' cannot remove them. Remove them by hand or re-run install."
     _place_file "$_manifest_tmp" "$_manifest" "$_priv"
-    _place_context=""
     rm -f "$_manifest_tmp"
   fi
 
