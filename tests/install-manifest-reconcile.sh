@@ -428,10 +428,9 @@ _make_stage "$_s"
 _run_install "$_s" "$_d" >/dev/null
 mkdir -p "$_d/lib/orphan/nested" || exit 1
 ln -s "$_d/lib/libmediaforge-keep.a" "$_d/lib/dangling.link"
-ln -s "$_d/bin/ffmpeg" "$_d/lib/live.link"
-# The live link's target must survive the uninstall, or "live" is meaningless.
-# A file outside the prefix serves; bin/ffmpeg is removed by the manifest pass.
-rm -f "$_d/lib/live.link"
+# The live link's target must OUTLIVE the uninstall, or "live" is meaningless by
+# the time the sweep runs — anything inside the prefix is removed by the
+# manifest pass first, which would make this a second dangling link.
 printf 'STILL-HERE\n' > "$_out_dir/anchor"
 ln -s "$_out_dir/anchor" "$_d/lib/live.link"
 _run_uninstall "$_s" "$_d" >/dev/null
@@ -447,12 +446,48 @@ fi
 # paired with the fixpoint result above for that reason, and that half is
 # deliberately the same one assertion #1 rests on: it is the only behaviour in
 # this area the base gets wrong, so it is the only pairing available.
+# `-L` on the live link is the load-bearing clause and was missing: unlinking a
+# symlink never touches its target, so asserting only that the anchor survives
+# is satisfied by a sweep that deletes the link. Without it, mutating the link
+# predicate from `[ -L ] && [ ! -e ]` to a bare `[ -L ]` would delete every
+# symlink under the prefix and this file would stay green — the exact "names a
+# property it does not test" shape the manifest assertion was rewritten for.
 if [ ! -e "$_d/lib/dangling.link" ] && [ ! -L "$_d/lib/dangling.link" ] \
+   && [ -L "$_d/lib/live.link" ] \
    && [ -f "$_out_dir/anchor" ] \
    && [ ! -d "$_d/lib/orphan" ]; then
-  _pass "a dangling symlink is swept and a live link's target is untouched"
+  _pass "a dangling symlink is swept, a live one and its target are left alone"
 else
-  _bad "a dangling symlink is swept and a live link's target is untouched"
+  _bad "a dangling symlink is swept, a live one and its target are left alone"
+fi
+
+# ─── uninstall creates nothing outside the target prefix ───────────────────
+# Routing the sweeps through the helper briefly staged their root list in
+# $PREFIX/.logs, following the install path's precedent. That precedent does not
+# transfer: $PREFIX is set unconditionally by mediaforge.sh and uninstall needs
+# nothing from it, so `./mediaforge.sh uninstall` in a fresh clone — or after
+# `clean` — created a build workspace as a side effect of removing something
+# else. The list belongs in /tmp, like the manifest accumulator.
+#
+# Paired with the fixpoint result, which is the only behaviour here the base
+# gets wrong: the base never created $PREFIX either, so the first half alone
+# would pass there.
+_case prefixless
+_make_stage "$_s"
+_run_install "$_s" "$_d" >/dev/null
+mkdir -p "$_d/lib/orphan/nested" || exit 1
+_absent_prefix="$_out_dir/never-built"
+PREFIX="$_absent_prefix" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
+  sh -c '
+    . "$SCRIPT_DIR/lib/utils.sh"
+    . "$SCRIPT_DIR/lib/resolve.sh"
+    . "$SCRIPT_DIR/lib/install.sh"
+    do_uninstall "$1"
+  ' _ "$_d" >/dev/null 2>&1
+if [ ! -e "$_absent_prefix" ] && [ ! -d "$_d/lib/orphan" ]; then
+  _pass "uninstall creates nothing under \$PREFIX, which it never needed"
+else
+  _bad "uninstall creates nothing under \$PREFIX, which it never needed"
 fi
 
 # ─── an install that copies nothing changes nothing ─────────────────────────

@@ -29,14 +29,19 @@
 # FOUR MODES, ONE RULE. Every mode routes through _remove_entry, so the rule
 # above is written once and cannot come to exist in only some of them.
 #
-# The rule's scope is every delete of something INSIDE the prefix, which is
-# where an intermediate component exists to be swapped. Three privileged deletes
-# in lib/install.sh are deliberately outside it and are not the same class:
-# the two `rm -f "$_manifest"` calls name a DIRECT CHILD of the prefix, so the
-# only component between the resolved boundary and the leaf is the boundary
-# itself, and the final `rmdir "$_target"` names the prefix, which `rmdir`
-# refuses to follow if it has become a symlink. Each is commented where it sits.
-# Said here so this header claims what it does and not more:
+# The rule's scope is every delete of something INSIDE the prefix, and every one
+# of them routes through here — including the manifest, which was argued for a
+# while as a safe exception because it is a direct child of the prefix. That
+# argument was sound only about the RESOLVED boundary, and only if the boundary
+# were re-checked at the moment of the delete rather than inherited from a
+# string resolved earlier in the run. Two conditions are more than a comment
+# should be asked to defend when this file already guarantees both.
+#
+# ONE privileged delete remains outside, and it is genuinely a different thing:
+# `rmdir "$_target_real"` removes the PREFIX — the boundary itself, not
+# something within it — and `rmdir` does not follow a symlink at the final
+# component. It is commented where it sits. Said here so this header claims what
+# it does and not more:
 #
 #   files      delete each path the LIST names          (the manifest)
 #   dirs       climb from each LIST path toward the     (the manifest)
@@ -142,6 +147,14 @@ _removed=0
 # Enter $_target_real/$1 and confirm it really is inside $_target_real. Callers
 # run this INSIDE the subshell that will do the removing, so the verdict and the
 # act share a CWD.
+#
+# Three outcomes, not two: 0 entered and contained, 1 could not enter at all,
+# 2 entered but it resolves outside. The distinction matters because they mean
+# opposite things to an operator — a directory that is simply GONE is the
+# ordinary case for an entry someone already deleted by hand, while one that
+# resolves outside is a refusal worth printing. Collapsing them made a missing
+# parent report "refusing to remove X - it resolves outside": a false alarm
+# about an attack, for a tree that is merely tidy.
 _enter_contained() {
   cd "$_target_real/$1" 2>/dev/null || return 1
   case "$(pwd -P)/" in
@@ -152,7 +165,7 @@ _enter_contained() {
     # matched literally and cannot widen the pattern.
     "$_target_real"/*) return 0 ;;
   esac
-  return 1
+  return 2
 }
 
 # Reject paths that SPELL a traversal. This is redundant with the containment
@@ -194,7 +207,13 @@ _remove_entry() {
   # directory and its parent, not entries within it.
   case "$_re_base" in .|..) return 1 ;; esac
 
-  ( _enter_contained "$_re_dir" || exit 6
+  ( _enter_contained "$_re_dir"
+    case $? in
+      0) ;;
+      # Parent gone: the entry is already removed. Silent, and not a refusal.
+      1) exit 1 ;;
+      *) exit 6 ;;
+    esac
     case "$2" in
       file) [ -f "./$_re_base" ] || exit 1
             rm -f -- "./$_re_base" || exit 5 ;;
@@ -226,10 +245,42 @@ _refused() {
 # symlinked class directory is reported as a link rather than descended into,
 # which is what stops an enumeration from wandering out of the prefix before
 # _remove_entry ever sees a path.
+#
+# NEWLINES IN FILENAMES are the one thing this cannot parse, and the caveat is
+# larger here than for the manifest modes. `find | sed` into a line-based `read`
+# splits a name containing a newline across two lines. The manifest is written
+# by mediaforge; these two modes enumerate the LIVE tree under subtrees the
+# comments in do_uninstall acknowledge other packages and the user may populate,
+# so the input is no longer only ours. The consequence is bounded and does not
+# reach outside the prefix: both halves of a split name still go through
+# _remove_entry, which enters, re-checks containment, and applies the kind test,
+# so the worst case is failing to sweep the intended entry, or sweeping a
+# different ALREADY-dangling link or ALREADY-empty directory under the same
+# contained root. Nothing live, nothing non-empty, nothing outside.
+#
+# Not fixed, because there is no portable fix: `find -print0` with `read -d ''`
+# is a GNU/bash pair and this is POSIX sh targeting dash as well. Recorded
+# rather than left for the next reader to rediscover.
 _enumerate() {
   _en_root=$1
   shift
-  ( _enter_contained "$_en_root" || exit 0
+  ( _enter_contained "$_en_root"
+    case $? in
+      0) ;;
+      # Root absent — this prefix simply has no such subtree. Nothing to sweep
+      # and nothing worth saying.
+      1) exit 0 ;;
+      # Present but pointing out of the prefix. Every other refusal in this file
+      # is reported; an enumeration that silently finds nothing would leave an
+      # operator with a surviving prefix and no reason for it.
+      #
+      # Like _traverses, this is defense in depth rather than the thing that
+      # makes the sweep safe, and it is honestly NOT pinned: mutating it away
+      # changes no assertion, because _remove_entry re-checks containment for
+      # every path the enumeration produces and refuses each one. What it buys
+      # is not walking a tree outside the prefix at all, and saying so.
+      *) _refused "$_en_root"; exit 0 ;;
+    esac
     find . "$@" 2>/dev/null | sed 's|^\./||' )
 }
 
