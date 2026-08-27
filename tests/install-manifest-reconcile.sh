@@ -461,6 +461,32 @@ else
   _bad "a dangling symlink is swept, a live one and its target are left alone"
 fi
 
+# ─── an already-deleted entry is not reported as an escape attempt ─────────
+# _enter_contained returns three outcomes, and the reason is this message. When
+# "could not enter" and "resolves outside" were one failure, a manifest entry
+# whose parent directory a user had already removed by hand printed "refusing to
+# remove X — it resolves outside <prefix>": an alarm about an attack, raised
+# over a tidy tree. An operator who believes it goes looking for a symlink that
+# was never there.
+#
+# Paired with the fixpoint, the only behaviour here the base gets wrong — the
+# base prints no refusals at all, so the absence of the message is trivially
+# true there.
+_case tidied
+_make_stage "$_s"
+_run_install "$_s" "$_d" >/dev/null
+mkdir -p "$_d/lib/orphan/nested" || exit 1
+# Remove a whole class directory the manifest still lists, which is what makes
+# _enter_contained fail to enter rather than fail containment.
+rm -rf "${_d:?}/include"
+_tidied_out=$(_run_uninstall "$_s" "$_d")
+if ! printf '%s\n' "$_tidied_out" | grep -q 'resolves outside' \
+   && [ ! -d "$_d/lib/orphan" ]; then
+  _pass "an entry whose directory is already gone is not called an escape"
+else
+  _bad "an entry whose directory is already gone is not called an escape"
+fi
+
 # ─── uninstall creates nothing outside the target prefix ───────────────────
 # Routing the sweeps through the helper briefly staged their root list in
 # $PREFIX/.logs, following the install path's precedent. That precedent does not
