@@ -184,6 +184,13 @@ _place_file() {
   # Consumed at entry, not left for the caller to clear. The override applies to
   # exactly ONE call, and taking it here makes that true by construction rather
   # than by a set/clear pair a future caller has to remember to write.
+  #
+  # The CLEAR specifically is unpinned, and honestly so: the only setter is the
+  # manifest finalize, which is the last thing do_install does, so within one
+  # process nothing runs afterwards that could observe a stale value. Mutating
+  # the clear away changes no assertion. It is here for the second caller, not
+  # for today's. The capture and the use are both pinned, by
+  # tests/install-containment.sh's failed-manifest-write assertion.
   _pf_context="${_place_context:-}"
   _place_context=""
 
