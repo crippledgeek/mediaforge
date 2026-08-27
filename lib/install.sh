@@ -837,24 +837,22 @@ do_uninstall() {
     # bin/lib/include/share/man avoids touching unrelated user trees like
     # share/pnpm or share/applications.
     #
-    # KNOWN, and a decision rather than an oversight: this sweep and the second
-    # rmdir pass below are the last two privileged deletes that still run on a
-    # lexically-composed path — `[ ! -e ]` then `rm -f` on the same string is a
-    # check-then-act gap, and neither goes through the enter-then-delete rule
-    # lib/remove-listed-files.sh established. They are left as they are because
-    # their paths come from `find` over the real tree rather than from the
-    # manifest, which is the attacker-editable input #15's prune and the
-    # uninstall loop read; the exposure is materially smaller and the fix is a
-    # third and fourth helper mode. Recorded here so the next reader finds a
-    # stated boundary instead of an inconsistency.
-    for _sweep in bin lib include share/man; do
-      [ -d "$_target/$_sweep" ] || continue
-      find "$_target/$_sweep" -type l 2>/dev/null | while IFS= read -r _link; do
-        if [ ! -e "$_link" ]; then
-          $_priv rm -f "$_link"
-        fi
-      done
-    done
+    # Enumeration and deletion both happen inside lib/remove-listed-files.sh,
+    # like every other privileged delete here. This used to be a `find | while`
+    # loop running `$_priv rm -f "$_link"` on a composed path it had never
+    # entered — a check-then-act gap, and the last place not following the rule
+    # the helper exists to enforce. Being the only exception is how a rule stops
+    # being one. Moving the `find` inside also fixes a defect the loop carried:
+    # it ran UNPRIVILEGED, so on a root-owned prefix it enumerated a tree it
+    # could not read and swept nothing.
+    _sweep_roots="$PREFIX/.logs/_sweep_roots_$$"
+    mkdir -p "$PREFIX/.logs" 2>/dev/null || _sweep_roots=""
+    if [ -n "$_sweep_roots" ] \
+       && printf '%s\n' bin lib include share/man > "$_sweep_roots" 2>/dev/null; then
+      _remove_manifest_entries links "$_sweep_roots" "$_target_real"
+    else
+      warn "Cannot stage the symlink-sweep root list — skipping the dangling-link sweep."
+    fi
 
     # Clean up empty directories left behind (bottom-up). This overwrites
     # _mr_removed with a DIRECTORY count, which is why _removed was taken above;
@@ -868,14 +866,26 @@ do_uninstall() {
     # subdirs themselves — `rmdir` refuses non-empty dirs, so shared prefixes
     # like /usr/local where other packages live in those subdirs are
     # naturally protected. Only mediaforge-exclusive subdirs vanish.
-    for _sub in bin lib include share/man share; do
-      [ -d "$_target/$_sub" ] || continue
-      find "$_target/$_sub" -depth -type d -empty 2>/dev/null \
-        | while IFS= read -r _empty; do
-            $_priv rmdir "$_empty" 2>/dev/null || true
-          done
-    done
+    #
+    # Same helper, same rule, for the same reasons as the sweep above. The
+    # 'emptydirs' mode additionally repeats to a fixpoint, which the `find
+    # -depth` loop it replaces did not: find decides -empty when it visits a
+    # directory, so a parent that empties only once its last child is removed
+    # was left behind.
+    if [ -n "$_sweep_roots" ] \
+       && printf '%s\n' bin lib include share/man share > "$_sweep_roots" 2>/dev/null; then
+      _remove_manifest_entries emptydirs "$_sweep_roots" "$_target_real"
+    else
+      warn "Cannot stage the empty-directory root list — skipping that sweep."
+    fi
+    rm -f "$_sweep_roots"
 
+    # Not routed through the removal helper, unlike every delete above it: the
+    # manifest is a DIRECT CHILD of the prefix, so the only path component
+    # between the resolved containment boundary and this leaf is that boundary
+    # itself, and `rm -f` unlinks a symlink at the leaf rather than following
+    # it. There is no intermediate component here for the enter-then-delete rule
+    # to protect.
     $_priv rm -f "$_manifest"
 
     # Finally, attempt to remove the prefix root itself. This succeeds only
@@ -884,6 +894,10 @@ do_uninstall() {
     # /usr/local) keep other packages' files and the rmdir naturally fails —
     # no harm done. Net effect: full pristine revert for isolated prefixes,
     # conservative for shared ones.
+    #
+    # Also not routed through the helper, and safe for a second reason: `rmdir`
+    # does not follow a symlink at the final component, so a prefix swapped for
+    # one fails with ENOTDIR rather than removing the link's target.
     $_priv rmdir "$_target" 2>/dev/null && log "Removed empty prefix $_target"
 
     log "Removed $_removed files from $_target"

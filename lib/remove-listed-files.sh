@@ -1,37 +1,65 @@
 #!/bin/sh
-# Remove the files a manifest lists, or collect the directories that emptied,
-# doing every privileged step in this one process.
+# Every privileged deletion mediaforge performs, in one process, with one
+# containment rule.
 #
 # _remove_manifest_entries (lib/install.sh) reads this file ONCE per process and
 # runs its text as `$_priv sh -c "$_remove_helper" _ MODE TARGET_REAL LIST` —
 # sudo for a system prefix, nothing for a user-owned one. This is the deletion
-# counterpart of lib/install-one-file.sh, and it exists for the same two
-# reasons that one does.
+# counterpart of lib/install-one-file.sh, and it exists for the same two reasons
+# that one does.
 #
-# CONTAINMENT. A manifest entry is composed onto the prefix lexically, and a
-# lexical composition says nothing about where the path leads. Rejecting '..'
-# and a leading '/' catches an entry that SPELLS an escape; it does nothing
-# about `lib/foo.a` when <prefix>/lib is a symlink to /etc, because the escape
-# is in the tree rather than in the text. That is the same gap #21 closed for
-# the write path, and until this file the delete path did not have the fix:
-# do_uninstall drove `sudo rm -f` on a lexically-checked path, and the prune
-# added by #15 made the same primitive fire on every install, unattended, where
-# uninstall at least asks first.
+# CONTAINMENT. A path composed onto the prefix lexically says nothing about
+# where it leads. Rejecting '..' and a leading '/' catches a name that SPELLS an
+# escape; it does nothing about `lib/foo.a` when <prefix>/lib is a symlink to
+# /etc, because the escape is in the tree rather than in the text. That is the
+# gap #21 closed for the write path, and until this file the delete path did not
+# have the fix: do_uninstall drove `sudo rm -f` on a lexically-checked path, and
+# the prune added by #15 made the same primitive fire on every install,
+# unattended, where uninstall at least asks first.
 #
 # So the check and the delete happen in ONE process, and the delete is issued
 # RELATIVE to a directory this process has already entered — `cd` into the
 # parent, confirm `pwd -P` is inside TARGET_REAL, then `rm -f -- ./name`. The
 # kernel resolves './name' against the directory this process holds open as its
 # CWD, so the intermediate components are never walked a second time and there
-# is no window between the check and the delete in which one of them could be
-# swapped. A leaf that is itself a symlink is unlinked, not followed — `rm`
-# does not follow a symlink it is asked to remove.
+# is no window in which one of them could be swapped. A leaf that is itself a
+# symlink is unlinked, not followed — `rm` does not follow a symlink it is asked
+# to remove, and `rmdir` refuses one outright.
+#
+# FOUR MODES, ONE RULE. Every mode routes through _remove_entry, so the rule
+# above is written once and cannot come to exist in only some of them.
+#
+# The rule's scope is every delete of something INSIDE the prefix, which is
+# where an intermediate component exists to be swapped. Three privileged deletes
+# in lib/install.sh are deliberately outside it and are not the same class:
+# the two `rm -f "$_manifest"` calls name a DIRECT CHILD of the prefix, so the
+# only component between the resolved boundary and the leaf is the boundary
+# itself, and the final `rmdir "$_target"` names the prefix, which `rmdir`
+# refuses to follow if it has become a symlink. Each is commented where it sits.
+# Said here so this header claims what it does and not more:
+#
+#   files      delete each path the LIST names          (the manifest)
+#   dirs       climb from each LIST path toward the     (the manifest)
+#              prefix, removing what is now empty
+#   links      delete the DANGLING symlinks under       (subtree roots)
+#              each LIST root
+#   emptydirs  remove every empty directory under       (subtree roots)
+#              each LIST root, deepest first
+#
+# The last two used to be `find | while ...; $_priv rm -f "$_link"` loops in
+# do_uninstall: a `[ ! -e ]` test followed by a delete on the same composed
+# string, which is a check-then-act gap on a path nothing had entered. They were
+# briefly kept and documented as a narrower, accepted risk; that was the wrong
+# call, and being the only two deletes outside the rule is exactly how a rule
+# stops being one. Doing the enumeration HERE also fixes a second defect they
+# carried: `find` ran unprivileged in the caller, so on a root-owned prefix it
+# could not read the tree it was enumerating.
 #
 # COST, and why this is not the trade #23 refused. The shape it replaced ran
 # `$_priv rm -f` per entry: one setuid exec per file, ~250 on an install and
-# 1527 on the uninstall that surfaced #15. Here the whole list costs ONE exec
-# and every entry is still checked on its own, so the cheaper design is also
-# the stricter one — there is nothing to trade.
+# 1527 on the uninstall that surfaced #15. Here a whole list costs ONE exec and
+# every entry is still checked on its own, so the cheaper design is also the
+# stricter one — there is nothing to trade.
 #
 # READ ONCE, not executed from disk per call, and a SEPARATE FILE rather than a
 # string literal inside the caller: both for the reasons set out at length in
@@ -40,10 +68,9 @@
 # command word is "$_priv sh", so privileged code would go unchecked.
 #
 # It ends by printing REMOVED <count>. The caller requires that sentinel,
-# because a script that is empty or truncated exits 0 under POSIX ("no
-# commands" is success) and would otherwise be indistinguishable from a
-# completed sweep that removed nothing — which is precisely the reading a
-# damaged helper must not be able to buy.
+# because a script that is empty or truncated exits 0 under POSIX ("no commands"
+# is success) and would otherwise be indistinguishable from a completed sweep
+# that removed nothing — precisely the reading a damaged helper must not buy.
 #
 # Refusals go to STDERR and do not stop the run: one unresolvable entry in a
 # 1527-line manifest must not abandon the other 1526. stdout carries the
@@ -51,8 +78,7 @@
 #
 # Exit codes, because the messages belong with die() in the caller:
 #   0  completed — and REMOVED <n> printed on stdout; 0 without it is not success
-#      (n counts files in 'files' mode and directories in 'dirs' mode: what this
-#      invocation actually removed, so a caller can report it either way)
+#      (n is what THIS invocation removed: files, directories, or links)
 #   3  TARGET_REAL itself could not be resolved — nothing was attempted
 #   4  wrong usage
 #   7  the list could not be opened — nothing was attempted
@@ -68,7 +94,7 @@ _target_real=$2
 _list=$3
 [ -n "$_target_real" ] && [ -n "$_list" ] || exit 4
 case "$_mode" in
-  files|dirs) ;;
+  files|dirs|links|emptydirs) ;;
   *) exit 4 ;;
 esac
 
@@ -79,14 +105,6 @@ esac
 _target_real=$(cd "$_target_real" 2>/dev/null && pwd -P) || exit 3
 [ -n "$_target_real" ] || exit 3
 
-# The list must be OPENABLE before either loop starts. `done < "$_list"` on a
-# compound command does not abort a non-interactive shell when the redirection
-# fails: execution falls through to the sentinel, which prints REMOVED 0, and
-# the caller reads a clean "nothing left to remove" from a list it never read.
-# That is the same "reported success having removed nothing" this file's header
-# argues must not be purchasable — the root-owned 0600 manifest was one way in,
-# and running as root closed only that one.
-#
 # Read ONCE, here, and iterate the text below. Not `[ -r ]`, which answers from
 # the permission bits and can disagree with the open (ACLs, a filesystem mounted
 # differently, a name that stops resolving) — this is a real open, and its
@@ -121,9 +139,9 @@ _list_text=$(cat "$_list" 2>/dev/null) || exit 7
 
 _removed=0
 
-# Enter $_target_real/$1 and confirm it really is inside $_target_real.
-# Callers run this INSIDE the subshell that will do the removing, so the verdict
-# and the act share a CWD.
+# Enter $_target_real/$1 and confirm it really is inside $_target_real. Callers
+# run this INSIDE the subshell that will do the removing, so the verdict and the
+# act share a CWD.
 _enter_contained() {
   cd "$_target_real/$1" 2>/dev/null || return 1
   case "$(pwd -P)/" in
@@ -137,7 +155,7 @@ _enter_contained() {
   return 1
 }
 
-# Reject entries that SPELL a traversal. This is redundant with the containment
+# Reject paths that SPELL a traversal. This is redundant with the containment
 # check above, not a necessary condition alongside it: traced against every
 # shape the tests feed it, `_enter_contained` refuses each one on its own — a
 # '../' entry lands in the real parent and fails the prefix match, and an
@@ -145,11 +163,11 @@ _enter_contained() {
 # `cd` fails. Mutation testing agrees: disabling this guard alone changes no
 # assertion, while loosening containment alone does.
 #
-# Kept as a cheap fast path and as defense in depth, applied to both modes from
-# one place so the two can never disagree — but it is NOT what makes the
-# deletion safe, and a reader must not come away believing it is. Containment
-# is. See the header, and tests/install-manifest-reconcile.sh's symlinked-class
-# -directory case, which is the assertion that actually pins it.
+# Kept as a cheap fast path and as defense in depth, applied to every mode from
+# one place so they can never disagree — but it is NOT what makes the deletion
+# safe, and a reader must not come away believing it is. Containment is. See the
+# header, and tests/install-manifest-reconcile.sh's symlinked-class-directory
+# case, which is the assertion that actually pins it.
 _traverses() {
   case "$1" in
     /*|*/../*|../*|..) return 0 ;;
@@ -157,93 +175,184 @@ _traverses() {
   return 1
 }
 
-# Both loops iterate the text read above via a here-document, NOT a pipe: a
-# pipeline puts the loop body in a subshell, where every _removed increment is
-# discarded when it exits and the sentinel would report 0 for a sweep that
-# removed everything. The here-doc body is a parameter expansion, and an
-# expansion's RESULT is not rescanned — a manifest line containing $(...) or a
-# backtick arrives as those literal characters. Verified 2026-08-26.
-if [ "$_mode" = files ]; then
+# THE one deletion primitive. $1 is a prefix-relative path, $2 its kind
+# (file|link|dir). Enters the parent, re-checks containment from inside it, and
+# acts on the leaf by name — never on a composed path.
+#
+# Returns 0 when it removed something, 6 when containment refused, 5 when the
+# removal itself failed, and 1 when there was nothing to remove (the ordinary
+# outcome for an entry a user already deleted by hand).
+_remove_entry() {
+  case "$1" in
+    */*) _re_dir=${1%/*}; _re_base=${1##*/} ;;
+    # No directory component: the leaf sits at the prefix root.
+    *)   _re_dir=.;       _re_base=$1 ;;
+  esac
+  # A trailing slash names a directory through a file-shaped path.
+  [ -n "$_re_base" ] || return 1
+  # '.' and '..' as a leaf are never ours to remove: they are the entered
+  # directory and its parent, not entries within it.
+  case "$_re_base" in .|..) return 1 ;; esac
+
+  ( _enter_contained "$_re_dir" || exit 6
+    case "$2" in
+      file) [ -f "./$_re_base" ] || exit 1
+            rm -f -- "./$_re_base" || exit 5 ;;
+      # DANGLING only: -L says it is a symlink, ! -e says its target is not
+      # there. A live symlink is someone's working shim and stays.
+      link) { [ -L "./$_re_base" ] && [ ! -e "./$_re_base" ]; } || exit 1
+            rm -f -- "./$_re_base" || exit 5 ;;
+      # rmdir refuses a non-empty directory, which is what keeps a shared
+      # prefix's other packages safe without this knowing anything about them.
+      # It refuses a symlink too, rather than following it.
+      dir)  rmdir -- "./$_re_base" 2>/dev/null || exit 1 ;;
+      *)    exit 1 ;;
+    esac
+  )
+}
+
+# Report a containment refusal in the same words for every mode.
+_refused() {
+  printf 'mediaforge: refusing to remove %s — it resolves outside %s\n' \
+    "$1" "$_target_real" >&2
+}
+
+# Prefix-relative paths under $1 matching the find predicate in $2..., emitted
+# one per line. Enters the root first, so the enumeration itself is contained
+# and — because this process holds the privilege — can read a root-owned tree
+# the caller's own `find` could not.
+#
+# `find` is NOT given -L or -H, so it does not follow a symlink it meets: a
+# symlinked class directory is reported as a link rather than descended into,
+# which is what stops an enumeration from wandering out of the prefix before
+# _remove_entry ever sees a path.
+_enumerate() {
+  _en_root=$1
+  shift
+  ( _enter_contained "$_en_root" || exit 0
+    find . "$@" 2>/dev/null | sed 's|^\./||' )
+}
+
+case "$_mode" in
+files)
   while IFS= read -r _rel; do
     [ -z "$_rel" ] && continue
     if _traverses "$_rel"; then
       printf 'mediaforge: suspicious manifest entry skipped: %s\n' "$_rel" >&2
       continue
     fi
-
-    # An entry with no '/' lives at the prefix root; ${_rel%/*} would then be
-    # the whole entry rather than its directory, which is the same shape
-    # lib/install-one-file.sh rejects a trailing slash to avoid.
-    case "$_rel" in
-      */*) _dir=${_rel%/*}; _base=${_rel##*/} ;;
-      *)   _dir=.;          _base=$_rel ;;
-    esac
-    # A trailing slash names a directory, and this removes files.
-    [ -n "$_base" ] || continue
-
-    ( _enter_contained "$_dir" || exit 6
-      [ -f "./$_base" ] || exit 1
-      rm -f -- "./$_base" || exit 5
-    )
+    _remove_entry "$_rel" file
     case $? in
       0) _removed=$((_removed + 1)) ;;
-      6) printf 'mediaforge: refusing to delete %s — it resolves outside %s\n' \
-           "$_rel" "$_target_real" >&2 ;;
+      6) _refused "$_rel" ;;
       5) printf 'mediaforge: failed to delete %s\n' "$_rel" >&2 ;;
-      *) : ;;   # not present: the ordinary case for an already-removed entry
+      *) : ;;
     esac
+  # A here-document, NOT a pipe: a pipeline puts the loop body in a subshell,
+  # where every _removed increment is discarded when it exits and the sentinel
+  # would report 0 for a sweep that removed everything. The here-doc body is a
+  # parameter expansion, and an expansion's RESULT is not rescanned — a manifest
+  # line containing $(...) or a backtick arrives as those literal characters.
+  # Verified 2026-08-26 under both sh and dash.
   done <<EOF
 $_list_text
 EOF
-else
-  # Climb from each entry's own directory up toward the target, removing what
-  # `rmdir` finds empty. The refusal to remove a non-empty directory is the
-  # kernel's, which is what keeps a shared prefix's other packages safe without
-  # this needing to know anything about them.
-  #
-  # Each rmdir is issued from inside the PARENT, for the same reason the unlink
-  # above is: 'rmdir ./name' cannot be redirected by swapping a component of a
-  # path it never walks. rmdir does not follow a symlink at the final component
-  # either, so a symlinked directory name fails rather than removing its target.
+  ;;
+
+dirs)
   while IFS= read -r _rel; do
     [ -z "$_rel" ] && continue
     _traverses "$_rel" && continue
     case "$_rel" in
       */*) _dir=${_rel%/*} ;;
-      # No directory component: nothing between this entry and the prefix root,
-      # and the root itself is not ours to remove here — do_uninstall does that
-      # last, deliberately, and only for a prefix that ended up empty.
+      # Nothing between this entry and the prefix root, and the root itself is
+      # not ours to remove here — do_uninstall does that last, deliberately, and
+      # only for a prefix that ended up empty.
       *) continue ;;
     esac
-
+    # Climb toward the prefix, stopping at the first level that will not go:
+    # every level above a directory that is still populated holds it too.
     while [ -n "$_dir" ] && [ "$_dir" != "." ]; do
-      case "$_dir" in
-        */*) _parent=${_dir%/*}; _leaf=${_dir##*/} ;;
-        *)   _parent=.;          _leaf=$_dir ;;
-      esac
-      ( _enter_contained "$_parent" || exit 6
-        rmdir -- "./$_leaf" 2>/dev/null || exit 1
-      )
+      _remove_entry "$_dir" dir
       case $? in
         0) _removed=$((_removed + 1)) ;;
-        # Reported, like the file-mode refusal is. Both fail closed, so this is
-        # not a safety gap — but an operator whose directory cleanup stops
-        # because a component is a symlink gets no clue why from a silent break,
-        # and "the prefix was left behind" with no reason given is the exact
-        # shape of the #15 report this all came from.
-        6) printf 'mediaforge: refusing to remove directory %s — it resolves outside %s\n' \
-             "$_dir" "$_target_real" >&2
-           break ;;
-        # Not empty, or already gone. The ordinary outcome, and the signal to
-        # stop climbing: every level above this one holds it.
+        6) _refused "$_dir"; break ;;
         *) break ;;
       esac
-      _dir=$_parent
+      case "$_dir" in
+        */*) _dir=${_dir%/*} ;;
+        *)   _dir=. ;;
+      esac
     done
   done <<EOF
 $_list_text
 EOF
-fi
+  ;;
+
+links)
+  while IFS= read -r _root; do
+    [ -z "$_root" ] && continue
+    _traverses "$_root" && continue
+    _found=$(_enumerate "$_root" -type l)
+    [ -n "$_found" ] || continue
+    while IFS= read -r _rel; do
+      [ -z "$_rel" ] && continue
+      [ "$_rel" = "." ] && continue
+      _remove_entry "$_root/$_rel" link
+      case $? in
+        0) _removed=$((_removed + 1)) ;;
+        6) _refused "$_root/$_rel" ;;
+        *) : ;;
+      esac
+    done <<INNER
+$_found
+INNER
+  done <<EOF
+$_list_text
+EOF
+  ;;
+
+emptydirs)
+  # Repeated to a fixpoint rather than trusting one `find -depth` pass. find
+  # decides -empty when it VISITS a directory, and the removals happen after the
+  # enumeration is collected — so a parent that becomes empty only once its last
+  # child is removed is not in that first listing. Each cycle removes at least
+  # one directory or ends the loop, and directories are finite, so this
+  # terminates; it is also strictly more thorough than the single pass it
+  # replaces, which left such parents behind.
+  while :; do
+    _any=0
+    while IFS= read -r _root; do
+      [ -z "$_root" ] && continue
+      _traverses "$_root" && continue
+      _found=$(_enumerate "$_root" -depth -type d -empty)
+      [ -n "$_found" ] || continue
+      while IFS= read -r _rel; do
+        [ -z "$_rel" ] && continue
+        # find prints '.' for the root itself when it is empty; the root is a
+        # real candidate (an emptied lib/ should go), but it is named by
+        # $_root, not by "$_root/.".
+        if [ "$_rel" = "." ]; then
+          _cand=$_root
+        else
+          _cand=$_root/$_rel
+        fi
+        _remove_entry "$_cand" dir
+        case $? in
+          0) _removed=$((_removed + 1)); _any=1 ;;
+          6) _refused "$_cand" ;;
+          *) : ;;
+        esac
+      done <<INNER
+$_found
+INNER
+    done <<EOF
+$_list_text
+EOF
+    [ "$_any" = 1 ] || break
+  done
+  ;;
+esac
 
 # The sentinel, last: reaching EOF is not evidence the work happened, but
 # printing this after the loop completed is.

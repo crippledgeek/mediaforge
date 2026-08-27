@@ -411,6 +411,50 @@ else
   _bad "removing a whole manifest costs one privileged exec, and the files go"
 fi
 
+# ─── the sweeps run through the same helper as everything else ─────────────
+# do_uninstall's dangling-symlink sweep and its second rmdir pass were the last
+# two privileged deletes composing a path lexically and never entering it. They
+# now go through lib/remove-listed-files.sh's 'links' and 'emptydirs' modes.
+#
+# The fixpoint is what the base gets WRONG, and it is the oracle for both
+# assertions below. `find -depth -type d -empty` decides -empty when it VISITS a
+# directory: given lib/orphan/nested, it visits nested (empty, listed) and then
+# orphan (still holding nested, so NOT listed) — and the base's single pass
+# leaves orphan behind. Repeating to a fixpoint removes both. Neither directory
+# is in the manifest, so the manifest-driven climb never touches them and this
+# is a property of the sweep alone.
+_case sweeps
+_make_stage "$_s"
+_run_install "$_s" "$_d" >/dev/null
+mkdir -p "$_d/lib/orphan/nested" || exit 1
+ln -s "$_d/lib/libmediaforge-keep.a" "$_d/lib/dangling.link"
+ln -s "$_d/bin/ffmpeg" "$_d/lib/live.link"
+# The live link's target must survive the uninstall, or "live" is meaningless.
+# A file outside the prefix serves; bin/ffmpeg is removed by the manifest pass.
+rm -f "$_d/lib/live.link"
+printf 'STILL-HERE\n' > "$_out_dir/anchor"
+ln -s "$_out_dir/anchor" "$_d/lib/live.link"
+_run_uninstall "$_s" "$_d" >/dev/null
+
+if [ ! -d "$_d/lib/orphan" ]; then
+  _pass "nested empty directories are swept to a fixpoint, not one level deep"
+else
+  _bad "nested empty directories are swept to a fixpoint, not one level deep"
+fi
+
+# The sweep's other two properties — a dangling link goes, a live one stays —
+# are ALSO true on the base, which swept dangling links correctly. They are
+# paired with the fixpoint result above for that reason, and that half is
+# deliberately the same one assertion #1 rests on: it is the only behaviour in
+# this area the base gets wrong, so it is the only pairing available.
+if [ ! -e "$_d/lib/dangling.link" ] && [ ! -L "$_d/lib/dangling.link" ] \
+   && [ -f "$_out_dir/anchor" ] \
+   && [ ! -d "$_d/lib/orphan" ]; then
+  _pass "a dangling symlink is swept and a live link's target is untouched"
+else
+  _bad "a dangling symlink is swept and a live link's target is untouched"
+fi
+
 # ─── an install that copies nothing changes nothing ─────────────────────────
 # The prune's own boundary. Its input is "everything the previous manifest lists
 # that this run did not install", so a run that installs NOTHING — an unbuilt or
