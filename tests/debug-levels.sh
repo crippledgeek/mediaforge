@@ -336,15 +336,33 @@ fi
 # on dgif_lib.o found 0 debug sections with the flags in the environment and 2
 # with the same flags on the make command line.
 #
-# So the claim is per-recipe and structural: a recipe that COMPILES via a bare
-# make must name a flags macro on the command line. The recipes below run make
-# but compile nothing (they install headers), so they have nothing to carry.
+# So the claim is structural and per-invocation: every make that COMPILES must
+# name a flags macro on the command line, and that macro must be fed by the
+# composed CFLAGS. The recipes below run make but compile nothing (they install
+# headers), so they have nothing to carry.
 _mf_headers_only=' amf.sh vaapi.sh ladspa.sh vapoursynth.sh nv-codec.sh '
 
 # Fold backslash continuations before matching: gsm, bzip2 and librtmp all put
 # the macro on the line AFTER `run make`, and a line-oriented grep reads those
 # as a bare make and reports the defect this file exists to catch.
 _mf_logical() { awk '{ if (sub(/\\$/, "")) { buf = buf $0; next } print buf $0; buf = "" }' "$1"; }
+
+# Scoped to pkg_build below, which is the phase that compiles. An earlier
+# version scanned the whole recipe and a mutation walked straight through it:
+# reverting giflib's BUILD line to a bare `run make` left the file green,
+# because its install line still carried the macro and the scan only asked
+# whether the recipe mentioned one somewhere. The claim has to be about the
+# invocation that does the compiling, not about the file.
+#
+# Generalized over the function name because the composed-CFLAGS claim below has
+# to read a helper's body too, and reading two function bodies two ways is how
+# the copies in this file drifted before.
+_mf_fn_body() { # file  function-name
+  _mf_logical "$1" | awk -v fn="$2" '
+    $0 ~ "^[[:space:]]*" fn "\\(\\)" { f = 1 }
+    f { print }
+    f && /\}[[:space:]]*$/ { f = 0 }'
+}
 
 _mf_scanned=0
 for _r in $(find recipes -name '*.sh' | sort); do
@@ -353,19 +371,41 @@ for _r in $(find recipes -name '*.sh' | sort); do
   case "$_mf_headers_only" in *" $(basename "$_r") "*) continue ;; esac
   _mf_scanned=$((_mf_scanned + 1))
   _mf_name="make-carries-flags-$(basename "$_r" .sh)"
-  # Two claims, because either alone is satisfiable by a recipe that still
-  # builds stripped. The macro spelling is upstream's to dictate -- CFLAGS
-  # (bzip2, giflib), CCFLAGS (gsm), XCFLAGS (librtmp) -- so the first claim
-  # matches any *FLAGS= on the make line, and the second requires the composed
-  # CFLAGS to be what feeds it rather than a fresh literal like -O2. Written as
-  # two greps rather than one anchored pattern so a recipe may route the value
-  # through a helper (giflib passes both its make runs the same one) without
-  # this file having to restate the flags the recipe chose -- asserting a copy
-  # of the recipe is the trap the cargo assertions above were rewritten to
-  # avoid. The "." stands in for the dollar, as it does there.
-  if ! _mf_logical "$_r" | grep -qE 'run make.*FLAGS='; then
-    _bad "$_mf_name" "runs make without passing any flags macro on the command line"
-  elif ! grep -qE '.CFLAGS' "$_r"; then
+  _mf_body=$(_mf_fn_body "$_r" pkg_build)
+  # An empty body means either the recipe defines no pkg_build -- in which case
+  # the framework's default_build runs a bare `make -j`, which is the defect --
+  # or the extraction above stopped matching. Both must fail rather than pass an
+  # unread recipe: this is the mutation the whole-file version missed.
+  if [ -z "$_mf_body" ]; then
+    _bad "$_mf_name" "no pkg_build body to read — a bare default_build, or a shape the scan cannot see"
+    continue
+  fi
+  # EVERY compiling invocation, not just one of them, and two claims per recipe
+  # because either alone is satisfiable by a recipe that still builds stripped.
+  # The macro spelling is upstream's to dictate -- CFLAGS (bzip2, giflib),
+  # CCFLAGS (gsm), XCFLAGS (librtmp) -- so the first claim matches any *FLAGS=,
+  # and the second requires the composed CFLAGS to feed it rather than a fresh
+  # literal like -O2. `make clean` is exempt: it compiles nothing, and librtmp
+  # legitimately runs one first. The "." stands in for the dollar, as above.
+  _mf_bare=$(printf '%s\n' "$_mf_body" | grep -E 'run make' |
+             grep -vE 'run make clean[[:space:]]*$' | grep -vE 'FLAGS=' || true)
+  _mf_composed=$(printf '%s\n' "$_mf_body" | grep -E 'run make' |
+                 grep -E 'FLAGS=[^;]*.CFLAGS' || true)
+  # A recipe may route the value through a helper rather than repeating it at
+  # both of its make runs -- giflib does. Follow the helper into its own body
+  # instead of demanding the literal on the make line, which would push the
+  # recipe to duplicate the string just to satisfy this file.
+  if [ -z "$_mf_composed" ]; then
+    for _mf_h in $(printf '%s\n' "$_mf_body" | grep -oE '.\(_[a-z0-9_]+\)' | sed 's/[^_a-z0-9]//g'); do
+      if _mf_fn_body "$_r" "$_mf_h" | grep -qE '.CFLAGS'; then
+        _mf_composed="via $_mf_h"
+        break
+      fi
+    done
+  fi
+  if [ -n "$_mf_bare" ]; then
+    _bad "$_mf_name" "compiles with a make that passes no flags macro: $_mf_bare"
+  elif [ -z "$_mf_composed" ]; then
     _bad "$_mf_name" "passes a flags macro that never references the composed CFLAGS"
   else
     _pass "$_mf_name"
