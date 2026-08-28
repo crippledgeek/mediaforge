@@ -40,13 +40,16 @@ file_size() {
   wc -c < "$1" | tr -d ' '
 }
 
-# HASH_COMMENT_RE -- how much of a `.hash` sidecar line is the comment marker.
+# HASH_COMMENT_RE -- how much of a line is the comment marker, for the `.hash`
+# sidecars this file parses and for `keys/INDEX`, which tests/signing-keys.sh
+# reads with the same grammar.
 #
-# Defined ONCE, here, because the two consumers below and tests/lib-provenance.sh
-# all ask the same question of the same files. It was written out three times
-# before this constant existed, and #44 converged only the test side; the two
-# copies that survived were the production ones, in the very functions the tests
-# were checking.
+# Defined ONCE, here, because the two consumers below and three test files --
+# tests/lib-provenance.sh, tests/upstream-provenance.sh and
+# tests/signing-keys.sh -- all ask the same question of the same KIND of line.
+# It was written out three times before this constant existed, and #44 converged
+# only the test side; the two copies that survived were the production ones, in
+# the functions tests/checksum-verification.sh exercises.
 #
 # The pin grammar that reads the REST of such a comment -- `# with key <fpr>` --
 # lives in tests/lib-provenance.sh, which sources this file for the marker. It
@@ -60,6 +63,13 @@ file_size() {
 # of consumer DIFFERENTLY -- the silent divergence this constant exists to
 # prevent, arriving through the mechanism meant to prevent it. Character classes
 # express everything needed here without one.
+# No `${VAR:?}` guard at the consumers, deliberately. The constant is assigned
+# unconditionally in the same file that reads it, so no reachable path leaves it
+# empty -- colocation is the guarantee, which is why it was moved here rather
+# than into a constants file nobody remembers to source. A per-call guard would
+# also be worse than useless in hash_lookup: every call site is a command
+# substitution, so `${VAR:?}` would exit only the subshell and hand the caller
+# the empty digest it was meant to prevent.
 HASH_COMMENT_RE='^[[:space:]]*#[[:space:]]*'
 
 # hash_file_validate HASHFILE
@@ -74,7 +84,6 @@ HASH_COMMENT_RE='^[[:space:]]*#[[:space:]]*'
 # it; keeping a weak-hash code path out of the tree entirely is the point.
 hash_file_validate() {
   _hf="$1"
-  : "${HASH_COMMENT_RE:?empty pattern would match every line, skipping every record}"
   _err=$(awk -v CMT="$HASH_COMMENT_RE" '
     $0 ~ CMT { next }
     /^[[:space:]]*$/ { next }
@@ -112,7 +121,6 @@ $_err"
 # hash_lookup HASHFILE FILENAME KEYWORD
 # Print the recorded value for that (filename, keyword) pair, or nothing.
 hash_lookup() {
-  : "${HASH_COMMENT_RE:?empty pattern would match every line, skipping every record}"
   awk -v want="$2" -v key="$3" -v CMT="$HASH_COMMENT_RE" '
     $0 ~ CMT { next }
     /^[[:space:]]*$/ { next }

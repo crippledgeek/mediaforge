@@ -1,59 +1,93 @@
 #!/bin/sh
-# The .hash sidecar comment grammar must have exactly ONE definition, and the
-# code that parses sidecars must actually READ it.
+# The sidecar comment MARKER must have exactly one definition, and the code that
+# parses sidecars must actually READ it.
 #
-# #44 gave the sidecar comment marker a single definition and rewrote both test
-# consumers onto it. The two production consumers kept their own hand-written
-# copies -- lib/download.sh's hash_file_validate and hash_lookup each carried a
-# literal /^[[:space:]]*#/ -- so the tree held one definition for the tests and
-# a separate pair for the code under test. #45 closes that.
+# Usage: tests/hash-comment-grammar.sh
+# Exit 0 = pass, 1 = regression.
+#
+# SCOPE. This file pins the marker's `#` and its leading-whitespace tolerance --
+# the half lib/download.sh consumes. It does NOT pin the constant's trailing
+# `[[:space:]]*`, which is inert here: `$0 ~ CMT` is an unanchored-tail match, so
+# both parsers skip exactly the same lines with or without it. That half is
+# load-bearing only for provenance_pinned_fprs in tests/lib-provenance.sh, whose
+# pin pattern is `^`-anchored -- a surviving leading space makes every pin
+# invisible. Dropping it is caught by tests/signing-keys.sh and
+# tests/upstream-provenance.sh, both of which carry floors that fire on it.
+# Asserting it here would assert behaviour this file's subject does not have.
+#
+# WHY THIS EXISTS. #44 gave the marker a single definition and rewrote its three
+# test consumers onto it. The two PRODUCTION copies survived: hash_file_validate
+# and hash_lookup each carried a literal /^[[:space:]]*#/, matched against the
+# same sidecars, in the functions tests/checksum-verification.sh exercises. The
+# tree held one definition for the tests and a hand-written pair for the code.
 #
 # Asserted by MUTATION rather than by grep, because a grep answers the wrong
 # question. "Does the literal still appear anywhere" is a question about the
 # text; the claim worth pinning is that changing the definition changes what the
-# parser does. A future copy that spelled the pattern differently -- `^ *#`, or
-# a `case` guard instead of an awk rule -- would satisfy a grep and still be a
-# second definition. Overriding the constant and demanding the behaviour move
-# with it catches every spelling, including ones nobody has written yet.
+# parser does. A future copy spelled differently -- `^ *#`, or a `case` guard
+# instead of an awk rule -- would satisfy a grep and still be a second
+# definition. Overriding the constant and demanding the behaviour move with it
+# catches every spelling, including ones nobody has written yet.
 #
 # Each consumer is probed separately and with a DIFFERENT override, because they
 # fail independently: converging one and leaving the other is precisely the
-# half-done state this file exists to reject, and a single shared probe would
-# let the converged half carry the copy.
+# half-done state this file exists to reject, and a single shared probe would let
+# the converged half carry the copy.
 #
-# The override direction is chosen per consumer so the mutation is observable:
+#   hash_file_validate -- NARROW the grammar to something no line matches, so the
+#     fixture's comment lines stop being skipped and are read as records. Both
+#     have a field count the record grammar rejects, so a reading parser reports
+#     them and dies. A parser holding its own literal skips them and succeeds.
 #
-#   hash_file_validate -- NARROW the grammar to something no line matches, so
-#     the fixture's comment header stops being skipped and is read as a record.
-#     It has four fields, so a reading parser reports it and dies. A parser
-#     holding its own literal skips it and reports success.
+#   hash_lookup -- REPOINT the grammar at the sha256 record, so a reading parser
+#     skips the very line it was asked for and returns nothing. A parser holding
+#     its own literal still finds it.
 #
-#   hash_lookup -- WIDEN the grammar to cover the sha256 record itself, so a
-#     reading parser skips the very line it was asked for and returns nothing.
-#     A parser holding its own literal still finds it.
+# Repoint rather than widen: a genuine widening wants alternation, and the
+# constant has to serve `sed` in tests/lib-provenance.sh as well as awk, so it
+# must stay in the subset BRE and ERE share -- `(#|sha256)` is ERE only. The
+# consequence to know is that under probe 2 the comment lines are not treated as
+# comments either; the probe holds because neither has three fields. A
+# three-field comment added to the fixture would break probe 2 for a reason
+# unrelated to what it pins.
 #
-# Narrowing is not observable in hash_lookup (the header has four fields, so it
-# matches no lookup either way) and widening is not observable in
+# Narrowing is not observable in hash_lookup (neither comment line has three
+# fields, so it matches no lookup either way) and repointing is not observable in
 # hash_file_validate (a skipped record is not an error), which is why the two
 # probes are not the same probe.
+#
+# Each consumer gets ONE compound assertion: the shipped grammar reads the
+# fixture correctly AND overriding the constant moves the behaviour. Paired
+# deliberately -- tests/oracle-baseline.sh requires that no assertion in a newly
+# added file passes on the merge base, and the first half necessarily passes
+# there, since it asserts behaviour the base already has right. Standing alone it
+# was reported as an offender, correctly: on its own it detects nothing. Paired,
+# the half the base gets wrong carries it, and the claim is the honest one --
+# "this consumer parses correctly BY READING the shared definition", not two
+# unrelated facts.
 #
 # The override is applied AFTER sourcing and restored afterwards, rather than
 # passed in through the environment. lib/download.sh assigns the constant at
 # source time, so an environment value would simply be overwritten -- and making
-# the assignment defer to a pre-set one (`: "${HASH_COMMENT_RE:=...}"`) would let
-# the environment retune sidecar parsing in a real build, which is a footgun
-# rather than a testing seam. Saving with `${VAR-}` keeps this file runnable on a
-# base where the constant does not exist yet, so it still reaches its DONE
-# sentinel there; tests/oracle-baseline.sh rejects a file that aborts early.
+# the assignment defer to a pre-set one would let the environment retune sidecar
+# parsing in a real build, which is a footgun rather than a testing seam. Saving
+# with `${VAR-}` keeps this file runnable on a base where the constant does not
+# exist yet, so it still reaches its DONE sentinel there.
 #
 # Each probe runs the function in a subshell because hash_file_validate calls
 # die(), which exits -- uncontained, the first probe would take the script with
-# it and the later assertions would never report.
+# it and the later assertion would never report.
+#
+# INT and TERM exit rather than sharing the EXIT handler, because a POSIX shell
+# RESUMES the script after a non-EXIT trap returns: catching Ctrl-C to clean up
+# and then running the remaining assertions is not what an interrupt means. The
+# exit re-enters the EXIT trap, so cleanup still happens exactly once, and
+# 128+signal is the status a killed process conventionally reports.
 #
 # No `set -e`: each check reports independently and the script exits with the
-# accumulated status, so one failure does not hide the others --
-# tests/oracle-baseline.sh depends on that, since a file that aborts early
-# cannot prove the assertions past the abort point.
+# accumulated status, so one failure does not hide the other --
+# tests/oracle-baseline.sh depends on that, since a file that aborts early cannot
+# prove the assertions past the abort point.
 set -u
 
 _here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -66,25 +100,28 @@ cd "$ROOT" || exit 1
 . "$ROOT/lib/download.sh"
 
 _fail=0
-_pass() { printf 'PASS: %s\n' "$1"; }
-_bad()  { printf 'FAIL: %s\n' "$1"; _fail=1; }
+# shellcheck source=tests/lib-assert.sh
+. "$ROOT/tests/lib-assert.sh"
 
+_tmp=''
+trap 'rm -rf ${_tmp:+"$_tmp"}' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 _tmp=$(mktemp -d) || exit 1
-trap 'rm -rf "$_tmp"' EXIT INT TERM
 
-# A digest of the right shape and length; its value is never compared to a real
-# file, only carried through the parser.
+# A digest of the right shape and length; its value is never compared against a
+# real file, only carried through the parser.
 _dgst=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 _fx="$_tmp/demo.hash"
 
-# The header line has FOUR fields, which is what makes probe 1 observable: a
-# parser that stops treating it as a comment must report it as malformed.
+# The header line has FOUR fields and the indented one SIX, which is what makes
+# probe 1 observable: a parser that stops treating them as comments must report
+# them as malformed, since the record grammar demands exactly three.
 #
 # The INDENTED comment pins the grammar's leading-whitespace tolerance, which is
 # load-bearing and was unguarded until a surviving mutant said so: narrowing the
-# constant to `^#` left both probes green, because neither noticed a tolerance
-# no fixture line exercised. An indented comment read as a record is five
-# fields, so a narrowed grammar now fails probe 1.
+# constant to `^#` left both probes green, because neither noticed a tolerance no
+# fixture line exercised.
 cat > "$_fx" <<EOF
 # sha256 from https://example.invalid/SHA256SUMS
   # indented, and still a comment
@@ -92,41 +129,31 @@ $(printf 'sha256\t%s\tdemo-1.0.tar.gz' "$_dgst")
 $(printf 'size\t123\tdemo-1.0.tar.gz')
 EOF
 
-# Each consumer gets ONE compound assertion: the shipped grammar reads the
-# fixture correctly AND overriding the constant moves the behaviour. Paired
-# deliberately -- tests/oracle-baseline.sh requires that no assertion in a newly
-# added file passes on the merge base, and the first half necessarily passes
-# there (it asserts behaviour the base already has right). Standing alone it was
-# reported as an offender, correctly: on its own it detects nothing. Paired, the
-# half the base gets wrong carries it, and the claim is the honest one -- "this
-# consumer parses correctly BY READING the shared definition", not two unrelated
-# facts.
-
-# 1. hash_file_validate. Narrowed to match nothing, the four-field header is no
-#    longer a comment and must be reported as malformed.
+# 1. hash_file_validate. Narrowed to match nothing, the comment lines are no
+#    longer comments and must be reported as malformed.
 _saved=${HASH_COMMENT_RE-}
 HASH_COMMENT_RE='^@@no-line-matches-this@@'
 ( hash_file_validate "$_fx" ) >/dev/null 2>&1
 _st=$?
 HASH_COMMENT_RE=$_saved
 if ( hash_file_validate "$_fx" ) >/dev/null 2>&1 && [ "$_st" -ne 0 ]; then
-  _pass "hash_file_validate validates a sidecar, and does it by reading the shared constant"
+  _pass validate-reads-shared-constant
 else
-  _bad "hash_file_validate either rejected a well-formed sidecar, or ignored an\
- overridden HASH_COMMENT_RE and so still holds its own copy of the grammar"
+  _bad validate-reads-shared-constant \
+    "rejected a well-formed sidecar, or ignored an overridden HASH_COMMENT_RE and so still holds its own copy of the grammar"
 fi
 
-# 2. hash_lookup. Widened to cover the sha256 record, the lookup must skip the
-#    very line it was asked for.
+# 2. hash_lookup. Repointed at the sha256 record, the lookup must skip the very
+#    line it was asked for.
 _saved=${HASH_COMMENT_RE-}
 HASH_COMMENT_RE='^[[:space:]]*sha256'
 _muted=$( hash_lookup "$_fx" demo-1.0.tar.gz sha256 )
 HASH_COMMENT_RE=$_saved
 if [ "$(hash_lookup "$_fx" demo-1.0.tar.gz sha256)" = "$_dgst" ] && [ -z "$_muted" ]; then
-  _pass "hash_lookup reads a digest, and does it by reading the shared constant"
+  _pass lookup-reads-shared-constant
 else
-  _bad "hash_lookup either failed to read a well-formed sidecar, or ignored an\
- overridden HASH_COMMENT_RE (returned '$_muted') and so still holds its own copy"
+  _bad lookup-reads-shared-constant \
+    "failed to read a well-formed sidecar, or ignored an overridden HASH_COMMENT_RE (returned '$_muted') and so still holds its own copy"
 fi
 
 printf 'DONE: hash-comment-grammar\n'

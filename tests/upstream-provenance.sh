@@ -39,8 +39,8 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT" || exit 1
 . "$ROOT/tests/lib-provenance.sh"
 _fail=0
 
-_pass() { printf 'PASS [%s]\n' "$1"; }
-_bad()  { printf 'FAIL [%s] %s\n' "$1" "$(printf '%s' "${2-}" | tr '\n' ' ')" >&2; _fail=1; }
+# shellcheck source=tests/lib-assert.sh
+. "$ROOT/tests/lib-assert.sh"
 
 # Floor, not an exact count: #36 recorded 19 upstream digests, and a sidecar
 # legitimately loses a block when a profile drops a pinned version. Ten is far

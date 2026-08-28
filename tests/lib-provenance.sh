@@ -41,12 +41,15 @@
 #
 # HASH_COMMENT_RE, from lib/download.sh, strips the marker. It is shared for the
 # same reason the two above are: "how much of the line is the marker" is part of
-# the same grammar, and it was the half still written twice after the first
-# convergence -- once here and once in each of lib/download.sh's two parsers.
+# the same grammar, and it was the half still written three times after the
+# first convergence -- once here and once in each of lib/download.sh's two
+# parsers.
 # Its no-backslash constraint is documented at its definition and applies to
 # every consumer, this file's `sed` included.
+#
+# Requires $ROOT to be set by the caller, for the source line below.
 
-# shellcheck source=../lib/download.sh
+# shellcheck source=lib/download.sh
 . "$ROOT/lib/download.sh"
 
 PROVENANCE_PIN_INTENT_RE='^with[[:space:]]+key[[:space:]]+[0-9a-f]+[[:space:]]*$'

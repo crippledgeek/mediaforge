@@ -65,7 +65,6 @@ sh tests/signing-keys.sh
 # second copy spelled differently would satisfy a grep and still be a second
 # copy. Nothing else in the suite would notice one.
 sh tests/hash-comment-grammar.sh
-
 # Runs the unmerged test files against the merge base and fails if any assertion
 # passes there. Catches the oracle that drifted into matching an error message,
 # and the fixture whose path collided with the value it was distinguishing —
