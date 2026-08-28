@@ -13,6 +13,8 @@ PATH="$_BIN:$PATH"
 export PATH
 
 _fail=0
+# shellcheck source=tests/lib-assert.sh
+. "$ROOT/tests/lib-assert.sh"
 
 # In a non-interactive (no-TTY) sh -c invocation, smart prompts are skipped
 # and the conservative defaults kick in. So we test that --tls is recognised
@@ -20,20 +22,19 @@ _fail=0
 # without a TTY.
 _output=$(./mediaforge.sh build --tls=mbedtls --dry-run --yes 2>&1) || true
 if printf '%s' "$_output" | grep -q "tls=mbedtls"; then
-  printf 'PASS [whiptail masked + --tls=mbedtls picks mbedtls]\n'
+  _pass cli-tls-wins-with-whiptail-masked
 else
-  printf 'FAIL [whiptail masked path]: did not pick mbedtls\n'
-  printf '%s\n' "$_output"
-  _fail=1
+  _bad cli-tls-wins-with-whiptail-masked \
+    "did not pick mbedtls: $(printf '%s\n' "$_output" | _evidence 3 'Choices:')"
 fi
 
 # Confirm that non-interactive (no TTY) invocations apply the conservative default
 _output=$(./mediaforge.sh build --dry-run --yes 2>&1) || true
 if printf '%s' "$_output" | grep -q "tls=gnutls"; then
-  printf 'PASS [non-interactive default = gnutls]\n'
+  _pass non-interactive-default-is-gnutls
 else
-  printf 'FAIL [non-interactive default]: %s\n' "$_output"
-  _fail=1
+  _bad non-interactive-default-is-gnutls \
+    "$(printf '%s\n' "$_output" | _evidence 3 'Choices:')"
 fi
 
 exit "$_fail"

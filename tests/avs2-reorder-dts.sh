@@ -32,14 +32,17 @@ _mkv="$_out/avs2.mkv"; _ts="$_out/ts.log"
 _nframes=50
 _src="testsrc=size=320x240:rate=25:duration=2"
 _fail=0
+# shellcheck source=tests/lib-assert.sh
+. "$_here/lib-assert.sh"
 
 # 1) Encode 50 frames to AVS2/MKV (8-bit, default bf=7 -> B-frame reorder), with
 #    -debug_ts so the encoder's real emitted pts/dts are logged ("muxer <-").
 if "$FF" -hide_banner -debug_ts -f lavfi -i "$_src" \
      -r 25 -pix_fmt yuv420p -c:v libxavs2 -y "$_mkv" >"$_ts" 2>&1; then
-  echo "PASS: AVS2 B-frame stream encoded + muxed into MKV"
+  _pass avs2-bframe-stream-encodes-and-muxes
 else
-  echo "FAIL: AVS2 encode/mux failed:"; grep -iE 'monoton|error' "$_ts" | head -5 | sed 's/^/    /'
+  _bad avs2-bframe-stream-encodes-and-muxes \
+    "$(_evidence 5 'monoton|error' < "$_ts")"
   exit 1
 fi
 
@@ -48,17 +51,23 @@ fi
 grep 'muxer <-' "$_ts" | sed -nE 's/.*[^_]pts:(-?[0-9]+) .* dts:(-?[0-9]+) .*/\1 \2/p' > "$_out/pd.txt"
 _n=$(grep -c . "$_out/pd.txt")
 if [ "$_n" -lt 2 ]; then
-  echo "FAIL: could not read emitted pts/dts from -debug_ts ($_n lines)"; _fail=1
+  _bad emitted-dts-increasing-and-not-past-pts \
+    "could not read emitted pts/dts from -debug_ts ($_n lines)"
 elif awk 'NR==1{pd=$2-1} {if($2<=pd){print "    dts not increasing: "pd" -> "$2; bad=1}
             if($2>$1){print "    dts>pts: pts="$1" dts="$2; bad=1} pd=$2} END{exit bad+0}' "$_out/pd.txt"; then
-  echo "PASS: emitted DTS strictly increasing and dts<=pts across $_n packets"
+  _pass emitted-dts-increasing-and-not-past-pts
 else
-  echo "FAIL: emitted DTS non-monotonic or dts>pts (REORDER clobber not fixed)"; _fail=1
+  _bad emitted-dts-increasing-and-not-past-pts \
+    "non-monotonic dts, or dts>pts, across $_n packets (REORDER clobber not fixed)"
 fi
 
 # 3) Stored codec really is avs2.
 _codec=$("$FP" -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "$_mkv" 2>/dev/null)
-if [ "$_codec" = "avs2" ]; then echo "PASS: stored codec is avs2"; else echo "FAIL: codec=$_codec"; _fail=1; fi
+if [ "$_codec" = "avs2" ]; then
+  _pass stored-codec-is-avs2
+else
+  _bad stored-codec-is-avs2 "codec=$_codec"
+fi
 
 # 4) Decode round-trip through libdavs2. Count the frames the decoder ACTUALLY
 #    emits (framemd5 = one line per decoded frame), so the count belongs to the
@@ -66,11 +75,13 @@ if [ "$_codec" = "avs2" ]; then echo "PASS: stored codec is avs2"; else echo "FA
 "$FF" -v error -c:v libdavs2 -i "$_mkv" -f framemd5 - >"$_out/dec.md5" 2>"$_out/dec.err"
 _dec=$(grep -cE '^[0-9]+,' "$_out/dec.md5")
 if grep -qiE 'error|unsupported' "$_out/dec.err"; then
-  echo "FAIL: libdavs2 decode error:"; grep -iE 'error|unsupported' "$_out/dec.err" | head -5 | sed 's/^/    /'; _fail=1
+  _bad libdavs2-round-trip-decodes-every-frame \
+    "decode error: $(_evidence 5 'error|unsupported' < "$_out/dec.err")"
 elif [ "$_dec" = "$_nframes" ]; then
-  echo "PASS: libdavs2 decoded all $_dec frames (round-trip OK)"
+  _pass libdavs2-round-trip-decodes-every-frame
 else
-  echo "FAIL: libdavs2 emitted $_dec frames, expected $_nframes"; _fail=1
+  _bad libdavs2-round-trip-decodes-every-frame \
+    "libdavs2 emitted $_dec frames, expected $_nframes"
 fi
 
 exit "$_fail"

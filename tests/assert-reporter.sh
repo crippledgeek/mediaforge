@@ -4,33 +4,46 @@
 # tests/lib-assert.sh is where every test that uses the shared reporters routes
 # its verdict, and the only file nothing else asserts on: a defect in _pass or
 # _bad does not fail a test, it changes what a passing test PRINTS — and
-# printing is the whole interface. Not the whole suite goes through it: several
-# tests still print PASS/FAIL inline, in spellings oracle-baseline counts
-# identically, and `grep -L lib-assert tests/*.sh` narrows them to a candidate
-# list rather than a count here that would drift -- it returns a superset,
-# since this library, tests/lib-provenance.sh and the two gates appear in it
-# too. Converging those is #48 -- three spellings across twelve files, each
-# call site needing a name invented for it -- not this file's job; being
-# correct about the ones that DO route through it is.
+# printing is the whole interface. Every test in the suite routes through it
+# now (#48 converged the last twelve, which printed PASS/FAIL inline in three
+# further spellings); `grep -L lib-assert tests/*.sh` returns only this
+# library, tests/lib-provenance.sh, and the two gates that format their own
+# output.
 #
 # tests/oracle-baseline.sh reads that output with `grep -c '^PASS'` and
 # `grep -c '^FAIL'` to decide whether a newly added file could detect its own
 # change, so the reporters' exact bytes are a gate input, not cosmetics.
 #
-# ONE compound assertion, deliberately. oracle-baseline requires that no
-# assertion in a newly added file passes on the merge base, and five of the six
-# numbered probes below held there already — only the no-detail form's output
-# had a trailing space. Asserting them separately would put five free passes on
-# the base and the gate would correctly reject the file, so the whole contract
-# is asserted together with the one the base gets wrong carrying it. That is
-# also the honest shape: the claim is "the printed contract holds", not six
-# independent facts.
+# TWO assertions, and the split is deliberate.
 #
-# Every probe runs in its own shell rather than in this one, because _bad sets
-# _fail=1 by design — calling it here would fail this file for doing its job.
-# That shell also isolates the stream split: stdout and stderr are captured
+# Probes 1-6 are ONE compound assertion, for a reason that is now HISTORICAL and
+# is written in the past tense on purpose. oracle-baseline requires that no
+# assertion in a newly added file passes on the merge base; when this file was
+# added, against d9c918b, five of its six reporter probes held there already --
+# only the no-detail form's output had a trailing space. Splitting them would
+# have put five free passes on that base and the gate would have rejected the
+# file, so the printed contract was asserted together with the one thing the
+# base got wrong carrying it. Against TODAY's base all six hold (the
+# trailing-space fix is in it) and the gate does not reach this file at all,
+# since it is now modified rather than added -- so the shape is kept for the
+# history, not because today's gate demands it.
+#
+# Probes 7-9 cover _evidence and stand alone, because that argument does not
+# reach them under either base: _evidence exists in neither, so each of them
+# fails there and none is a free pass. Folding them in would report a broken
+# helper as `FAIL [reporter-output-contract-holds]` -- a name that does not name
+# the claim
+# being made, which is the rule at tests/lib-assert.sh's head and the defect
+# that got a duplicate row deleted from tests/dry-run-matrix.sh on this branch.
+# _evidence is also not a reporter: it is not part of the printed contract that
+# oracle-baseline reads with `grep -c '^PASS'`, which probes 1-6 are about.
+#
+# Probes 1-6 each run in their own shell rather than in this one, because _bad
+# sets _fail=1 by design — calling it here would fail this file for doing its
+# job. That shell also isolates the stream split: stdout and stderr are captured
 # separately, so "PASS went to stdout" and "FAIL went to stderr" are assertable
-# rather than assumed.
+# rather than assumed. Probes 7-9 need no isolation: _evidence touches neither
+# stream nor _fail, so they call it here.
 #
 # No `set -e`: the single check reports and this file exits with the accumulated
 # status, and the baseline gate depends on a file that reaches its DONE line.
@@ -116,10 +129,44 @@ EOF
 )
 _want 'pass-leaves-fail' "$_got" '0'
 
-if [ -z "$_wrong" ]; then
+# Group handoff. $_wrong is the scratch accumulator _want appends to; each
+# group's result moves into its own variable so _want keeps three parameters.
+# A _want call added BELOW the second handoff would be silently dropped from
+# both reports -- put new probes above the group they belong to.
+_wrong_rep=$_wrong
+_wrong=''
+
+# 7. _evidence yields at most N matching lines...
+_got=$(printf 'a\nERROR one\nb\nERROR two\nc\n' | _evidence 1 'error')
+_want 'evidence-matches-and-caps' "$_got" 'ERROR one'
+
+# 8. ...falls back to the LAST N lines when nothing matches, so a detail is
+#    never empty...
+_got=$(printf 'a\nb\nc\n' | _evidence 2 'nothing-here')
+_want 'evidence-falls-back-to-tail' "$_got" 'b
+c'
+
+# 9. ...and accepts a pattern beginning with a dash. Without the `--` in
+#    _evidence, `grep -iE "-L"` reads -L as --files-without-match and prints
+#    "(standard input)" instead of the matching line -- measured, not assumed.
+# The trailing line matters: without it the tail fallback returns -L/nope too,
+# and the probe passes whether or not the guard is there -- measured, and the
+# first draft of this probe had exactly that hole.
+_got=$(printf 'x\n-L/nope\nlast\n' | _evidence 1 '-L')
+_want 'evidence-accepts-dash-pattern' "$_got" '-L/nope'
+
+_wrong_ev=$_wrong   # last handoff: no _want may follow this line
+
+if [ -z "$_wrong_rep" ]; then
   _pass reporter-output-contract-holds
 else
-  _bad reporter-output-contract-holds "$_wrong"
+  _bad reporter-output-contract-holds "$_wrong_rep"
+fi
+
+if [ -z "$_wrong_ev" ]; then
+  _pass evidence-helper-contract-holds
+else
+  _bad evidence-helper-contract-holds "$_wrong_ev"
 fi
 
 printf 'DONE: assert-reporter\n'
@@ -130,5 +177,5 @@ printf 'DONE: assert-reporter\n'
 # line and still exit 0 -- measured: mutating `_fail=1` out of the library left
 # this file reporting the defect on stdout while tests/run.sh, which reads exit
 # status, went green.
-[ -z "$_wrong" ] || exit 1
+[ -z "$_wrong_rep$_wrong_ev" ] || exit 1
 exit 0

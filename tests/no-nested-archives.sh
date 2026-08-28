@@ -12,6 +12,10 @@
 set -u
 
 _here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+_fail=0
+# shellcheck source=tests/lib-assert.sh
+. "$_here/lib-assert.sh"
+
 PREFIX=${1:-"$_here/../workspace"}
 if [ ! -d "$PREFIX/lib" ]; then
   echo "SKIP: $PREFIX/lib not present (nothing built here)"; exit 2
@@ -20,9 +24,9 @@ PREFIX=$(CDPATH='' cd -- "$PREFIX" && pwd)
 
 _nested=$(find "$PREFIX/lib" -mindepth 2 -name '*.a' 2>/dev/null)
 if [ -n "$_nested" ]; then
-  echo "FAIL: static archive(s) in a lib/ subdir (installer ships only lib/*.a flat):"
-  printf '%s\n' "$_nested" | sed 's/^/    /'
+  _bad no-archive-nested-in-lib-subdir \
+    "installer ships only lib/*.a flat, but found: $_nested"
   exit 1
 fi
-echo "PASS: no static archives nested in lib/ subdirs"
+_pass no-archive-nested-in-lib-subdir
 exit 0

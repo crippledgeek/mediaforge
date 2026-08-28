@@ -65,11 +65,12 @@ sh tests/signing-keys.sh
 # second copy spelled differently would satisfy a grep and still be a second
 # copy. Nothing else in the suite would notice one.
 sh tests/hash-comment-grammar.sh
-# Pins the shared reporters themselves (#46): a defect in tests/lib-assert.sh
+# Pins the shared reporters and the evidence helper beside them (#46, #48): a
+# defect in tests/lib-assert.sh
 # does not fail a test — it changes what a passing test PRINTS, which is
 # exactly what oracle-baseline below counts. Nothing else asserts on that
-# output. It covers the tests that source the library, not the twelve that
-# still print PASS/FAIL inline in three further spellings; those are #48.
+# output, and since #48 every test in this file routes through it, bar the two
+# gates (shellcheck, oracle-baseline) that format their own output.
 sh tests/assert-reporter.sh
 # Runs the unmerged test files against the merge base and fails if any assertion
 # passes there. Catches the oracle that drifted into matching an error message,
