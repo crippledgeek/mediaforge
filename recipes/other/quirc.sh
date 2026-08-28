@@ -29,7 +29,13 @@ pkg_prepare() {
 
 pkg_configure() { :; }
 
-pkg_build() { run make -j "$MJOBS" libquirc.a; }
+# quirc folds $(CFLAGS) into QUIRC_CFLAGS with `?=`, so the environment already
+# wins here -- verified by building it with -O0 -g3 in the environment and
+# reading DW_AT_producer off libquirc.a. Passed on the command line anyway,
+# because `?=` is one upstream character away from the plain assignment that
+# made giflib build stripped under --debug, and a command-line macro survives
+# that flip. -Ilib is upstream's and is added after this, so it is not lost.
+pkg_build() { run make -j "$MJOBS" CFLAGS="-Wall $CFLAGS" libquirc.a; }
 
 pkg_install() {
   install -d "$PREFIX/include" "$PREFIX/lib" "$PREFIX/lib/pkgconfig"

@@ -321,5 +321,63 @@ else
   _bad recipe-scopes-cargo-env "rav1e does not scope the overrides to the cargo command"
 fi
 
+# --- the sixth path: make run directly on an upstream Makefile ---------------
+# Every knob above assumes the recipe's build system READS the environment.
+# A recipe that runs make against a hand-written upstream Makefile does not get
+# that for free: a Makefile's `CFLAGS = ...` is an ASSIGNMENT, and an assignment
+# beats the environment -- only a command-line `make CFLAGS=...` overrides it
+# (POSIX make, "Macros": command-line macros take precedence over both).
+#
+# giflib shipped exactly that shape and nothing caught it. Under --debug=full,
+# libgif.a came out of the build with no .debug_* sections at all -- built at
+# the Makefile's own -O2, stripped -- while every sibling archive from the same
+# run carried -O0 -g3. It compiled, it linked, it ran; the only symptom was
+# giflib frames missing from every backtrace. Measured, not reasoned: `readelf`
+# on dgif_lib.o found 0 debug sections with the flags in the environment and 2
+# with the same flags on the make command line.
+#
+# So the claim is per-recipe and structural: a recipe that COMPILES via a bare
+# make must name a flags macro on the command line. The recipes below run make
+# but compile nothing (they install headers), so they have nothing to carry.
+_mf_headers_only=' amf.sh vaapi.sh ladspa.sh vapoursynth.sh nv-codec.sh '
+
+# Fold backslash continuations before matching: gsm, bzip2 and librtmp all put
+# the macro on the line AFTER `run make`, and a line-oriented grep reads those
+# as a bare make and reports the defect this file exists to catch.
+_mf_logical() { awk '{ if (sub(/\\$/, "")) { buf = buf $0; next } print buf $0; buf = "" }' "$1"; }
+
+_mf_scanned=0
+for _r in $(find recipes -name '*.sh' | sort); do
+  grep -qE 'run make' "$_r" || continue
+  grep -qE './configure|mf_cmake|meson|cargo|./Configure|PKG_CMAKE=true' "$_r" && continue
+  case "$_mf_headers_only" in *" $(basename "$_r") "*) continue ;; esac
+  _mf_scanned=$((_mf_scanned + 1))
+  _mf_name="make-carries-flags-$(basename "$_r" .sh)"
+  # Two claims, because either alone is satisfiable by a recipe that still
+  # builds stripped. The macro spelling is upstream's to dictate -- CFLAGS
+  # (bzip2, giflib), CCFLAGS (gsm), XCFLAGS (librtmp) -- so the first claim
+  # matches any *FLAGS= on the make line, and the second requires the composed
+  # CFLAGS to be what feeds it rather than a fresh literal like -O2. Written as
+  # two greps rather than one anchored pattern so a recipe may route the value
+  # through a helper (giflib passes both its make runs the same one) without
+  # this file having to restate the flags the recipe chose -- asserting a copy
+  # of the recipe is the trap the cargo assertions above were rewritten to
+  # avoid. The "." stands in for the dollar, as it does there.
+  if ! _mf_logical "$_r" | grep -qE 'run make.*FLAGS='; then
+    _bad "$_mf_name" "runs make without passing any flags macro on the command line"
+  elif ! grep -qE '.CFLAGS' "$_r"; then
+    _bad "$_mf_name" "passes a flags macro that never references the composed CFLAGS"
+  else
+    _pass "$_mf_name"
+  fi
+done
+# The scan itself can rot: a rename of the phase function, or a find that
+# matches nothing, leaves every assertion above unrun and the file green.
+if [ "$_mf_scanned" -ge 4 ]; then
+  _pass make-scan-found-recipes
+else
+  _bad make-scan-found-recipes "scanned only $_mf_scanned recipes — the scan matched nothing"
+fi
+
 printf 'DONE: debug-levels\n'
 exit "$_fail"
