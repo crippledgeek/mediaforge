@@ -9,8 +9,9 @@
 # identically, and `grep -L lib-assert tests/*.sh` narrows them to a candidate
 # list rather than a count here that would drift -- it returns a superset,
 # since this library, tests/lib-provenance.sh and the two gates appear in it
-# too. Converging those is not this file's job; being correct about the ones
-# that DO route through it is.
+# too. Converging those is #48 -- three spellings across twelve files, each
+# call site needing a name invented for it -- not this file's job; being
+# correct about the ones that DO route through it is.
 #
 # tests/oracle-baseline.sh reads that output with `grep -c '^PASS'` and
 # `grep -c '^FAIL'` to decide whether a newly added file could detect its own
