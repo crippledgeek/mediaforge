@@ -40,6 +40,28 @@ file_size() {
   wc -c < "$1" | tr -d ' '
 }
 
+# HASH_COMMENT_RE -- how much of a `.hash` sidecar line is the comment marker.
+#
+# Defined ONCE, here, because the two consumers below and tests/lib-provenance.sh
+# all ask the same question of the same files. It was written out three times
+# before this constant existed, and #44 converged only the test side; the two
+# copies that survived were the production ones, in the very functions the tests
+# were checking.
+#
+# The pin grammar that reads the REST of such a comment -- `# with key <fpr>` --
+# lives in tests/lib-provenance.sh, which sources this file for the marker. It
+# stays there because nothing in a build asks which keys the tree pins; only the
+# tests do. Splitting on that line keeps each half in the file that consumes it.
+#
+# The pattern contains NO BACKSLASH, and must not grow one. Consumers receive it
+# through awk's `-v`, which performs escape processing on the assigned value,
+# while `sed` does not: `^\t*#` would reach awk as a literal tab and sed as
+# backslash-t. A widening using \t, \. or \\ would therefore reach the two kinds
+# of consumer DIFFERENTLY -- the silent divergence this constant exists to
+# prevent, arriving through the mechanism meant to prevent it. Character classes
+# express everything needed here without one.
+HASH_COMMENT_RE='^[[:space:]]*#[[:space:]]*'
+
 # hash_file_validate HASHFILE
 # Die unless every record in HASHFILE is well formed. A parser that skipped a
 # line it could not read would silently skip a digest, so every defect is
@@ -52,8 +74,9 @@ file_size() {
 # it; keeping a weak-hash code path out of the tree entirely is the point.
 hash_file_validate() {
   _hf="$1"
-  _err=$(awk '
-    /^[[:space:]]*#/ { next }
+  : "${HASH_COMMENT_RE:?empty pattern would match every line, skipping every record}"
+  _err=$(awk -v CMT="$HASH_COMMENT_RE" '
+    $0 ~ CMT { next }
     /^[[:space:]]*$/ { next }
     {
       if (NF != 3) { printf("line %d: expected 3 fields, got %d\n", NR, NF); next }
@@ -89,8 +112,9 @@ $_err"
 # hash_lookup HASHFILE FILENAME KEYWORD
 # Print the recorded value for that (filename, keyword) pair, or nothing.
 hash_lookup() {
-  awk -v want="$2" -v key="$3" '
-    /^[[:space:]]*#/ { next }
+  : "${HASH_COMMENT_RE:?empty pattern would match every line, skipping every record}"
+  awk -v want="$2" -v key="$3" -v CMT="$HASH_COMMENT_RE" '
+    $0 ~ CMT { next }
     /^[[:space:]]*$/ { next }
     NF == 3 && $1 == key && $3 == want { print $2; exit }
   ' "$1"

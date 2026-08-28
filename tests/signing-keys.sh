@@ -255,7 +255,7 @@ fi
 INDEX=$KEYDIR/INDEX
 
 _index_fprs() {
-  awk -v CMT="$PROVENANCE_COMMENT_RE" '$0 ~ CMT || NF == 0 { next } { print $1 }' \
+  awk -v CMT="$HASH_COMMENT_RE" '$0 ~ CMT || NF == 0 { next } { print $1 }' \
     "$INDEX" 2>/dev/null | sort -u
 }
 

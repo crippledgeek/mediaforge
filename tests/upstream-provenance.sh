@@ -69,7 +69,7 @@ _MIN_UPSTREAM_CLAIMS=10
 # that the negative test exercises must be the same one the tree is checked
 # with, or the test proves nothing about the tree.
 _scan_claims() {
-  awk -v F="$1" -v CMT="$PROVENANCE_COMMENT_RE" '
+  awk -v F="$1" -v CMT="$HASH_COMMENT_RE" '
     function check(  i, a) {
       for (i = 1; i <= nc; i++) {
         a = calgo[i]
@@ -139,7 +139,7 @@ _size_claims() {
 # an independent packager pins and therefore what can be corroborated.
 _scan_sigs() {
   awk -v F="$1" -v PIN="$PROVENANCE_PIN_INTENT_RE" -v FPR="$PROVENANCE_FPR_RE" \
-      -v CMT="$PROVENANCE_COMMENT_RE" '''
+      -v CMT="$HASH_COMMENT_RE" '''
     function check(  ) {
       if (!url && !key) return
       if (url && !key) printf("%s: block verifies %s but names no key\n", F, url)
