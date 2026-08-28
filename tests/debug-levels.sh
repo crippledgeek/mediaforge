@@ -393,7 +393,40 @@ _mf_fn_body() { # file  function-name
     f && /^\}/ { f = 0 }'
 }
 
+# The READER gets its own assertion, because everything below trusts it. Reverting
+# it to the any-line terminator and dropping a defective recipe in the tree does
+# not fail anything above -- the recipe simply stops being read, which is the
+# failure mode itself. Fixture rather than a real recipe: the shapes that break
+# extraction (`${VAR}` at end of line, a brace group) are ones no recipe happens
+# to contain today, which is exactly why the bug survived review of the recipes.
+_mf_fx=$(mktemp) || { printf 'FAIL [reader-fixture]\n' >&2; exit 1; }
+cat > "$_mf_fx" <<'FIXTURE'
+pkg_build() {
+  run make CFLAGS="$CFLAGS" libfoo.a
+  _v=${SOMEVAR}
+  run make libextra.a
+}
+FIXTURE
+if _mf_fn_body "$_mf_fx" pkg_build | grep -q 'libextra'; then
+  _pass reader-reads-past-a-line-ending-in-brace
+else
+  _bad reader-reads-past-a-line-ending-in-brace \
+    "extraction stopped early; every scan below silently skips whatever follows"
+fi
+# ...and a one-line phase must not swallow the rest of the file.
+cat > "$_mf_fx" <<'FIXTURE'
+pkg_build() { run make CFLAGS="$CFLAGS" libfoo.a; }
+PKG_AFTER="not part of the phase"
+FIXTURE
+if _mf_fn_body "$_mf_fx" pkg_build | grep -q 'PKG_AFTER'; then
+  _bad reader-stops-at-a-one-line-phase "read past the closing brace of a one-line phase"
+else
+  _pass reader-stops-at-a-one-line-phase
+fi
+rm -f "$_mf_fx"
+
 _mf_scanned=0
+_mf_seen=""
 for _r in $(find recipes -name '*.sh' | sort); do
   # recipes/ffmpeg.sh is not a recipe in this sense: cmd_build sources it
   # directly rather than through run_recipe(), so it defines no pkg_* phases and
@@ -410,6 +443,7 @@ for _r in $(find recipes -name '*.sh' | sort); do
   grep -qE 'run \./(configure|Configure)|mf_cmake|mf_meson|run cargo|PKG_CMAKE=true|PKG_REQUIRES_MESON=true' "$_r" && continue
   case "$_mf_headers_only" in *" $(basename "$_r") "*) continue ;; esac
   _mf_scanned=$((_mf_scanned + 1))
+  _mf_seen="$_mf_seen $(basename "$_r")"
   _mf_name="make-carries-flags-$(basename "$_r" .sh)"
   _mf_body=$(_mf_fn_body "$_r" pkg_build)
   # An empty body means either the recipe defines no pkg_build -- in which case
@@ -451,13 +485,23 @@ for _r in $(find recipes -name '*.sh' | sort); do
     _pass "$_mf_name"
   fi
 done
-# The scan itself can rot: a rename of the phase function, or a find that
-# matches nothing, leaves every assertion above unrun and the file green.
-if [ "$_mf_scanned" -ge 4 ]; then
-  _pass make-scan-found-recipes
-else
-  _bad make-scan-found-recipes "scanned only $_mf_scanned recipes — the scan matched nothing"
-fi
+# The scan itself can rot: a rename of the phase function, or a find that matches
+# nothing, leaves every assertion above unrun and the file green.
+#
+# Named rather than counted. A floor of "at least four" cannot see ONE recipe
+# drop out -- and dropping out silently is what the unanchored exclusion regex
+# used to allow, since a comment mentioning meson was enough. Measured: with the
+# old regex and one word added to a giflib comment, giflib left the scan and
+# nothing failed. A name that disappears fails loudly here instead; a recipe
+# legitimately converted to another build system fails here too, which is a
+# human deciding to update this line rather than a scan quietly shrinking.
+for _mf_want in giflib.sh quirc.sh gsm.sh bzip2.sh librtmp.sh; do
+  case "$_mf_seen " in
+    *" $_mf_want "*) _pass "make-scan-covers-${_mf_want%.sh}" ;;
+    *) _bad "make-scan-covers-${_mf_want%.sh}" \
+         "not scanned — excluded by mistake, renamed, or no longer runs make. Scanned:$_mf_seen" ;;
+  esac
+done
 
 # --- the seventh path: nvcc, and the two ways a recipe can lose the flags -----
 # nvcc drives FFmpeg's CUDA compilation and is a third toolchain that reads no
