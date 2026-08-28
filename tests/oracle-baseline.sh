@@ -65,9 +65,35 @@ fi
 # is the same category of thing as the hand-written list this replaced, and it
 # fails silently — the gate would pass on the files it did find and say nothing
 # about the one it missed.
+# tests/lib-*.sh is a SOURCED LIBRARY, not a runnable test: it defines shared
+# helpers and asserts nothing, so "every assertion fails on the base" is not a
+# claim it can make -- running it here would fail it for having no assertions,
+# which is true and says nothing about whether the branch is guarded. The
+# exclusion is announced below rather than applied silently, and the one way it
+# could become a hiding place -- a real test smuggled in under the prefix and
+# wired into the suite -- is checked immediately after.
 _files=$( { git diff --name-only --diff-filter=A "$_base" -- 'tests/*.sh'
             git ls-files --others --exclude-standard -- 'tests/*.sh'; } \
           | sort -u | grep -v '^tests/oracle-baseline\.sh$' || true)
+_libs=$(printf '%s\n' "$_files" | grep '^tests/lib-[^/]*\.sh$' || true)
+_files=$(printf '%s\n' "$_files" | grep -v '^tests/lib-[^/]*\.sh$' || true)
+if [ -n "$_libs" ]; then
+  printf '%s\n' "$_libs" | while read -r _lib; do
+    [ -n "$_lib" ] || continue
+    printf 'EXCLUDED: %s is a sourced library, not a test — it makes no assertions\n' "$_lib"
+  done
+  # A library the suite RUNS is a test wearing a library's name, and it would
+  # have just been excused from the gate. Checked against the runner, not
+  # against the file, because the runner is what decides.
+  _smuggled=$(printf '%s\n' "$_libs" | while read -r _lib; do
+                [ -n "$_lib" ] || continue
+                grep -q "^sh $_lib\$" tests/run.sh && printf '%s\n' "$_lib"
+              done)
+  if [ -n "$_smuggled" ]; then
+    printf 'FAIL: %s is run by tests/run.sh, so it is a test, not a library\n' "$_smuggled" >&2
+    exit 1
+  fi
+fi
 if [ -z "$_files" ]; then
   printf 'SKIP: no test files added since %s — nothing to baseline\n' "$(git rev-parse --short "$_base")"
   exit 0
@@ -81,6 +107,17 @@ if ! git archive "$_base" | tar -x -C "$_tmp"; then
   rm -rf "$_tmp"
   exit 1
 fi
+
+# The added test file is copied into the export below, because the claim being
+# measured is "these assertions fail against the BASE CODE" -- not "this file
+# existed then". A library the added tests source is the same kind of thing:
+# leave it out and the test aborts on a missing include, having asserted
+# nothing, which the gate would report as an empty baseline rather than as the
+# missing helper it is. So the branch's test helpers travel with it.
+for _lib in $_libs; do
+  [ -f "$_lib" ] || continue
+  cp "$_lib" "$_tmp/$_lib"
+done
 
 for _f in $_files; do
   if [ ! -f "$_f" ]; then

@@ -32,6 +32,11 @@
 set -u
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT" || exit 1
+# The `# with key <fpr>` grammar is shared with tests/signing-keys.sh, which
+# needs the same recogniser to decide which keys must be committed. It lived
+# here first and was reimplemented there; the two drifted immediately, so it
+# now has one definition that both files use.
+. "$ROOT/tests/lib-provenance.sh"
 _fail=0
 
 _pass() { printf 'PASS [%s]\n' "$1"; }
@@ -133,7 +138,7 @@ _size_claims() {
 # (bzip2 and libressl are both signed by a subkey), because the primary is what
 # an independent packager pins and therefore what can be corroborated.
 _scan_sigs() {
-  awk -v F="$1" '''
+  awk -v F="$1" -v PIN="$PROVENANCE_PIN_INTENT_RE" -v FPR="$PROVENANCE_FPR_RE" '''
     function check(  ) {
       if (!url && !key) return
       if (url && !key) printf("%s: block verifies %s but names no key\n", F, url)
@@ -158,17 +163,17 @@ _scan_sigs() {
         if (url) printf("%s: names a second signature %s before naming a key for %s\n", F, w[4], url)
         url = w[4]; next
       }
-      # Only a hex-ish token is read as a pin. "with key rotation pending
-      # upstream" is prose a maintainer might reasonably write, and treating
-      # its third word as a fingerprint failed the whole gate on a comment.
-      # A token that IS hex but the wrong length or case stays loud, because
-      # that is a malformed pin rather than prose -- the distinction is
-      # "did someone mean this as a fingerprint", and only hex says yes.
-      if (lc ~ /^with[[:space:]]+key[[:space:]]+[0-9a-f]+[[:space:]]*$/) {
+      # PIN and FPR come from tests/lib-provenance.sh, which explains why
+      # recognition is two steps: only a hex-ish token is read as a pin, so
+      # prose is not one, while a hex token of the wrong length or case stays
+      # loud because it is a malformed pin rather than prose. Sharing them is
+      # what keeps this file and tests/signing-keys.sh answering their two
+      # different questions about the SAME grammar.
+      if (lc ~ PIN) {
         split(l, w, /[[:space:]]+/)
         if (key) printf("%s: names a second key %s before naming a signature for %s\n", F, w[3], key)
         key = w[3]
-        if (key !~ /^[0-9A-F]{40}$/) {
+        if (key !~ FPR) {
           printf("%s: %s is not a 40-character uppercase OpenPGP fingerprint\n", F, key)
           key = ""   # not a usable pin, so it must not pair off or count
         }
