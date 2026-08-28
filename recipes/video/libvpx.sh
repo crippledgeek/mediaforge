@@ -37,10 +37,26 @@ pkg_prepare() {
 # branch), so it turns assertions on. At `symbols`, whose promise is no
 # measurable cost, that is the wrong trade -- so the level is asked, through the
 # table's assertions column, rather than each level being re-derived here.
+# Two flags for two axes, and the first one is not optional.
+#
+# --disable-optimizations: vpx appends its OWN -O3 (configure.sh, "enabled small
+# && check_add_cflags -O2 || check_add_cflags -O3"), and it lands after the
+# composed CFLAGS, so last-wins hands it the decision. Measured after the strip
+# was fixed and before this flag existed: the producer read "-g3 -g -O0 -O3",
+# i.e. full symbols compiled at -O3 while --debug=full asks for -O0. Symbols
+# without the optimization level is the half-fix that reads as working.
+#
+# --enable-debug: the assertions axis, and only where the level wants them. It
+# is not used to keep the symbols -- HAVE_GNU_STRIP=no does that in pkg_build --
+# because it also drops -DNDEBUG, which at `symbols` would turn assertions on at
+# the one level promising no measurable cost.
 _libvpx_debug_configure() {
   [ -n "${MF_DEBUG_LEVEL:-}" ] || return 0
-  [ "$(mf_debug_assertions "$MF_DEBUG_LEVEL")" = on ] || return 0
-  printf '%s' '--enable-debug'
+  _vpx_opts='--disable-optimizations'
+  if [ "$(mf_debug_assertions "$MF_DEBUG_LEVEL")" = on ]; then
+    _vpx_opts="$_vpx_opts --enable-debug"
+  fi
+  printf '%s' "$_vpx_opts"
 }
 
 _libvpx_debug_make() {

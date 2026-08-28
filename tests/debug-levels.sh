@@ -635,6 +635,11 @@ _d assertions-agree-full-meson    mf_debug_meson_args full     '*-Db_ndebug=fals
 # that strip, and it must read the assertions column rather than deciding for
 # itself which levels want -DNDEBUG dropped.
 _wired vpx-disables-the-strip   recipes/video/libvpx.sh 'HAVE_GNU_STRIP=no'
+# ...and disables vpx's OWN -O3, which it appends after the composed CFLAGS and
+# which therefore decides. Verified the hard way: with the strip fixed but this
+# flag absent, the rebuilt archive's producer read "-g3 -g -O0 -O3" -- every
+# symbol the level asked for, compiled at the optimization level it did not.
+_wired vpx-disables-its-own-opt recipes/video/libvpx.sh '--disable-optimizations'
 _wired vpx-reads-assertions     recipes/video/libvpx.sh 'mf_debug_assertions'
 # ...and APPLIES both, rather than defining helpers nothing calls. Matched with
 # a regex whose "." stands in for the dollar, the same way the rav1e assertion
