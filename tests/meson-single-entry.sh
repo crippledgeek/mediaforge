@@ -1,7 +1,7 @@
 #!/bin/sh
 # Pins that meson is SET UP in exactly one place (mf_meson, lib/framework.sh).
 #
-# Eighteen call sites across twelve recipes repeated the same four flags --
+# Eighteen call sites across 13 recipes repeated the same four flags --
 # --prefix, --buildtype, --default-library, --libdir -- differing only in build
 # directory and -D options. They agreed only because each was copied from the
 # last, and lv2 alone carried six of them.

@@ -9,8 +9,9 @@
 #
 # Measured on lame-3.100 before the fix: the build log carried zero -O and zero
 # -g flags, and one encode of the same 20s fixture took 0.34s against 0.11s at
-# -O2. Three times slower, shipped, for four years of releases. dav1d and
-# svtav1 were unaffected because meson and cmake set optimization themselves,
+# -O2. Three times slower, shipped in every release since the first commit.
+# dav1d and svtav1 were unaffected because meson and cmake set optimization
+# themselves,
 # which is why the symptom never showed up as a whole-tree slowdown.
 #
 # The GNU coding standards state the rule this file enforces: CFLAGS belongs to
@@ -139,12 +140,49 @@ _lt own-ldflags-present    '-L/p/lib' '-L/opt/lib' '-L/p/lib*'
 # an -O2 appearing here would mean mf_compose_cflags had been reused by mistake.
 _lt ldflags-gets-no-opt-default '-L/p/lib' '' '-L/p/lib'
 
-# --- PKG_C_STD: a declaration, not sixteen copies of a mechanism ------------
-# Sixteen recipes each carried a pkg_prepare() whose entire body appended
-# -std=gnu11 to CFLAGS and exported it, because GCC 15 defaults to -std=gnu23
-# and those sources predate it. Beyond the duplication, it meant a recipe
-# wanting a REAL prepare step had to remember to carry the flag along with it --
-# librtmp and pkg-config both did, which is how the two shapes diverged.
+# --- composition must not glob against the working directory ----------------
+# Unquoted expansion splits AND globs. The splitting is wanted; the globbing is
+# not. Reproduced under dash before the fix: with files named `-DFOO=a.h` and
+# `-DFOO=b.h` in the CWD, a single `-DFOO=*.h` came back as two flags, and every
+# later compiler invocation inherited both. Runs in a subshell in a temp dir so
+# the fixture files cannot touch the repo.
+_globdir=$(mktemp -d 2>/dev/null || printf '')
+if [ -n "$_globdir" ] && command -v mf_compose_flags >/dev/null 2>&1; then
+  : > "$_globdir/-DFOO=a.h"
+  : > "$_globdir/-DFOO=b.h"
+  _got=$(cd "$_globdir" && mf_compose_flags '-I/p/include' '-DFOO=*.h')
+  if [ "$_got" = '-I/p/include -DFOO=*.h' ]; then
+    _pass user-flags-not-glob-expanded
+  else
+    _bad user-flags-not-glob-expanded "got=[$_got]"
+  fi
+  # The caller's own noglob state survives: POSIX sh has no function-local
+  # options, so a bare `set +f` would switch globbing back on for a caller that
+  # had deliberately disabled it.
+  _got=$(set -f; mf_compose_flags '-a' '-b' >/dev/null; case $- in *f*) printf 'kept' ;; *) printf 'CLOBBERED' ;; esac)
+  if [ "$_got" = kept ]; then
+    _pass caller-noglob-state-preserved
+  else
+    _bad caller-noglob-state-preserved "caller had set -f; after the call it was $_got"
+  fi
+  rm -f "$_globdir/-DFOO=a.h" "$_globdir/-DFOO=b.h"
+  rmdir "$_globdir" 2>/dev/null || true
+else
+  _bad user-flags-not-glob-expanded "no composer or no temp dir — claim would be vacuous"
+  _bad caller-noglob-state-preserved "no composer or no temp dir — claim would be vacuous"
+fi
+
+# A tab-separated CFLAGS is what a here-doc or a mangled profile produces. The
+# -O detection anchors on a space, so without folding tabs first this reads as
+# "no -O chosen" and appends a second one.
+_t_not user-opt-tab-separated '-I/p/include' '-g	-O2' '*-O2 *'
+
+# --- PKG_C_STD: a declaration, not a mechanism copied sixteen times ---------
+# Sixteen recipes carried -std=gnu11, because GCC 15 defaults to -std=gnu23 and
+# those sources predate it. In 12 of them the entire body of pkg_prepare() was
+# the append and its export. Beyond the duplication, it meant a recipe wanting a
+# REAL prepare step had to remember to carry the flag along with it -- librtmp,
+# pkg-config, bs2b and libvorbis all did, which is how the shapes diverged.
 # Matched as a regex whose "." stands in for the dollar sign, so this file never
 # contains a literal $ inside quotes. Both the fixed-string and case-glob
 # spellings trip SC2016 ("expressions don't expand in single quotes"), which is

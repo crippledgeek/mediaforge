@@ -6,11 +6,11 @@
 # SC2034: PKG_* defaults below are read by recipe pkg_* functions after this
 # file is sourced; shellcheck can't see the cross-file consumer.
 
-# Default phase functions
 # The one place cmake is configured. Recipes call this instead of `run cmake`,
-# so the install prefix and the build type are set once rather than at nineteen
-# call sites -- the build type in particular is the knob a debug mode has to
-# turn, and turning it in nineteen recipes is nineteen chances to miss one.
+# so the install prefix and the build type are set once rather than at the 21
+# configure call sites spread over 17 recipes -- the build type in particular is
+# the knob a debug mode has to turn, and turning it in 17 recipes is 17 chances
+# to miss one.
 # tests/cmake-single-entry.sh pins that nothing configures cmake around it.
 #
 # It supplies ONLY what every call site already had: the prefix, plus the build
@@ -33,7 +33,7 @@ mf_cmake() {
   fi
 }
 
-# The one meson setup. Eighteen call sites across twelve recipes repeated the
+# The one meson setup. Eighteen call sites across 13 recipes repeated the
 # same four flags -- prefix, buildtype, default-library, libdir -- and differed
 # only in their build directory and their -D options.
 #
@@ -57,6 +57,7 @@ mf_meson() {
     --default-library=static --libdir="$PREFIX/lib" "$@"
 }
 
+# Default phase functions
 default_configure() {
   if [ "$PKG_CMAKE" = true ]; then
     # shellcheck disable=SC2086
@@ -114,9 +115,10 @@ reset_recipe() {
   # Empty means mf_meson's own default (release), which is what all eighteen
   # call sites passed explicitly before they were converged.
   PKG_MESON_BUILDTYPE=""
-  # A C standard this recipe's source needs. Thirteen recipes used to spell this
-  # as a pkg_prepare() whose entire body appended -std=gnu11 to CFLAGS and
-  # exported it -- which also meant a recipe wanting a REAL prepare step had to
+  # A C standard this recipe's source needs. Sixteen recipes carried the flag;
+  # in 12 of them the entire body of pkg_prepare() was appending -std=gnu11 to
+  # CFLAGS and exporting it. The other four folded it in beside real work, which
+  # is how the shapes diverged -- a recipe wanting a REAL prepare step had to
   # remember to carry the flag along with it.
   PKG_C_STD=""
   PKG_GITHUB_REPO=""

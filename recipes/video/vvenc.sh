@@ -9,6 +9,7 @@ PKG_GITHUB_REPO="fraunhoferhhi/vvenc"
 PKG_URL="https://github.com/fraunhoferhhi/vvenc/archive/refs/tags/v${PKG_VERSION}.tar.gz"
 PKG_FILENAME="vvenc-${PKG_VERSION}.tar.gz"
 PKG_CMAKE=true
+PKG_CMAKE_BUILD_TYPE="Release"
 
 # --enable-libvvenc requires FFmpeg >= 7.1.
 if ffmpeg_version_ge 7.1; then
@@ -23,7 +24,6 @@ fi
 pkg_configure() {
   _lto=OFF
   [ "$ENABLE_LTO" = true ] && _lto=ON
-  PKG_CMAKE_BUILD_TYPE=Release
   mf_cmake -DBUILD_SHARED_LIBS=OFF \
     -DVVENC_LIBRARY_ONLY=ON \
     -DVVENC_ENABLE_LINK_TIME_OPT="$_lto" .

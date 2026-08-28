@@ -20,6 +20,15 @@
 # zero -O and zero -g flags in the build log, and 0.34s to encode a 20s fixture
 # against 0.11s for the same source at -O2. Three times slower. tests/
 # compiler-flags.sh pins the composition rules below.
+#
+# SCOPE OF "the user's flags win": composing them last settles precedence on the
+# COMMAND LINE, which is the whole story for the autotools recipes. It is not
+# the whole story elsewhere. cmake appends CMAKE_C_FLAGS_<CONFIG> AFTER
+# CMAKE_C_FLAGS, so a recipe pinned to Release contributes "-O3 -DNDEBUG" after
+# the operator's flags and an explicit -O0 does NOT survive there; meson happens
+# to place env CFLAGS after its own buildtype flags, so there it does. Measured
+# both ways. Anything that wants a coherent tree-wide optimization level has to
+# turn PKG_CMAKE_BUILD_TYPE / PKG_MESON_BUILDTYPE too, not just set CFLAGS.
 
 # The optimization mediaforge supplies when the user has expressed no
 # preference. -O2 rather than -O3 because it is what autotools itself defaulted
@@ -36,8 +45,13 @@ MF_DEFAULT_OPT="-O2"
 # would conclude the user had chosen an optimization level, drop the default,
 # and put that recipe back at -O0. That is the original defect reintroduced
 # through its own fix, so tests/compiler-flags.sh asserts this case directly.
+# Tabs are folded to spaces first. The anchor needs a space immediately before
+# the -O, so a tab-separated CFLAGS ("-g<TAB>-O2" -- what a here-doc or an
+# editor-mangled profile produces) would otherwise read as "no -O chosen" and
+# get -O2 appended a second time. The duplicate is harmless in effect, since the
+# last -O wins, but this function's whole job is that decision.
 mf_has_opt_flag() {
-  case " $1 " in
+  case " $(printf '%s' "$1" | tr '\t' ' ') " in
     *' -O'*) return 0 ;;
     *)       return 1 ;;
   esac
@@ -98,11 +112,29 @@ mf_export_flags() {
 # splitting, so the rule "the user goes last" has one implementation and cannot
 # drift between the two.
 mf_compose_flags() {
-  # Deliberate word splitting: the parts are flag LISTS, and re-splitting them
-  # on IFS is what collapses an empty middle part and any incidental double
-  # spaces into a single clean line. Quoting here would emit "" as an empty
-  # argument and leave the gaps in.
+  # Unquoted expansion does TWO things, and only one of them is wanted here.
+  #
+  # Wanted: field splitting. The parts are flag LISTS, and re-splitting them on
+  # IFS is what collapses an empty middle part and incidental double spaces into
+  # one clean line. Quoting would emit "" as an empty argument and keep the gaps.
+  #
+  # NOT wanted: pathname expansion. Without `set -f` a glob character anywhere in
+  # the operator's CFLAGS is expanded against whatever directory the build
+  # happens to be in. Reproduced under dash with two files named `-DFOO=a.h` and
+  # `-DFOO=b.h` present: a single `-DFOO=*.h` became `-DFOO=a.h -DFOO=b.h`, and
+  # every later compiler invocation inherited both. The old flat assignment never
+  # re-split, so this exposure would have been introduced by this refactor.
+  #
+  # The caller's own noglob setting is saved and restored rather than assumed:
+  # POSIX sh has no function-local options, so a bare `set +f` would silently
+  # switch globbing back ON for a caller that had deliberately turned it off.
+  case $- in
+    *f*) _mf_had_noglob=1 ;;
+    *)   _mf_had_noglob=0 ;;
+  esac
+  set -f
   # shellcheck disable=SC2086
   set -- $1 ${2-}
+  [ "$_mf_had_noglob" = 1 ] || set +f
   printf '%s' "$*"
 }

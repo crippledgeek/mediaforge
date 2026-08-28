@@ -351,9 +351,12 @@ cmd_build() {
   #
   # Composed here rather than at the assignment above because this is the point
   # at which every flag mediaforge itself contributes is known -- -fPIC is added
-  # after option parsing. The user's flags go last so an explicit -O0, -march,
-  # or -fsanitize from their environment overrides mediaforge's defaults instead
-  # of being silently dropped.
+  # after option parsing. The user's flags go last so an explicit -march or
+  # -fsanitize from their environment reaches the compiler instead of being
+  # silently dropped. Note that "last wins" settles the command line only: a
+  # cmake recipe pinned to Release still appends -O3 -DNDEBUG after these, so an
+  # operator's -O0 survives for autotools and meson recipes but not cmake ones.
+  # See the SCOPE note in lib/flags.sh.
   MF_OWN_CFLAGS="$MF_OWN_CFLAGS -fPIC"
   MF_OWN_CXXFLAGS="$MF_OWN_CXXFLAGS -fPIC"
   mf_export_flags

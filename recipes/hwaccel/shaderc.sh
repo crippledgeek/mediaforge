@@ -10,6 +10,7 @@ PKG_FFMPEG_OPT="--enable-libshaderc"
 PKG_MUTEX_GROUP="spirv"
 PKG_REQUIRES_CMD="python3 git"
 PKG_CMAKE=true
+PKG_CMAKE_BUILD_TYPE="Release"
 
 pkg_prepare() {
   if ! patch -p1 -f < "$SCRIPT_DIR/patches/shaderc-util-install.patch"; then
@@ -19,7 +20,6 @@ pkg_prepare() {
   run python3 utils/git-sync-deps
 }
 pkg_configure() {
-  PKG_CMAKE_BUILD_TYPE=Release
   mf_cmake \
     -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_EXECUTABLES=ON \
     -DSHADERC_ENABLE_WERROR_COMPILE=OFF -DSKIP_GLSLANG_INSTALL=ON \

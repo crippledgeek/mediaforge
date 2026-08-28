@@ -7,6 +7,7 @@ PKG_GITHUB_REPO="mpeg5/xevd"
 PKG_URL="https://github.com/mpeg5/xevd/archive/refs/tags/v${PKG_VERSION}.tar.gz"
 PKG_FILENAME="xevd-${PKG_VERSION}.tar.gz"
 PKG_CMAKE=true
+PKG_CMAKE_BUILD_TYPE="Release"
 
 # --enable-libxevd requires FFmpeg >= 7.0.
 if ffmpeg_version_ge 7.0; then
@@ -32,7 +33,6 @@ pkg_configure() {
   rm -rf "$_src/build"
   mkdir -p "$_src/build"
   cd "$_src/build" || die "Failed to cd to xevd build dir"
-  PKG_CMAKE_BUILD_TYPE=Release
   mf_cmake -DBUILD_SHARED_LIBS=OFF ..
 }
 

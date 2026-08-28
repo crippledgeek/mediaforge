@@ -2,14 +2,15 @@
 # Pins that cmake is CONFIGURED in exactly one place (mf_cmake, lib/framework.sh)
 # and that the build type has exactly one spelling (PKG_CMAKE_BUILD_TYPE).
 #
-# Before this, nineteen recipes each wrote their own `run cmake` line and
-# fourteen of them spelled the build type inline -- some in PKG_CMAKE_FLAGS,
-# some as a continuation line, some mid-invocation. Nothing enforced agreement,
-# and ten recipes set no build type at all without that being a decision anyone
-# had made. The cost is not the duplication itself: it is that the build type is
-# the knob a debug mode has to turn, and turning it in nineteen places is
-# nineteen chances to miss one -- silently, since a recipe that keeps building
-# Release while the rest go debug produces a mixed tree that still links.
+# Before this, 17 recipes wrote their own `run cmake` line across 21 configure
+# call sites. 11 of those sites spelled the build type inline; 14 more recipes
+# spelled it inside PKG_CMAKE_FLAGS or on a continuation line. Nothing enforced
+# agreement, and ten recipes set no build type at all without that being a
+# decision anyone had made. The cost is not the duplication itself: it is that
+# the build type is the knob a debug mode has to turn, and turning it in 17
+# recipes is 17 chances to miss one -- silently, since a recipe that keeps
+# building Release while the rest go debug produces a mixed tree that still
+# links.
 #
 # This is the same shape as tests/no-nested-archives.sh's fetch invariant: the
 # rule is "route through the one entry point", and a grep is what enforces it.

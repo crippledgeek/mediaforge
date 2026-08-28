@@ -108,6 +108,9 @@ pkg_configure() {
 | `PKG_NONFREE` | No | Set `true` to require `--enable-nonfree` |
 | `PKG_CMAKE` | No | Set `true` to use cmake instead of autoconf |
 | `PKG_CMAKE_FLAGS` | No | Extra cmake flags |
+| `PKG_CMAKE_BUILD_TYPE` | No | cmake build type (e.g. `Release`). Empty means none is passed — do NOT write `-DCMAKE_BUILD_TYPE` yourself |
+| `PKG_MESON_BUILDTYPE` | No | meson buildtype; defaults to `release` when unset |
+| `PKG_C_STD` | No | C standard this source needs (e.g. `gnu11`). The framework appends `-std=` for this recipe only |
 | `PKG_CONFIGURE_FLAGS` | No | Extra configure flags |
 | `PKG_REQUIRES_CMD` | No | Space-separated list of required commands |
 | `PKG_REQUIRES_MESON` | No | Set `true` to require meson + ninja |
@@ -118,13 +121,30 @@ pkg_configure() {
 | `PKG_SKIP_EXTRACT` | No | Set `true` for header-only packages |
 | `PKG_GITHUB_REPO` | No | `owner/repo` for update checking |
 
+### Invoking cmake and meson
+
+Recipes never call `run cmake` or `run meson setup` directly — use the framework
+helpers, which supply the install prefix and the build type from the variables
+above so those settings have exactly one spelling tree-wide:
+
+```sh
+mf_cmake -DFOO=ON .              # adds -DCMAKE_INSTALL_PREFIX and, if set, -DCMAKE_BUILD_TYPE
+mf_meson build -Dbar=false       # adds --prefix, --buildtype, --default-library=static, --libdir
+```
+
+`cmake --build` / `cmake --install` and `meson compile` / `meson install` act on
+an already-configured tree and are called directly as before.
+
+`tests/cmake-single-entry.sh` and `tests/meson-single-entry.sh` enforce this, so
+a hand-written invocation fails the suite rather than drifting quietly.
+
 ### Phase Functions
 
 Override any subset — unoverridden phases use defaults:
 
 | Phase | Default | Purpose |
 |---|---|---|
-| `pkg_prepare()` | no-op | Patches, env setup |
+| `pkg_prepare()` | no-op | Patches, source fixups. For a C standard use `PKG_C_STD`, not a `CFLAGS` append |
 | `pkg_configure()` | `./configure` or `cmake` | Configure build |
 | `pkg_build()` | `make -j $MJOBS` | Compile |
 | `pkg_install()` | `make install` | Install to `$PREFIX` |

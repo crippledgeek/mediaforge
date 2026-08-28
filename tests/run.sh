@@ -36,12 +36,12 @@ sh tests/checksum-verification.sh
 sh tests/comment-citations.sh
 sh tests/recipe-identity.sh
 # Pins that cmake is CONFIGURED in one place (mf_cmake) and the build type has
-# one spelling. Nineteen hand-written `run cmake` lines agreed only by accident,
+# one spelling. 21 hand-written `run cmake` lines agreed only by accident,
 # and the build type is the knob a debug mode has to turn -- a recipe that keeps
 # its own spelling stays Release while the rest move, and still links.
 sh tests/cmake-single-entry.sh
-# The meson sibling: eighteen call sites repeated the same four flags, six of
-# them in lv2 alone. Grep-based, so it also covers the sites inside stamp_check
+# The meson sibling: 18 call sites across 13 recipes repeated the same four
+# flags, six of them in lv2 alone. Grep-based, so it also covers the sites inside stamp_check
 # guards that a behaviour diff cannot reach.
 sh tests/meson-single-entry.sh
 # Pins dav1d as library-only. FFmpeg links libdav1d.a and never runs the CLI,

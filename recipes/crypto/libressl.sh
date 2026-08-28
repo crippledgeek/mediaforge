@@ -37,10 +37,11 @@ pkg_configure() {
   # to do, and where all of its defects came from.
   resolve_openssldir "$OPENSSLDIR" "$PREFIX/etc/ssl"
 
-  # --with-pic: NOT because the objects would otherwise lack -fPIC. mediaforge.sh
-  # exports `CFLAGS="$CFLAGS -fPIC"` for every recipe unconditionally
-  # (cmd_build's `export CFLAGS CXXFLAGS`), so they already get it and these
-  # archives already linked into libavcodec/libavformat correctly on develop.
+  # --with-pic: NOT because the objects would otherwise lack -fPIC. mediaforge
+  # composes -fPIC into the exported CFLAGS for every recipe unconditionally
+  # (cmd_build adds it to MF_OWN_CFLAGS, then mf_export_flags in lib/flags.sh
+  # exports the composed line), so they already get it and these archives
+  # already linked into libavcodec/libavformat correctly.
   #
   # What the flag adds is libtool's own -DPIC on the objects it compiles, which
   # LibreSSL's C and perlasm paths read to select position-independent
