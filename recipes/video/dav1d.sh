@@ -13,8 +13,7 @@ pkg_configure() {
     export CFLAGS="-arch arm64"
   fi
   rm -rf build && mkdir -p build
-  run meson build --prefix="$PREFIX" --buildtype=release \
-    --default-library=static --libdir="$PREFIX/lib"
+  mf_meson build
   if [ "$OS_MACOS_ARM" = true ]; then
     export CFLAGS="$_cflagsbackup"
   fi

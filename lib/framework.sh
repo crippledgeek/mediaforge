@@ -33,6 +33,30 @@ mf_cmake() {
   fi
 }
 
+# The one meson setup. Eighteen call sites across twelve recipes repeated the
+# same four flags -- prefix, buildtype, default-library, libdir -- and differed
+# only in their build directory and their -D options.
+#
+# $1 is the build directory (positional to meson); everything after is passed
+# through. Option order is irrelevant to meson, so the extras land last.
+#
+# Spelled `meson setup` even where a recipe used the bare `meson <dir>` form:
+# the bare form is the deprecated spelling of the same operation, and having one
+# spelling is the point of this helper.
+#
+# PKG_MESON_BUILDTYPE mirrors PKG_CMAKE_BUILD_TYPE -- one knob per build system,
+# both reset per recipe. Note that meson's buildtype does NOT control assertions
+# the way cmake's does: -Ddebug=false leaves NDEBUG undefined, which is the
+# separate b_ndebug option. Anything turning these knobs together has to set
+# that explicitly rather than assume the two systems agree.
+mf_meson() {
+  _mf_builddir="$1"
+  shift
+  run meson setup "$_mf_builddir" --prefix="$PREFIX" \
+    --buildtype="${PKG_MESON_BUILDTYPE:-release}" \
+    --default-library=static --libdir="$PREFIX/lib" "$@"
+}
+
 default_configure() {
   if [ "$PKG_CMAKE" = true ]; then
     # shellcheck disable=SC2086
@@ -87,6 +111,9 @@ reset_recipe() {
   # set one already do. Reset per recipe like every other PKG_*, so one recipe's
   # Release cannot leak into the next recipe's build.
   PKG_CMAKE_BUILD_TYPE=""
+  # Empty means mf_meson's own default (release), which is what all eighteen
+  # call sites passed explicitly before they were converged.
+  PKG_MESON_BUILDTYPE=""
   PKG_GITHUB_REPO=""
   # Recipe-declared install intent. If true, the recipe's pkgconfig files
   # listed in PKG_PC_FILES (space-separated, without .pc suffix) are queued

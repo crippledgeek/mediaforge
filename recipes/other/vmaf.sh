@@ -15,8 +15,10 @@ PKG_REQUIRES_MESON=true
 # phases.
 pkg_configure() {
   rm -rf libvmaf/build
-  run meson setup libvmaf/build libvmaf --prefix="$PREFIX" --buildtype=release \
-    --default-library=static --libdir="$PREFIX/lib" \
+  # Two positionals: build dir, then source dir. mf_meson takes the build dir
+  # and passes everything else through, so libvmaf lands after the flags --
+  # verified that meson accepts a positional there.
+  mf_meson libvmaf/build libvmaf \
     -Denable_tests=false -Denable_docs=false -Denable_tools=false \
     -Dbuilt_in_models=true
 }

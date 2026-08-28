@@ -40,6 +40,10 @@ sh tests/recipe-identity.sh
 # and the build type is the knob a debug mode has to turn -- a recipe that keeps
 # its own spelling stays Release while the rest move, and still links.
 sh tests/cmake-single-entry.sh
+# The meson sibling: eighteen call sites repeated the same four flags, six of
+# them in lv2 alone. Grep-based, so it also covers the sites inside stamp_check
+# guards that a behaviour diff cannot reach.
+sh tests/meson-single-entry.sh
 # Pins .githooks/pre-push, which runs tests/shellcheck.sh -- and only that -- at
 # push time. Asserts it forwards the gate's verdict both ways, demands a real
 # linter rather than sh -n alone, and lets a branch deletion through. A hook that
