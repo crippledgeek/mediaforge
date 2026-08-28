@@ -15,6 +15,7 @@ PREFIX="$TOPDIR/workspace"
 
 # Source libraries (order matters — utils first, platform needs command_exists)
 . "$SCRIPT_DIR/lib/utils.sh"
+. "$SCRIPT_DIR/lib/flags.sh"
 . "$SCRIPT_DIR/lib/registry.sh"
 . "$SCRIPT_DIR/lib/platform.sh"
 . "$SCRIPT_DIR/lib/download.sh"
@@ -24,10 +25,26 @@ PREFIX="$TOPDIR/workspace"
 . "$SCRIPT_DIR/lib/resolve.sh"
 . "$SCRIPT_DIR/lib/menu.sh"
 
-# Compiler flags
-CFLAGS="-I$PREFIX/include"
-CXXFLAGS="-I$PREFIX/include"
-LDFLAGS="-L$PREFIX/lib"
+# The user's own flags, captured BEFORE mediaforge sets any of its own. These
+# are the values the operator exported; per the GNU coding standards they belong
+# to them, and mediaforge re-appends them last (see lib/flags.sh) so they win.
+# Assigning over them, as this file did until now, both discarded them and
+# suppressed autotools' "-g -O2" default -- which is why every autotools recipe
+# was compiling at -O0. tests/compiler-flags.sh pins the rules.
+MF_USER_CFLAGS="${CFLAGS-}"
+MF_USER_CXXFLAGS="${CXXFLAGS-}"
+MF_USER_LDFLAGS="${LDFLAGS-}"
+
+# Compiler flags mediaforge itself requires. Kept SEPARATE from $CFLAGS, which
+# is the composed line handed to recipes: conflating the two is what let a flag
+# mediaforge discovered late (the lv2 recipe's lilv include path, written to
+# $PREFIX/.extra_cflags and read after every recipe has run) land AFTER the
+# user's flags and outrank them. mf_export_flags recomposes from these, so the
+# user stays last however late mediaforge adds one of its own.
+MF_OWN_CFLAGS="-I$PREFIX/include"
+MF_OWN_CXXFLAGS="-I$PREFIX/include"
+MF_OWN_LDFLAGS="-L$PREFIX/lib"
+mf_export_flags
 LDEXEFLAGS=""
 # shellcheck disable=SC2034
 EXTRALIBS="-ldl -lpthread -lm -lz"
@@ -331,9 +348,18 @@ cmd_build() {
   # Exported so codec ./configure and cmake invocations inherit it — without the
   # export it would reach only FFmpeg (via --extra-cflags), not the codecs.
   # The fully-static ffmpeg binary (-static) stays opt-in below.
-  CFLAGS="$CFLAGS -fPIC"
-  CXXFLAGS="$CXXFLAGS -fPIC"
-  export CFLAGS CXXFLAGS
+  #
+  # Composed here rather than at the assignment above because this is the point
+  # at which every flag mediaforge itself contributes is known -- -fPIC is added
+  # after option parsing. The user's flags go last so an explicit -march or
+  # -fsanitize from their environment reaches the compiler instead of being
+  # silently dropped. Note that "last wins" settles the command line only: a
+  # cmake recipe pinned to Release still appends -O3 -DNDEBUG after these, so an
+  # operator's -O0 survives for autotools and meson recipes but not cmake ones.
+  # See the SCOPE note in lib/flags.sh.
+  MF_OWN_CFLAGS="$MF_OWN_CFLAGS -fPIC"
+  MF_OWN_CXXFLAGS="$MF_OWN_CXXFLAGS -fPIC"
+  mf_export_flags
   if [ "$_enable_static" = true ]; then
     if [ "$OS_MACOS" = true ]; then
       die "Full static binaries can only be built on Linux."
@@ -458,17 +484,24 @@ cmd_build() {
     run_recipe "$SCRIPT_DIR/$_recipe"
   done < "$SCRIPT_DIR/recipes/_order.conf"
 
-  # Read extra flags from accumulator files (written by recipes like lv2, nv-codec)
+  # Read extra flags from accumulator files (written by recipes like lv2,
+  # nv-codec). These are mediaforge's OWN flags discovered during the run, so
+  # they accumulate into MF_OWN_* and the line is recomposed below -- appending
+  # them to $CFLAGS directly would place them after the user's flags and let
+  # them override an explicit choice.
   if [ -f "$PREFIX/.extra_cflags" ]; then
     while IFS= read -r _flag || [ -n "$_flag" ]; do
-      CFLAGS="$CFLAGS $_flag"
+      MF_OWN_CFLAGS="$MF_OWN_CFLAGS $_flag"
     done < "$PREFIX/.extra_cflags"
   fi
   if [ -f "$PREFIX/.extra_ldflags" ]; then
     while IFS= read -r _flag || [ -n "$_flag" ]; do
-      LDFLAGS="$LDFLAGS $_flag"
+      MF_OWN_LDFLAGS="$MF_OWN_LDFLAGS $_flag"
     done < "$PREFIX/.extra_ldflags"
   fi
+  # Both accumulators have been read, so mediaforge has now contributed every
+  # flag it is going to. Recompose once, here, rather than inside either loop.
+  mf_export_flags
 
   # If on Linux and nvcc not found, explicitly disable ffnvcodec
   if [ "$OS_LINUX" = true ] && ! command_exists nvcc; then

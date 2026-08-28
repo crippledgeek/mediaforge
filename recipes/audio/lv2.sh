@@ -8,8 +8,7 @@ PKG_REQUIRES_CMD="python3"
 PKG_REQUIRES_MESON=true
 
 pkg_configure() {
-  run meson build --prefix="$PREFIX" --buildtype=release \
-    --default-library=static --libdir="$PREFIX/lib"
+  mf_meson build
 }
 
 pkg_build() {
@@ -30,8 +29,7 @@ pkg_install() {
   # serd
   if stamp_check "serd" "0.32.6"; then
     fetch "https://gitlab.com/drobilla/serd/-/archive/v0.32.6/serd-v0.32.6.tar.gz" "serd-v0.32.6.tar.gz"
-    run meson build --prefix="$PREFIX" --buildtype=release \
-      --default-library=static --libdir="$PREFIX/lib"
+    mf_meson build
     run ninja -C build
     run ninja -C build install
     stamp_write "serd" "0.32.6"
@@ -49,8 +47,7 @@ pkg_install() {
   # zix
   if stamp_check "zix" "0.8.0"; then
     fetch "https://gitlab.com/drobilla/zix/-/archive/v0.8.0/zix-v0.8.0.tar.gz" "zix-v0.8.0.tar.gz"
-    run meson setup build --prefix="$PREFIX" --buildtype=release \
-      --default-library=static --libdir="$PREFIX/lib"
+    mf_meson build
     cd build || die "Failed to cd to zix build"
     run meson configure -Dc_args="-march=native" -Dprefix="$PREFIX" -Dlibdir="$PREFIX/lib"
     run meson compile
@@ -61,8 +58,7 @@ pkg_install() {
   # sord
   if stamp_check "sord" "0.16.20"; then
     fetch "https://gitlab.com/drobilla/sord/-/archive/v0.16.20/sord-v0.16.20.tar.gz" "sord-v0.16.20.tar.gz"
-    run meson build --prefix="$PREFIX" --buildtype=release \
-      --default-library=static --libdir="$PREFIX/lib"
+    mf_meson build
     run ninja -C build
     run ninja -C build install
     stamp_write "sord" "0.16.20"
@@ -71,8 +67,7 @@ pkg_install() {
   # sratom
   if stamp_check "sratom" "0.6.20"; then
     fetch "https://gitlab.com/lv2/sratom/-/archive/v0.6.20/sratom-v0.6.20.tar.gz" "sratom-v0.6.20.tar.gz"
-    run meson build --prefix="$PREFIX" -Ddocs=disabled --buildtype=release \
-      --default-library=static --libdir="$PREFIX/lib"
+    mf_meson build -Ddocs=disabled
     run ninja -C build
     run ninja -C build install
     stamp_write "sratom" "0.6.20"
@@ -81,8 +76,7 @@ pkg_install() {
   # lilv
   if stamp_check "lilv" "0.26.2"; then
     fetch "https://gitlab.com/lv2/lilv/-/archive/v0.26.2/lilv-v0.26.2.tar.gz" "lilv-v0.26.2.tar.gz"
-    run meson build --prefix="$PREFIX" -Ddocs=disabled --buildtype=release \
-      --default-library=static --libdir="$PREFIX/lib" -Dcpp_std=c++11
+    mf_meson build -Ddocs=disabled -Dcpp_std=c++11
     run ninja -C build
     run ninja -C build install
     stamp_write "lilv" "0.26.2"

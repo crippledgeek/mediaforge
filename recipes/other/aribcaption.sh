@@ -12,8 +12,8 @@ PKG_CMAKE=true
 # Static library only; no tests. FreeType + Fontconfig text-rendering backends
 # resolve against the freetype2/fontconfig already built earlier in _order.conf.
 # Installs libaribcaption.pc (FFmpeg probes "libaribcaption").
+PKG_CMAKE_BUILD_TYPE="Release"
 PKG_CMAKE_FLAGS="\
-  -DCMAKE_BUILD_TYPE=Release \
   -DARIBCC_BUILD_TESTS=OFF \
   -DARIBCC_SHARED_LIBRARY=OFF \
   -DARIBCC_USE_FREETYPE=ON \

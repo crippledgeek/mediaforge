@@ -31,8 +31,7 @@ pkg_prepare() {
 pkg_configure() {
   if [ -f meson.build ]; then
     rm -rf build && mkdir -p build
-    run meson setup build --prefix="$PREFIX" --buildtype=release \
-      --default-library=static --libdir="$PREFIX/lib" \
+    mf_meson build \
       -Dlibdvdcss=disabled
   else
     run ./configure --prefix="$PREFIX" --disable-shared --enable-static

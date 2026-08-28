@@ -20,6 +20,7 @@ PKG_DISABLED=true
 # Linux-only for now: the archive merge in pkg_post_install uses GNU ar/ranlib.
 # macOS (libtool -static) and Windows (lib.exe) branches are not wired up yet.
 PKG_LINUX_ONLY=true
+PKG_CMAKE_BUILD_TYPE="Release"
 
 # --enable-liblcevc-dec requires FFmpeg >= 7.1 (FFmpeg probes pkg-config
 # lcevc_dec, installed from cmake/templates/lcevc_dec.pc.in). Only accumulate
@@ -52,8 +53,7 @@ pkg_prepare() {
 # out-of-source build/ dir.
 pkg_configure() {
   rm -rf build
-  run cmake -S . -B build -DCMAKE_INSTALL_PREFIX="$PREFIX" -DBUILD_SHARED_LIBS=OFF \
-    -DCMAKE_BUILD_TYPE=Release \
+  mf_cmake -S . -B build -DBUILD_SHARED_LIBS=OFF \
     -DVN_SDK_EXECUTABLES=OFF -DVN_SDK_UNIT_TESTS=OFF \
     -DVN_SDK_SAMPLE_SOURCE=OFF -DVN_SDK_JSON_CONFIG=OFF \
     -DVN_SDK_PIPELINE_VULKAN=OFF -DVN_SDK_DOCS=OFF \

@@ -7,10 +7,7 @@ PKG_FFMPEG_OPT="--enable-libxvid"
 PKG_GPL=true
 
 # xvidcore 1.3.7 has old C code incompatible with C23
-pkg_prepare() {
-  CFLAGS="$CFLAGS -std=gnu11"
-  export CFLAGS
-}
+PKG_C_STD="gnu11"
 
 pkg_configure() {
   cd build/generic || die "Failed to cd to build/generic"

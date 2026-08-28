@@ -6,10 +6,7 @@ PKG_URL="https://www.quut.com/gsm/gsm-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libgsm"
 
 # gsm has old C code incompatible with C23 (GCC 15+ defaults to -std=gnu23)
-pkg_prepare() {
-  CFLAGS="$CFLAGS -std=gnu11"
-  export CFLAGS
-}
+PKG_C_STD="gnu11"
 
 pkg_configure() {
   :

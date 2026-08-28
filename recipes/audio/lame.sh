@@ -7,7 +7,4 @@ PKG_FILENAME="lame-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libmp3lame"
 
 # lame 3.100 has K&R-style function definitions incompatible with C23
-pkg_prepare() {
-  CFLAGS="$CFLAGS -std=gnu11"
-  export CFLAGS
-}
+PKG_C_STD="gnu11"

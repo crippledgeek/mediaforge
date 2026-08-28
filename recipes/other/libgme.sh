@@ -11,4 +11,5 @@ PKG_URL="https://github.com/libgme/game-music-emu/releases/download/${PKG_VERSIO
 PKG_FILENAME="libgme-${PKG_VERSION}-src.tar.gz"
 PKG_FFMPEG_OPT="--enable-libgme"
 PKG_CMAKE=true
-PKG_CMAKE_FLAGS="-DCMAKE_BUILD_TYPE=Release -DENABLE_UBSAN=OFF"
+PKG_CMAKE_BUILD_TYPE="Release"
+PKG_CMAKE_FLAGS="-DENABLE_UBSAN=OFF"

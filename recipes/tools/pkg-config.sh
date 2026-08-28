@@ -1,6 +1,8 @@
 # shellcheck disable=SC2034
 # PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="pkg-config"
+# Bundled glib has C23-incompatible code (GCC 15+)
+PKG_C_STD="gnu11"
 PKG_VERSION="${PKG_VERSION_PKG_CONFIG:-0.29.2}"
 PKG_URL="https://pkgconfig.freedesktop.org/releases/pkg-config-${PKG_VERSION}.tar.gz"
 PKG_CONFIGURE_FLAGS="--silent --with-pc-path=$PREFIX/lib/pkgconfig --with-internal-glib"
@@ -11,8 +13,6 @@ pkg_prepare() {
   sed 's/change->prev\.bool/change->prev.bool_val/g' glib/glib/goption.c > glib/glib/goption.c.tmp \
     && mv glib/glib/goption.c.tmp glib/glib/goption.c
 
-  # Bundled glib has C23-incompatible code (GCC 15+)
-  CFLAGS="$CFLAGS -std=gnu11"
   if [ "$OS_MACOS" = true ]; then
     CFLAGS="$CFLAGS -Wno-int-conversion -Wno-error=int-conversion"
   fi

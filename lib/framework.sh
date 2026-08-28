@@ -6,12 +6,62 @@
 # SC2034: PKG_* defaults below are read by recipe pkg_* functions after this
 # file is sourced; shellcheck can't see the cross-file consumer.
 
+# The one place cmake is configured. Recipes call this instead of `run cmake`,
+# so the install prefix and the build type are set once rather than at the 21
+# configure call sites spread over 17 recipes -- the build type in particular is
+# the knob a debug mode has to turn, and turning it in 17 recipes is 17 chances
+# to miss one.
+# tests/cmake-single-entry.sh pins that nothing configures cmake around it.
+#
+# It supplies ONLY what every call site already had: the prefix, plus the build
+# type when the recipe names one via PKG_CMAKE_BUILD_TYPE. BUILD_SHARED_LIBS and
+# ENABLE_SHARED are deliberately NOT supplied here even though most recipes pass
+# them, because several do not, and adding them would silently change those
+# builds. Likewise a recipe that names no build type still gets none: ten
+# currently do that, and defaulting them to Release would move them from the -O2
+# they inherit through CFLAGS to -O3 -DNDEBUG. This extraction is a refactor,
+# and a behaviour change riding inside one is what nobody reviews for.
+#
+# Every other argument passes through untouched, which is why the differing
+# source-dir spellings (`.`, `-S . -B build`, `../../../source`) all still work.
+mf_cmake() {
+  if [ -n "${PKG_CMAKE_BUILD_TYPE:-}" ]; then
+    run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+      -DCMAKE_BUILD_TYPE="$PKG_CMAKE_BUILD_TYPE" "$@"
+  else
+    run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" "$@"
+  fi
+}
+
+# The one meson setup. Eighteen call sites across 13 recipes repeated the
+# same four flags -- prefix, buildtype, default-library, libdir -- and differed
+# only in their build directory and their -D options.
+#
+# $1 is the build directory (positional to meson); everything after is passed
+# through. Option order is irrelevant to meson, so the extras land last.
+#
+# Spelled `meson setup` even where a recipe used the bare `meson <dir>` form:
+# the bare form is the deprecated spelling of the same operation, and having one
+# spelling is the point of this helper.
+#
+# PKG_MESON_BUILDTYPE mirrors PKG_CMAKE_BUILD_TYPE -- one knob per build system,
+# both reset per recipe. Note that meson's buildtype does NOT control assertions
+# the way cmake's does: -Ddebug=false leaves NDEBUG undefined, which is the
+# separate b_ndebug option. Anything turning these knobs together has to set
+# that explicitly rather than assume the two systems agree.
+mf_meson() {
+  _mf_builddir="$1"
+  shift
+  run meson setup "$_mf_builddir" --prefix="$PREFIX" \
+    --buildtype="${PKG_MESON_BUILDTYPE:-release}" \
+    --default-library=static --libdir="$PREFIX/lib" "$@"
+}
+
 # Default phase functions
 default_configure() {
   if [ "$PKG_CMAKE" = true ]; then
     # shellcheck disable=SC2086
-    run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-      -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF \
+    mf_cmake -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF \
       $PKG_CMAKE_FLAGS .
   else
     # shellcheck disable=SC2086
@@ -58,6 +108,19 @@ reset_recipe() {
   PKG_CONFIGURE_FLAGS=""
   PKG_CMAKE=false
   PKG_CMAKE_FLAGS=""
+  # Empty means "supply no build type", which is what the recipes that never
+  # set one already do. Reset per recipe like every other PKG_*, so one recipe's
+  # Release cannot leak into the next recipe's build.
+  PKG_CMAKE_BUILD_TYPE=""
+  # Empty means mf_meson's own default (release), which is what all eighteen
+  # call sites passed explicitly before they were converged.
+  PKG_MESON_BUILDTYPE=""
+  # A C standard this recipe's source needs. Sixteen recipes carried the flag;
+  # in 12 of them the entire body of pkg_prepare() was appending -std=gnu11 to
+  # CFLAGS and exporting it. The other four folded it in beside real work, which
+  # is how the shapes diverged -- a recipe wanting a REAL prepare step had to
+  # remember to carry the flag along with it.
+  PKG_C_STD=""
   PKG_GITHUB_REPO=""
   # Recipe-declared install intent. If true, the recipe's pkgconfig files
   # listed in PKG_PC_FILES (space-separated, without .pc suffix) are queued
@@ -297,6 +360,17 @@ run_recipe() {
       _dl_dir="$PKG_DIRNAME"
     fi
     fetch "$PKG_URL" "$_dl_file" "$_dl_dir"
+  fi
+
+  # A recipe that declares a C standard gets it appended for the duration of its
+  # own build. Applied after the save above and before any phase runs, so the
+  # restore at the end of this function takes it back off again -- one recipe's
+  # -std cannot leak into the next. GCC 15 defaults to -std=gnu23, which is what
+  # made this necessary for the older sources in the tree (K&R definitions,
+  # unprototyped functions, C23 reserved keywords).
+  if [ -n "$PKG_C_STD" ]; then
+    CFLAGS="$CFLAGS -std=$PKG_C_STD"
+    export CFLAGS
   fi
 
   # Run phases

@@ -22,6 +22,7 @@ PKG_URL="https://github.com/uavs3/uavs3d/archive/${PKG_VERSION}.tar.gz"
 PKG_FILENAME="uavs3d-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libuavs3d"
 PKG_CMAKE=true
+PKG_CMAKE_BUILD_TYPE="Release"
 
 # uavs3d's CMake calls version.sh (needs git + gawk) via execute_process to
 # generate version.h. Building from a tarball has no .git, so version.sh
@@ -57,8 +58,7 @@ pkg_configure() {
   # floor (lib/platform.sh) raises the policy floor for sources declaring a lower
   # minimum, so uavs3d configures cleanly. (This is the min-version class the floor
   # covers; x265's explicit cmake_policy(SET ... OLD) needs a patch instead.)
-  run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-    -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release ../..
+  mf_cmake -DBUILD_SHARED_LIBS=OFF ../..
 }
 
 pkg_build() {

@@ -70,5 +70,10 @@ pkg_post_install() {
     printf '%s\n' "-L$_cuda_home/lib64" >> "$PREFIX/.extra_ldflags"
   fi
   FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS --enable-cuda-nvcc --enable-cuda-llvm"
-  NVCCFLAGS="-gencode arch=compute_${_cuda_cc},code=sm_${_cuda_cc} -O2"
+  # The optimization level comes from MF_DEFAULT_OPT (lib/flags.sh) rather than
+  # a literal -O2, so the tree states its default in one place instead of two.
+  # nvcc passes -O through to the HOST compilation it drives, which is the same
+  # decision MF_DEFAULT_OPT already makes for every other recipe; device-side
+  # optimization is a separate axis (-Xptxas) that nothing here sets.
+  NVCCFLAGS="-gencode arch=compute_${_cuda_cc},code=sm_${_cuda_cc} $MF_DEFAULT_OPT"
 }

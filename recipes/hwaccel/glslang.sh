@@ -8,12 +8,13 @@ PKG_FILENAME="glslang-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libglslang"
 PKG_MUTEX_GROUP="spirv"
 PKG_REQUIRES_CMD="python3"
+PKG_CMAKE_BUILD_TYPE="Release"
 
 pkg_prepare() {
   run ./update_glslang_sources.py
 }
 
 pkg_configure() {
-  run cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_SHARED=OFF \
-    -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="$PREFIX" .
+  mf_cmake -DENABLE_SHARED=OFF \
+    -DBUILD_SHARED_LIBS=OFF .
 }

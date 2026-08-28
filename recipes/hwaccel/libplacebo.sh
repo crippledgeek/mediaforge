@@ -65,8 +65,7 @@ pkg_configure() {
     _spv_a="-Dglslang=enabled"; _spv_b="-Dshaderc=disabled"
   fi
   rm -rf build && mkdir -p build
-  run meson setup build --prefix="$PREFIX" --buildtype=release \
-    --default-library=static --libdir="$PREFIX/lib" \
+  mf_meson build \
     -Dvulkan=enabled -Ddemos=false -Dtests=false "$_spv_a" "$_spv_b"
 }
 

@@ -41,13 +41,13 @@ pkg_build() {
   [ -n "$LDEXEFLAGS" ] && _x265_numa="-DENABLE_LIBNUMA=OFF"
 
   cd 12bit || die "Failed to cd to 12bit"
-  run cmake ../../../source -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+  mf_cmake ../../../source \
     -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF $_x265_numa -DHIGH_BIT_DEPTH=ON \
     -DENABLE_HDR10_PLUS=ON -DEXPORT_C_API=OFF -DENABLE_CLI=OFF -DMAIN12=ON
   run make -j "$MJOBS"
 
   cd ../10bit || die "Failed to cd to 10bit"
-  run cmake ../../../source -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+  mf_cmake ../../../source \
     -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF $_x265_numa -DHIGH_BIT_DEPTH=ON \
     -DENABLE_HDR10_PLUS=ON -DEXPORT_C_API=OFF -DENABLE_CLI=OFF
   run make -j "$MJOBS"
@@ -55,7 +55,7 @@ pkg_build() {
   cd ../8bit || die "Failed to cd to 8bit"
   ln -sf ../10bit/libx265.a libx265_main10.a
   ln -sf ../12bit/libx265.a libx265_main12.a
-  run cmake ../../../source -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+  mf_cmake ../../../source \
     -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF $_x265_numa \
     -DEXTRA_LIB="x265_main10.a;x265_main12.a;-ldl" \
     -DEXTRA_LINK_FLAGS=-L. -DLINKED_10BIT=ON -DLINKED_12BIT=ON
