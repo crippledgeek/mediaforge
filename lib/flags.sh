@@ -59,81 +59,59 @@ MF_DEFAULT_OPT="-O2"
 # reliable at every level, including `symbols`, where the whole point is getting
 # a usable trace out of an optimized build.
 
-# The optimization level for a debug level. This flows through MF_DEFAULT_OPT --
-# the one place that already decides optimization -- rather than being appended
-# separately, so the operator's own -O still wins by coming last.
-mf_debug_opt() {
-  case "$1" in
-    balanced) printf -- '-Og' ;;
-    full)     printf -- '-O0' ;;
-    *)        printf -- '-O2' ;;   # symbols, and the no-debug default
-  esac
-}
-
-# The symbol flags a debug level adds. Empty when no debug level is active, so
-# a normal build is byte-for-byte what it was before this feature existed.
-mf_debug_cflags() {
-  case "$1" in
-    symbols|balanced|full) printf -- '-g3 -fno-omit-frame-pointer' ;;
-    *)                     printf '' ;;
-  esac
-}
-
-# The cmake build type a debug level forces, overriding whatever the recipe
-# declared. Empty means "leave the recipe's own choice alone".
+# THE LEVEL TABLE. One row per level, and every consumer below reads a field
+# from it, so adding a level is adding a row rather than editing five parallel
+# case statements that agree only by inspection. The first draft of this file
+# had exactly those five, plus a sixth for the accepted-level set, and carried a
+# comment noting they had to be kept in step -- which is a hazard described
+# rather than removed.
 #
-# `Debug` is deliberate for both balanced and full: it is the only stock cmake
-# type that does NOT define NDEBUG, so assertions come on. It also sets only -g
-# and no -O at all (measured on cmake 4.3.2: CMAKE_C_FLAGS_DEBUG = "-g"), which
-# is exactly what lets the -Og/-O0 from CFLAGS survive -- no per-level
-# CMAKE_C_FLAGS_DEBUG override is needed.
-mf_debug_cmake_type() {
-  case "$1" in
-    symbols)       printf 'RelWithDebInfo' ;;
-    balanced|full) printf 'Debug' ;;
-    *)             printf '' ;;
-  esac
-}
-
-# The meson arguments a debug level forces.
+# Fields, in order:
+#   1 optimization   flows through MF_DEFAULT_OPT so the operator's -O still wins
+#   2 symbol flags   empty when no level is active, so a normal build is unchanged
+#   3 cmake type     forced OVER the recipe's own; empty leaves the recipe alone
+#   4 meson args     buildtype AND b_ndebug, which meson does not tie together
+#   5 ffmpeg opts    without --disable-stripping the final binary is stripped
+#                    whatever the ~110 libraries did
 #
-# b_ndebug is named EXPLICITLY at every level because meson does not tie it to
-# buildtype the way cmake ties NDEBUG to build type: meson's own documentation
-# states that -Ddebug=false does not define NDEBUG. Leaving it implicit is how
-# the cmake and meson halves of a tree end up disagreeing about whether
-# assertions are live -- silently, since both still compile and link.
-mf_debug_meson_args() {
+# The no-level row is a real row, not a fallback: it states that an ordinary
+# build keeps -O2, adds no symbols, leaves both build systems to the recipes,
+# and passes the --disable-debug that recipes/ffmpeg.sh has always passed.
+mf_debug_field() { # level field-number
+  _mf_dbg_f="$2"
   case "$1" in
-    symbols)  printf -- '--buildtype=debugoptimized -Db_ndebug=true' ;;
-    balanced) printf -- '--buildtype=debug --optimization=g -Db_ndebug=false' ;;
-    full)     printf -- '--buildtype=debug -Db_ndebug=false' ;;
-    *)        printf '' ;;
+    symbols)
+      set -- '-O2' '-g3 -fno-omit-frame-pointer' 'RelWithDebInfo' \
+             '--buildtype=debugoptimized -Db_ndebug=true' \
+             '--enable-debug=3 --disable-stripping' ;;
+    balanced)
+      set -- '-Og' '-g3 -fno-omit-frame-pointer' 'Debug' \
+             '--buildtype=debug --optimization=g -Db_ndebug=false' \
+             '--enable-debug=3 --disable-stripping --disable-optimizations' ;;
+    full)
+      set -- '-O0' '-g3 -fno-omit-frame-pointer' 'Debug' \
+             '--buildtype=debug -Db_ndebug=false' \
+             '--enable-debug=3 --disable-stripping --disable-optimizations' ;;
+    *)
+      set -- '-O2' '' '' '' '--disable-debug' ;;
   esac
+  shift $((_mf_dbg_f - 1))
+  printf '%s' "$1"
 }
 
-# FFmpeg's own flags. Without these the final binary is stripped no matter what
-# every library did -- recipes/ffmpeg.sh passes --disable-debug unconditionally
-# otherwise, and FFmpeg's Makefile links ffmpeg_g and then strips it to ffmpeg.
-#
-# --disable-optimizations for balanced and full stops FFmpeg adding its own -O3
-# on top; the level's own -O then arrives through --extra-cflags. `symbols`
-# keeps FFmpeg optimized, which is the entire point of that level.
-mf_debug_ffmpeg_opts() {
-  case "$1" in
-    symbols)       printf -- '--enable-debug=3 --disable-stripping' ;;
-    balanced|full) printf -- '--enable-debug=3 --disable-stripping --disable-optimizations' ;;
-    *)             printf -- '--disable-debug' ;;
-  esac
-}
+# Named readers. These exist so call sites say what they want rather than
+# indexing a table, and so the field numbers appear exactly once each.
+mf_debug_opt()         { mf_debug_field "$1" 1; }
+mf_debug_cflags()      { mf_debug_field "$1" 2; }
+mf_debug_cmake_type()  { mf_debug_field "$1" 3; }
+mf_debug_meson_args()  { mf_debug_field "$1" 4; }
+mf_debug_ffmpeg_opts() { mf_debug_field "$1" 5; }
 
-# The levels --debug accepts. Kept beside the functions above so a new level
-# cannot be added to one and forgotten in the other.
-mf_debug_level_valid() {
-  case "$1" in
-    symbols|balanced|full) return 0 ;;
-    *)                     return 1 ;;
-  esac
-}
+# Validity is DERIVED from the table rather than being a sixth list to keep in
+# step: a level is real exactly when it contributes symbol flags. An unknown
+# level and the no-level case both fall to the last row, whose field 2 is empty,
+# so both are correctly rejected -- bare --debug sets "full", never "".
+mf_debug_level_valid() { [ -n "$(mf_debug_cflags "$1")" ]; }
 
 # True when $1 already contains an -O flag of any spelling: -O, -O0..-O3, -Os,
 # -Og, -Ofast.
@@ -144,6 +122,7 @@ mf_debug_level_valid() {
 # would conclude the user had chosen an optimization level, drop the default,
 # and put that recipe back at -O0. That is the original defect reintroduced
 # through its own fix, so tests/compiler-flags.sh asserts this case directly.
+#
 # Tabs are folded to spaces first. The anchor needs a space immediately before
 # the -O, so a tab-separated CFLAGS ("-g<TAB>-O2" -- what a here-doc or an
 # editor-mangled profile produces) would otherwise read as "no -O chosen" and
