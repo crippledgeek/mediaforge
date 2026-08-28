@@ -377,7 +377,51 @@ cmd_build() {
   # symbol flags. The optimization goes through MF_DEFAULT_OPT rather than being
   # appended separately, so it stays in the one place that decides optimization
   # and the operator's own -O still wins by coming last.
+  # A workspace remembers the level it was built at, and a mismatch is refused.
+  #
+  # stamp_check keys only on "<name>-<version>", so nothing about a build's FLAGS
+  # is captured. Without this guard, `build` followed by `build --debug` rebuilds
+  # nothing but FFmpeg: you get a debug ffmpeg linked against ~110 stripped, -O2,
+  # NDEBUG'd archives -- and it compiles, links and runs, so the only symptom is
+  # stack traces that are quietly wrong in every library. That is the precise
+  # failure this feature exists to prevent, one layer above where it operates.
+  #
+  # Refused rather than warned. lib/resolve.sh warns for the analogous TLS-arm
+  # case, and a warning is right there because the build still does what it says
+  # with the wrong arm. Here the deliverable IS the thing being skipped, so a
+  # warning scrolls past and the operator debugs against symbols that were never
+  # built.
+  _mf_lvlfile="$PREFIX/.debug-level"
+  _mf_prev=""
+  [ -f "$_mf_lvlfile" ] && _mf_prev=$(cat "$_mf_lvlfile" 2>/dev/null)
+  if [ "$_mf_prev" != "$MF_DEBUG_LEVEL" ] && [ -d "$PREFIX/.stamps" ] &&
+     [ -n "$(ls -A "$PREFIX/.stamps" 2>/dev/null)" ]; then
+    warn "This workspace was built at debug level '${_mf_prev:-none}'; you asked for '${MF_DEBUG_LEVEL:-none}'."
+    warn "Build stamps record only name and version, so the already-built recipes"
+    warn "would NOT be rebuilt and the result would mix the two levels silently."
+    warn "Rebuild them with either:"
+    warn "    ./mediaforge.sh clean"
+    warn "    rm -rf $PREFIX/.stamps"
+    die "refusing to produce a mixed-level workspace"
+  fi
+  # Not written on a dry run. A dry run must leave the workspace exactly as it
+  # found it -- the same reason $PREFIX/.mediaforge-choices is skipped there --
+  # and recording a level for a build that never happened would make the next
+  # real build believe the workspace already matches.
+  if [ "${DRY_RUN:-false}" != true ]; then
+    mkdir -p "$PREFIX"
+    printf '%s' "$MF_DEBUG_LEVEL" > "$_mf_lvlfile"
+  fi
+
   if [ -n "$MF_DEBUG_LEVEL" ]; then
+    # --enable-small wins over the level for FFmpeg ITSELF: its configure picks
+    # optflags in the order small -> optimizations -> noopt, so libav* compiles
+    # at -Os while every dependency honours the level. Said out loud because the
+    # two flags are individually reasonable and the interaction is not visible.
+    if [ "$_enable_small" = true ]; then
+      warn "--enable-small overrides --debug for FFmpeg itself: libav* will build at -Os"
+      warn "(the ~110 dependencies still honour the debug level)"
+    fi
     MF_DEFAULT_OPT=$(mf_debug_opt "$MF_DEBUG_LEVEL")
     _mf_dbg_cflags=$(mf_debug_cflags "$MF_DEBUG_LEVEL")
     MF_OWN_CFLAGS="$MF_OWN_CFLAGS $_mf_dbg_cflags"

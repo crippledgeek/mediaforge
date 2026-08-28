@@ -161,6 +161,93 @@ _wired wired-meson       lib/framework.sh 'mf_debug_meson_args'
 _wired wired-ffmpeg      recipes/ffmpeg.sh 'mf_debug_ffmpeg_opts'
 _wired wired-cflags      mediaforge.sh 'mf_debug_cflags'
 _wired wired-opt         mediaforge.sh 'mf_debug_opt'
+
+# The two greps above prove only that the identifiers OCCUR. The load-bearing
+# fact is ORDER: MF_DEFAULT_OPT is reassigned per level, and mf_export_flags
+# recomposes CFLAGS from it afterwards. Move the debug block below that call and
+# every grep-based assertion still passes while the build ships with no debug -O
+# anywhere. So assert the ordering structurally -- computed, never a line number
+# written into a comment, which tests/comment-citations.sh forbids for good
+# reason.
+_ord_dbg=$(grep -n 'MF_DEFAULT_OPT=.(mf_debug_opt' mediaforge.sh | head -1 | cut -d: -f1)
+_ord_ok=no
+if [ -n "$_ord_dbg" ]; then
+  while IFS= read -r _n; do
+    [ "$_n" -gt "$_ord_dbg" ] && _ord_ok=yes
+  done <<EOF
+$(grep -n 'mf_export_flags' mediaforge.sh | cut -d: -f1)
+EOF
+fi
+if [ "$_ord_ok" = yes ]; then
+  _pass level-applied-before-flags-are-composed
+else
+  _bad level-applied-before-flags-are-composed "no mf_export_flags call follows the debug block"
+fi
+
+# ...and the functional counterpart: drive the real composer the way cmd_build
+# does and read the resulting CFLAGS. This is what a grep cannot say -- that the
+# level's -O and its -g3 both actually arrive.
+# No subshell: every call assigns all six inputs before using them, so there is
+# nothing for one call to leak into the next, and wrapping it in ( ) only earns
+# an SC2030 about a modification that is local by design.
+_composed() { # level -> the CFLAGS a build at that level would export
+  # Guarded on mf_debug_opt, not mf_export_flags: the latter EXISTS on the merge
+  # base (it is this branch's parent's work), so guarding on it let the base run
+  # fall through to an undefined mf_debug_cflags and emit a command-not-found.
+  # The guard has to name something only this branch introduces.
+  command -v mf_debug_opt >/dev/null 2>&1 || { printf ''; return; }
+  MF_OWN_CFLAGS="-I/p/include -fPIC $(mf_debug_cflags "$1")"
+  MF_OWN_CXXFLAGS="$MF_OWN_CFLAGS"
+  MF_OWN_LDFLAGS="-L/p/lib"
+  MF_USER_CFLAGS=""
+  MF_USER_CXXFLAGS=""
+  MF_USER_LDFLAGS=""
+  MF_DEFAULT_OPT=$(mf_debug_opt "$1")
+  mf_export_flags
+  printf '%s' "$CFLAGS"
+}
+for _pair in 'full:-O0' 'balanced:-Og' 'symbols:-O2'; do
+  _lv=${_pair%%:*}; _want=${_pair#*:}
+  _got=$(_composed "$_lv")
+  case "$_got" in
+    *"$_want"*)
+      case "$_got" in
+        *-g3*) _pass "composed-$_lv-has-opt-and-symbols" ;;
+        *)     _bad "composed-$_lv-has-opt-and-symbols" "no -g3 in [$_got]" ;;
+      esac ;;
+    *) _bad "composed-$_lv-has-opt-and-symbols" "no $_want in [$_got]" ;;
+  esac
+done
+
+# The cmake counterpart of the meson _mf_bt_count harness below: drive the real
+# helper and read the build type it emits. wired-cmake is a grep; this asserts
+# the value, including that a recipe's own type still wins when no level is set,
+# which is the branch's load-bearing default-path claim.
+_mf_cmake_bt() { # level -> the -DCMAKE_BUILD_TYPE mf_cmake emits
+  # shellcheck disable=SC2034
+  ( PREFIX=/PFX; PKG_CMAKE_BUILD_TYPE="Release"; MF_DEBUG_LEVEL="$1"
+    # shellcheck disable=SC2329
+    run() { printf '%s\n' "$*"; }
+    . lib/flags.sh 2>/dev/null || exit 0
+    eval "$(sed -n '/^mf_cmake() {/,/^}/p' lib/framework.sh)"
+    mf_cmake . | tr ' ' '\n' | grep -- '-DCMAKE_BUILD_TYPE=' | head -1 ) 2>/dev/null
+}
+for _pair in ':-DCMAKE_BUILD_TYPE=Release' 'symbols:-DCMAKE_BUILD_TYPE=RelWithDebInfo' 'balanced:-DCMAKE_BUILD_TYPE=Debug' 'full:-DCMAKE_BUILD_TYPE=Debug'; do
+  _lv=${_pair%%:*}; _want=${_pair#*:}
+  # Gated like the meson loop: on the merge base mf_cmake exists and knows
+  # nothing of debug levels, so the no-level row -- "a recipe's own Release still
+  # wins" -- is true there too and passes having verified nothing.
+  if ! command -v mf_debug_cmake_type >/dev/null 2>&1; then
+    _bad "cmake-emits-${_lv:-none}" "debug support absent — claim would be vacuous"
+    continue
+  fi
+  _got=$(_mf_cmake_bt "$_lv")
+  if [ "$_got" = "$_want" ]; then
+    _pass "cmake-emits-${_lv:-none}"
+  else
+    _bad "cmake-emits-${_lv:-none}" "got [$_got] want [$_want]"
+  fi
+done
 _wired wired-cli-flag    mediaforge.sh '--debug='
 # LTO discards the per-function debug info that makes stepping work, so the two
 # together yield a slow build with unreliable symbols.
@@ -168,6 +255,13 @@ _wired wired-cli-flag    mediaforge.sh '--debug='
 # global default and exists on the base, so the first version of this assertion
 # passed there and guarded nothing. oracle-baseline caught it.
 _wired wired-lto-conflict mediaforge.sh 'forces LTO off'
+# FFmpeg's configure picks optflags in the order small -> optimizations -> none,
+# so --enable-small silently beats the level for libav* while the ~110
+# dependencies still honour it. Warned about rather than left to be discovered.
+_wired wired-small-conflict mediaforge.sh 'overrides --debug for FFmpeg itself'
+# A dry run must not record a level for a build that never happened, or the next
+# real build believes the workspace already matches and skips the guard.
+_wired wired-dryrun-no-write mediaforge.sh 'DRY_RUN:-false}" != true'
 
 # --- exactly one --buildtype reaches meson ----------------------------------
 # The first wiring passed the recipe's buildtype AND the level's, in that order.

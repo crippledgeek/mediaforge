@@ -42,9 +42,13 @@ MF_DEFAULT_OPT="-O2"
 # The costs below were measured on this tree (lame, dav1d, svtav1 built at each
 # level), not estimated:
 #
-#   symbols   -O2 -g3   assertions off   runtime cost: none measurable
-#   balanced  -Og -g3   assertions ON    ~2x slower
-#   full      -O0 -g3   assertions ON    4-5x slower  (bare --debug)
+#   symbols   -O2 -g3   assertions off   no measurable cost on the three measured
+#   balanced  -Og -g3   assertions ON     ~2x slower
+#   full      -O0 -g3   assertions ON     4-5x slower  (bare --debug)
+#
+# "Measured" means lame, dav1d and svtav1 built at each level and timed on one
+# fixture each -- three packages, not the whole tree, and one machine. Treat the
+# multipliers as the right order of magnitude rather than as a promise.
 #
 # The shape follows the tools we drive rather than an invented vocabulary.
 # FFmpeg's own configure separates --enable-debug=LEVEL from
@@ -58,6 +62,19 @@ MF_DEFAULT_OPT="-O2"
 # a tree as macro-dense as libav*. -fno-omit-frame-pointer so a backtrace is
 # reliable at every level, including `symbols`, where the whole point is getting
 # a usable trace out of an optimized build.
+#
+# -g3 SURVIVES cmake, which is not obvious and was raised in review as a defect.
+# cmake appends CMAKE_<LANG>_FLAGS_<CONFIG> after CMAKE_<LANG>_FLAGS, and both
+# configs this table selects end in a plain -g (Debug = "-g", RelWithDebInfo =
+# "-O2 -g -DNDEBUG"), so the compile line really does read "-g3 ... -g". But a
+# trailing -g does not DOWNGRADE an earlier -g3. Measured on gcc 16.2.1 with a
+# macro-defining probe: `-g3` and `-g3 -g` both keep the macro definitions,
+# while `-g` alone and `-g3 -g0` do not -- so -g0 overrides and plain -g does
+# not. No CMAKE_C_FLAGS_DEBUG override is needed, and adding one would be four
+# extra -D flags on every cmake invocation for no gain.
+#
+# The -O half is the mirror image and also holds: Debug supplies no -O at all,
+# which is what lets this table's -Og/-O0 arrive through CFLAGS and survive.
 
 # THE LEVEL TABLE. One row per level, and every consumer below reads a field
 # from it, so adding a level is adding a row rather than editing five parallel
@@ -73,6 +90,11 @@ MF_DEFAULT_OPT="-O2"
 #   4 meson args     buildtype AND b_ndebug, which meson does not tie together
 #   5 ffmpeg opts    without --disable-stripping the final binary is stripped
 #                    whatever the ~110 libraries did
+#   6 canonical name  the level's own name, empty for the no-level row. Validity
+#                    is derived from THIS rather than from the symbol flags: a
+#                    future strip-only or NDEBUG-only level would legitimately
+#                    contribute none, and tying validity to them would reject it
+#                    silently. One extra column buys that.
 #
 # The no-level row is a real row, not a fallback: it states that an ordinary
 # build keeps -O2, adds no symbols, leaves both build systems to the recipes,
@@ -83,17 +105,17 @@ mf_debug_field() { # level field-number
     symbols)
       set -- '-O2' '-g3 -fno-omit-frame-pointer' 'RelWithDebInfo' \
              '--buildtype=debugoptimized -Db_ndebug=true' \
-             '--enable-debug=3 --disable-stripping' ;;
+             '--enable-debug=3 --disable-stripping' 'symbols' ;;
     balanced)
       set -- '-Og' '-g3 -fno-omit-frame-pointer' 'Debug' \
              '--buildtype=debug --optimization=g -Db_ndebug=false' \
-             '--enable-debug=3 --disable-stripping --disable-optimizations' ;;
+             '--enable-debug=3 --disable-stripping --disable-optimizations' 'balanced' ;;
     full)
       set -- '-O0' '-g3 -fno-omit-frame-pointer' 'Debug' \
              '--buildtype=debug -Db_ndebug=false' \
-             '--enable-debug=3 --disable-stripping --disable-optimizations' ;;
+             '--enable-debug=3 --disable-stripping --disable-optimizations' 'full' ;;
     *)
-      set -- '-O2' '' '' '' '--disable-debug' ;;
+      set -- '-O2' '' '' '' '--disable-debug' '' ;;
   esac
   shift $((_mf_dbg_f - 1))
   printf '%s' "$1"
@@ -106,12 +128,18 @@ mf_debug_cflags()      { mf_debug_field "$1" 2; }
 mf_debug_cmake_type()  { mf_debug_field "$1" 3; }
 mf_debug_meson_args()  { mf_debug_field "$1" 4; }
 mf_debug_ffmpeg_opts() { mf_debug_field "$1" 5; }
+mf_debug_name()        { mf_debug_field "$1" 6; }
 
-# Validity is DERIVED from the table rather than being a sixth list to keep in
-# step: a level is real exactly when it contributes symbol flags. An unknown
-# level and the no-level case both fall to the last row, whose field 2 is empty,
-# so both are correctly rejected -- bare --debug sets "full", never "".
-mf_debug_level_valid() { [ -n "$(mf_debug_cflags "$1")" ]; }
+# Validity is DERIVED from the table rather than being a separate list to keep
+# in step: a level is real exactly when the table echoes its own name back. An
+# unknown level and the no-level case both fall to the last row, whose name is
+# empty, so neither can equal a non-empty input -- bare --debug sets "full",
+# never "".
+#
+# Keyed on the NAME rather than on the symbol flags, which is what the first
+# version did. That worked only because every level today happens to contribute
+# -g3; a strip-only level would have been rejected as unreal.
+mf_debug_level_valid() { [ -n "$1" ] && [ "$(mf_debug_name "$1")" = "$1" ]; }
 
 # True when $1 already contains an -O flag of any spelling: -O, -O0..-O3, -Os,
 # -Og, -Ofast.

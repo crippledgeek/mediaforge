@@ -159,11 +159,17 @@ Install/uninstall options:
 information. Three levels, with costs measured on this tree (lame, dav1d and
 SVT-AV1 built at each):
 
-| Level | Optimization | Assertions | Runtime cost | Disk |
+| Level | Optimization | Assertions | Runtime cost | Archive size |
 |---|---|---|---|---|
 | `symbols` | `-O2 -g3` | off | none measurable | ~2x |
 | `balanced` | `-Og -g3` | **on** | ~2x slower | ~2x |
 | `full` (bare `--debug`) | `-O0 -g3` | **on** | 4-5x slower | ~3x |
+
+Those figures come from building three packages — lame, dav1d and SVT-AV1 — at
+each level on one machine and timing one fixture each. Treat them as the right
+order of magnitude, not a promise. "Archive size" is the multiple applied to the
+static `.a` files; the final `ffmpeg` binary grows more, since it links all of
+them.
 
 `symbols` is what distributions ship as debuginfo: identical performance, but a
 crash gives a real backtrace with file and line. It is also the only level that
@@ -182,6 +188,19 @@ that last one the final binary is stripped whatever the ~110 libraries did.
 
 `--debug` forces LTO off and says so: LTO discards the per-function debug info
 that makes stepping work.
+
+**A workspace remembers the level it was built at.** Build stamps record only a
+recipe's name and version, so nothing about a build's *flags* is captured — a
+release build followed by `--debug` would rebuild nothing but FFmpeg and produce
+a debug binary linked against stripped, optimized archives, which compiles,
+links and runs while every library's stack traces are wrong. mediaforge refuses
+that instead: change the level on a populated workspace and it stops, telling
+you to `./mediaforge.sh clean` (or remove `workspace/.stamps`) first.
+
+**`--enable-small` overrides the level for FFmpeg itself.** FFmpeg's configure
+picks its optimization in the order small → optimizations → none, so `libav*`
+compiles at `-Os` while the ~110 dependencies still honour the debug level.
+mediaforge warns when both are given.
 
 ### Examples
 

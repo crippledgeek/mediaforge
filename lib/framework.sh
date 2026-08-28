@@ -59,8 +59,19 @@ mf_meson() {
   _mf_builddir="$1"
   shift
   # A debug level replaces the buildtype AND names b_ndebug explicitly, because
-  # meson does not tie NDEBUG to buildtype the way cmake does. Its arguments are
-  # passed as a list, so they land after the defaults below and win.
+  # meson does not tie NDEBUG to buildtype the way cmake does.
+  #
+  # Precisely: the level's arguments land after THIS HELPER's defaults, not after
+  # the recipe's own "$@". No recipe passes buildtype or b_ndebug today (none in
+  # recipes/ does, and tests/meson-single-entry.sh forbids it), so the ordering
+  # is not reachable -- but the guarantee is "the level beats the helper", not
+  # "the level beats everything".
+  #
+  # The unquoted expansion below is deliberate word-splitting, and it is safe
+  # here for a reason the linter cannot see: $_mf_dbg is never operator input.
+  # It is one of exactly three fixed strings from the table in lib/flags.sh,
+  # selected by a level that mediaforge.sh has already validated -- so there is
+  # no value it can hold that contains a glob or an unexpected word.
   #
   # The level supplies its OWN --buildtype, so the recipe's is omitted entirely
   # rather than passed first and overridden. meson does accept the flag twice
