@@ -13,7 +13,17 @@ pkg_configure() {
     export CFLAGS="-arch arm64"
   fi
   rm -rf build && mkdir -p build
-  mf_meson build
+  # FFmpeg links libdav1d.a; it never invokes dav1d's CLI. Building the tools
+  # cost compile time and installed a ~3MB $PREFIX/bin/dav1d that nothing in
+  # this project or downstream of it uses.
+  #
+  # It also breaks any build below -O2. The tools include the SYSTEM
+  # /usr/include/xxhash.h, whose XXH3_*_sse2 helpers are __attribute__
+  # ((always_inline)); at -Og gcc declines to inline them and hard-errors
+  # ("inlining failed in call to always_inline"). Measured: the library alone
+  # configures and builds clean at -Og once the tools are off. Leaving them on
+  # would make dav1d the one recipe that cannot be built for debugging.
+  mf_meson build -Denable_tools=false -Denable_tests=false
   if [ "$OS_MACOS_ARM" = true ]; then
     export CFLAGS="$_cflagsbackup"
   fi

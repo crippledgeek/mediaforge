@@ -44,6 +44,11 @@ sh tests/cmake-single-entry.sh
 # them in lv2 alone. Grep-based, so it also covers the sites inside stamp_check
 # guards that a behaviour diff cannot reach.
 sh tests/meson-single-entry.sh
+# Pins dav1d as library-only. FFmpeg links libdav1d.a and never runs the CLI,
+# and dav1d's tools include the system xxhash.h, whose always_inline helpers
+# make the recipe unbuildable below -O2 -- so the setting is what keeps dav1d
+# debuggable, not merely smaller.
+sh tests/dav1d-library-only.sh
 # Pins .githooks/pre-push, which runs tests/shellcheck.sh -- and only that -- at
 # push time. Asserts it forwards the gate's verdict both ways, demands a real
 # linter rather than sh -n alone, and lets a branch deletion through. A hook that
