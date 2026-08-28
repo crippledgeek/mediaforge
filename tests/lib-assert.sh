@@ -27,6 +27,8 @@
 # A third spelling (`FAIL: <sentence>` on stdout, with no assertion name) was
 # converged over two changes -- #45 took tests/hash-comment-grammar.sh, #46 the
 # last six -- which is why no file outside this one defines the pair any more.
+# #48 then took the twelve that defined nothing and inlined the printf at each
+# call site instead, which no definition-grep could see.
 # `grep -rnE '_pass\(\)|_bad\(\)' tests/` is the check -- ERE, because `\|`
 # alternation is a GNU extension a BSD grep silently matches nothing with, and
 # unanchored, so an indented redefinition inside a function or a file that
@@ -40,6 +42,22 @@
 # FAIL goes to stderr and PASS to stdout, so a caller can read the failures
 # alone. oracle-baseline captures both (`sh "$_f" 2>&1`), so the split does not
 # hide an assertion from it.
+# Evidence for a failure detail: at most $1 lines of the log on stdin matching
+# the ERE $2, falling back to the LAST $1 lines when nothing matches, so a
+# detail is never empty and never unbounded. Both failures were real. A grep for
+# 'monoton|error' finds nothing when an encoder fails some other way, leaving
+# `FAIL [name]` with no diagnosis at all; and an uncapped `cat` of a linker log
+# becomes one flattened multi-kilobyte line, since _bad collapses newlines.
+#
+# `grep -- "$2"` so a pattern beginning with a dash (`\-L`) is read as a pattern
+# rather than as options.
+_evidence() {
+  _ev=$(cat)
+  _ev_hit=$(printf '%s\n' "$_ev" | grep -iE -- "$2" | head -n "$1")
+  [ -n "$_ev_hit" ] || _ev_hit=$(printf '%s\n' "$_ev" | tail -n "$1")
+  printf '%s' "$_ev_hit"
+}
+
 _pass() { printf 'PASS [%s]\n' "$1"; }
 _bad() {
   if [ "$#" -ge 2 ]; then

@@ -59,11 +59,11 @@ mkdir -p "$_repo"
 _OLD=$(git -C "$_repo" rev-parse HEAD~1)
 _NEW=$(git -C "$_repo" rev-parse HEAD)
 
-# shellcheck disable=SC1091
+# shellcheck source=lib/utils.sh
 . lib/utils.sh
-# shellcheck disable=SC1091
+# shellcheck source=lib/framework.sh
 . lib/framework.sh
-# shellcheck disable=SC1091
+# shellcheck source=lib/download.sh
 . lib/download.sh
 
 # -- 1. Characterise the bug: the OLD shape cannot clone a SHA. --------------

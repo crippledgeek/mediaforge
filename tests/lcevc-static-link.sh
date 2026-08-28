@@ -63,6 +63,7 @@ if "$_cxx" "$_probe" $_cflags -o "$_out/probe" $_libs 2>"$_out/err"; then
   _pass single-pass-static-link-resolves
   exit 0
 else
-  _bad single-pass-static-link-resolves "$(cat "$_out/err")"
+  _bad single-pass-static-link-resolves \
+    "$(_evidence 10 'undefined|cannot find|library not found' < "$_out/err")"
   exit 1
 fi

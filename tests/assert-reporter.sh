@@ -14,9 +14,10 @@
 # `grep -c '^FAIL'` to decide whether a newly added file could detect its own
 # change, so the reporters' exact bytes are a gate input, not cosmetics.
 #
-# ONE compound assertion, deliberately. oracle-baseline requires that no
+# ONE compound assertion, deliberately -- it covers the reporters (probes 1-6)
+# and the _evidence helper they share (probes 7-9). oracle-baseline requires that no
 # assertion in a newly added file passes on the merge base, and five of the six
-# numbered probes below held there already — only the no-detail form's output
+# reporter probes below held there already — only the no-detail form's output
 # had a trailing space. Asserting them separately would put five free passes on
 # the base and the gate would correctly reject the file, so the whole contract
 # is asserted together with the one the base gets wrong carrying it. That is
@@ -112,6 +113,21 @@ printf '%s' "$_fail"
 EOF
 )
 _want 'pass-leaves-fail' "$_got" '0'
+
+# 7. _evidence yields at most N matching lines...
+_got=$(printf 'a\nERROR one\nb\nERROR two\nc\n' | _evidence 1 'error')
+_want 'evidence-matches-and-caps' "$_got" 'ERROR one'
+
+# 8. ...falls back to the LAST N lines when nothing matches, so a detail is
+#    never empty...
+_got=$(printf 'a\nb\nc\n' | _evidence 2 'nothing-here')
+_want 'evidence-falls-back-to-tail' "$_got" 'b
+c'
+
+# 9. ...and accepts a pattern beginning with a dash, which grep would otherwise
+#    read as an option.
+_got=$(printf 'x\n-L/nope\n' | _evidence 1 '\-L')
+_want 'evidence-accepts-dash-pattern' "$_got" '-L/nope'
 
 if [ -z "$_wrong" ]; then
   _pass reporter-output-contract-holds

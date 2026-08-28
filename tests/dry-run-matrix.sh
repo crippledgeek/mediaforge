@@ -105,9 +105,9 @@ _run h265-kvazaar-disables-x265 "Skipping x265 (disabled via CLI)" \
   ./mediaforge.sh build --h265=kvazaar
 
 # AV1-enc mutex
-_run av1-rav1e-disables-svtav1 "Skipping svtav1 (disabled via CLI)" \
+_run av1-enc-rav1e-disables-svtav1 "Skipping svtav1 (disabled via CLI)" \
   ./mediaforge.sh build --av1-enc=rav1e
-_run av1-rav1e-disables-libaom "Skipping av1 (disabled via CLI)" \
+_run av1-enc-rav1e-disables-libaom "Skipping av1 (disabled via CLI)" \
   ./mediaforge.sh build --av1-enc=rav1e
 
 # SPIR-V compiler mutex (glslang vs shaderc — interchangeable, FFmpeg forbids both)
@@ -184,11 +184,12 @@ _run_no dvdnav-off-for-6.1  "--enable-libdvdnav"  ./mediaforge.sh build --enable
 # In dry-run mbedtls isn't actually built, so $PREFIX/lib/libmbedcrypto.a never
 # exists → libssh logs the skip in BOTH the default and --tls=mbedtls cases.
 # The skip-log assertion is the meaningful one; --enable-libssh can't appear
-# without a real mbedtls build. The --tls=mbedtls case just confirms acceptance.
+# without a real mbedtls build. There is no --tls=mbedtls row here: it would be
+# byte-identical to tls-mbedtls-is-logged above, and naming that duplicate for
+# libssh would claim an observation the row does not make.
 _run rabbitmq-on-by-default        "--enable-librabbitmq" ./mediaforge.sh build
 _run libssh-skipped-without-mbedtls "Skipping libssh"      ./mediaforge.sh build
 _run_no default-build-emits-no-libssh-flag "--enable-libssh" ./mediaforge.sh build
-_run libssh-selectable-with-mbedtls "tls=mbedtls" ./mediaforge.sh build --tls=mbedtls
 
 # --dry-run must not fetch, extract, build or install FFmpeg.
 # recipes/ffmpeg.sh is sourced directly by cmd_build rather than through

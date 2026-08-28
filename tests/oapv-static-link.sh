@@ -37,10 +37,11 @@ fi
 
 # 2) No .pc emits a lib/oapv subdir -L.
 if grep -rn -- '/oapv ' "$_pcdir/oapv.pc" "$_pcdir/libavcodec.pc" 2>/dev/null | grep -q -- '-L'; then
-  _bad no-pc-emits-an-oapv-subdir-l \
-    "$(grep -rn -- '-L[^ ]*/oapv' "$_pcdir/oapv.pc" "$_pcdir/libavcodec.pc" 2>/dev/null)"
+  _bad no-pc-emits-an-oapv-subdir-search-path \
+    "$(grep -rn -- '/oapv ' "$_pcdir/oapv.pc" "$_pcdir/libavcodec.pc" 2>/dev/null \
+        | _evidence 10 '\-L')"
 else
-  _pass no-pc-emits-an-oapv-subdir-l
+  _pass no-pc-emits-an-oapv-subdir-search-path
 fi
 
 # 3) The acceptance: a trivial consumer static-links the whole FFmpeg clean.
@@ -54,7 +55,7 @@ if gcc "$_out/t.c" $(PKG_CONFIG_LIBDIR="$_pcdir" pkg-config --static --cflags --
   _pass downstream-static-links-full-ffmpeg
 else
   _bad downstream-static-links-full-ffmpeg \
-    "$(grep -iE 'library not found|undefined|cannot find' "$_out/err" | head -10)"
+    "$(_evidence 10 'library not found|undefined|cannot find' < "$_out/err")"
 fi
 
 exit "$_fail"

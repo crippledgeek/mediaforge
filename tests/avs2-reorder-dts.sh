@@ -42,7 +42,7 @@ if "$FF" -hide_banner -debug_ts -f lavfi -i "$_src" \
   _pass avs2-bframe-stream-encodes-and-muxes
 else
   _bad avs2-bframe-stream-encodes-and-muxes \
-    "$(grep -iE 'monoton|error' "$_ts" | head -5)"
+    "$(_evidence 5 'monoton|error' < "$_ts")"
   exit 1
 fi
 
@@ -76,7 +76,7 @@ fi
 _dec=$(grep -cE '^[0-9]+,' "$_out/dec.md5")
 if grep -qiE 'error|unsupported' "$_out/dec.err"; then
   _bad libdavs2-round-trip-decodes-every-frame \
-    "decode error: $(grep -iE 'error|unsupported' "$_out/dec.err" | head -5)"
+    "decode error: $(_evidence 5 'error|unsupported' < "$_out/dec.err")"
 elif [ "$_dec" = "$_nframes" ]; then
   _pass libdavs2-round-trip-decodes-every-frame
 else

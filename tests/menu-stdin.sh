@@ -25,7 +25,7 @@ if printf '%s' "$_output" | grep -q "tls=mbedtls"; then
   _pass cli-tls-wins-with-whiptail-masked
 else
   _bad cli-tls-wins-with-whiptail-masked \
-    "did not pick mbedtls: $(printf '%s\n' "$_output" | grep 'Choices:')"
+    "did not pick mbedtls: $(printf '%s\n' "$_output" | _evidence 3 'Choices:')"
 fi
 
 # Confirm that non-interactive (no TTY) invocations apply the conservative default
@@ -34,7 +34,7 @@ if printf '%s' "$_output" | grep -q "tls=gnutls"; then
   _pass non-interactive-default-is-gnutls
 else
   _bad non-interactive-default-is-gnutls \
-    "$(printf '%s\n' "$_output" | grep 'Choices:')"
+    "$(printf '%s\n' "$_output" | _evidence 3 'Choices:')"
 fi
 
 exit "$_fail"
