@@ -7,11 +7,36 @@
 # file is sourced; shellcheck can't see the cross-file consumer.
 
 # Default phase functions
+# The one place cmake is configured. Recipes call this instead of `run cmake`,
+# so the install prefix and the build type are set once rather than at nineteen
+# call sites -- the build type in particular is the knob a debug mode has to
+# turn, and turning it in nineteen recipes is nineteen chances to miss one.
+# tests/cmake-single-entry.sh pins that nothing configures cmake around it.
+#
+# It supplies ONLY what every call site already had: the prefix, plus the build
+# type when the recipe names one via PKG_CMAKE_BUILD_TYPE. BUILD_SHARED_LIBS and
+# ENABLE_SHARED are deliberately NOT supplied here even though most recipes pass
+# them, because several do not, and adding them would silently change those
+# builds. Likewise a recipe that names no build type still gets none: ten
+# currently do that, and defaulting them to Release would move them from the -O2
+# they inherit through CFLAGS to -O3 -DNDEBUG. This extraction is a refactor,
+# and a behaviour change riding inside one is what nobody reviews for.
+#
+# Every other argument passes through untouched, which is why the differing
+# source-dir spellings (`.`, `-S . -B build`, `../../../source`) all still work.
+mf_cmake() {
+  if [ -n "${PKG_CMAKE_BUILD_TYPE:-}" ]; then
+    run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+      -DCMAKE_BUILD_TYPE="$PKG_CMAKE_BUILD_TYPE" "$@"
+  else
+    run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" "$@"
+  fi
+}
+
 default_configure() {
   if [ "$PKG_CMAKE" = true ]; then
     # shellcheck disable=SC2086
-    run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-      -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF \
+    mf_cmake -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF \
       $PKG_CMAKE_FLAGS .
   else
     # shellcheck disable=SC2086
@@ -58,6 +83,10 @@ reset_recipe() {
   PKG_CONFIGURE_FLAGS=""
   PKG_CMAKE=false
   PKG_CMAKE_FLAGS=""
+  # Empty means "supply no build type", which is what the recipes that never
+  # set one already do. Reset per recipe like every other PKG_*, so one recipe's
+  # Release cannot leak into the next recipe's build.
+  PKG_CMAKE_BUILD_TYPE=""
   PKG_GITHUB_REPO=""
   # Recipe-declared install intent. If true, the recipe's pkgconfig files
   # listed in PKG_PC_FILES (space-separated, without .pc suffix) are queued

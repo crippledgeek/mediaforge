@@ -17,7 +17,7 @@ else
 fi
 
 pkg_configure() {
-  run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" -B build/
+  mf_cmake -B build/
 }
 
 pkg_build() {

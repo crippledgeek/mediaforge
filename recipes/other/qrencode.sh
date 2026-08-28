@@ -17,8 +17,8 @@ fi
 
 # Static library only; no tools, no tests. PNG is only used by the qrenc tool,
 # so disable it to keep the library link minimal. Installs libqrencode.pc.
+PKG_CMAKE_BUILD_TYPE="Release"
 PKG_CMAKE_FLAGS="\
-  -DCMAKE_BUILD_TYPE=Release \
   -DWITH_TOOLS=NO \
   -DWITH_TESTS=NO \
   -DWITHOUT_PNG=YES"

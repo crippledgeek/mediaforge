@@ -35,6 +35,11 @@ sh tests/checksum-verification.sh
 # two of them already stale.
 sh tests/comment-citations.sh
 sh tests/recipe-identity.sh
+# Pins that cmake is CONFIGURED in one place (mf_cmake) and the build type has
+# one spelling. Nineteen hand-written `run cmake` lines agreed only by accident,
+# and the build type is the knob a debug mode has to turn -- a recipe that keeps
+# its own spelling stays Release while the rest move, and still links.
+sh tests/cmake-single-entry.sh
 # Pins .githooks/pre-push, which runs tests/shellcheck.sh -- and only that -- at
 # push time. Asserts it forwards the gate's verdict both ways, demands a real
 # linter rather than sh -n alone, and lets a branch deletion through. A hook that

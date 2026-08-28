@@ -18,8 +18,8 @@ fi
 # Static library only; no apps, no shared lib, no tests. openapv supports
 # in-source builds (no CMAKE_BINARY_DIR guard), so the framework default
 # `cmake ... .` is fine.
+PKG_CMAKE_BUILD_TYPE="Release"
 PKG_CMAKE_FLAGS="\
-  -DCMAKE_BUILD_TYPE=Release \
   -DOAPV_BUILD_APPS=OFF \
   -DOAPV_BUILD_SHARED_LIB=OFF \
   -DOAPV_BUILD_STATIC_LIB=ON \

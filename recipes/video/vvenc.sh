@@ -23,8 +23,9 @@ fi
 pkg_configure() {
   _lto=OFF
   [ "$ENABLE_LTO" = true ] && _lto=ON
-  run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" -DBUILD_SHARED_LIBS=OFF \
-    -DVVENC_LIBRARY_ONLY=ON -DCMAKE_BUILD_TYPE=Release \
+  PKG_CMAKE_BUILD_TYPE=Release
+  mf_cmake -DBUILD_SHARED_LIBS=OFF \
+    -DVVENC_LIBRARY_ONLY=ON \
     -DVVENC_ENABLE_LINK_TIME_OPT="$_lto" .
 }
 

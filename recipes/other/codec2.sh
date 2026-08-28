@@ -16,9 +16,10 @@ pkg_prepare() {
 
 pkg_configure() {
   rm -rf build && mkdir -p build
-  run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+  PKG_CMAKE_BUILD_TYPE=Release
+  mf_cmake \
     -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF \
-    -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DUNITTEST=OFF \
+    -DBUILD_TESTING=OFF -DUNITTEST=OFF \
     -B build .
 }
 

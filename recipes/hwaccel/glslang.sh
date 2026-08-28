@@ -14,6 +14,7 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  run cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_SHARED=OFF \
-    -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="$PREFIX" .
+  PKG_CMAKE_BUILD_TYPE=Release
+  mf_cmake -DENABLE_SHARED=OFF \
+    -DBUILD_SHARED_LIBS=OFF .
 }

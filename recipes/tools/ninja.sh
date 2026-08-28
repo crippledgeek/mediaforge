@@ -11,4 +11,5 @@ PKG_GITHUB_REPO="ninja-build/ninja"
 PKG_URL="https://github.com/ninja-build/ninja/archive/refs/tags/${PKG_VERSION}.tar.gz"
 PKG_FILENAME="ninja-${PKG_VERSION}.tar.gz"
 PKG_CMAKE=true
-PKG_CMAKE_FLAGS="-DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF"
+PKG_CMAKE_BUILD_TYPE="Release"
+PKG_CMAKE_FLAGS="-DBUILD_TESTING=OFF"

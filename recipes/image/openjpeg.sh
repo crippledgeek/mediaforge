@@ -7,4 +7,5 @@ PKG_URL="https://github.com/uclouvain/openjpeg/archive/refs/tags/v${PKG_VERSION}
 PKG_FILENAME="openjpeg-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libopenjpeg"
 PKG_CMAKE=true
-PKG_CMAKE_FLAGS="-DCMAKE_BUILD_TYPE=Release -DBUILD_CODEC=OFF"
+PKG_CMAKE_BUILD_TYPE="Release"
+PKG_CMAKE_FLAGS="-DBUILD_CODEC=OFF"

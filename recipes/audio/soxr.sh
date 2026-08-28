@@ -9,7 +9,8 @@ PKG_FFMPEG_OPT="--enable-libsoxr"
 pkg_configure() {
   mkdir build || die "Failed to create soxr build dir"
   cd build || die "Failed to enter soxr build dir"
-  run cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+  PKG_CMAKE_BUILD_TYPE=Release
+  mf_cmake \
     -DBUILD_SHARED_LIBS:bool=off -DWITH_OPENMP:bool=off \
     -DBUILD_TESTS:bool=off -Wno-dev ..
 }

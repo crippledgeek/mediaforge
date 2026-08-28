@@ -48,8 +48,8 @@ pkg_configure() {
   rm -rf "$_src/build"
   mkdir -p "$_src/build"
   cd "$_src/build" || die "Failed to cd to xeve build dir"
-  run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-    -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release ..
+  PKG_CMAKE_BUILD_TYPE=Release
+  mf_cmake -DBUILD_SHARED_LIBS=OFF ..
 }
 
 pkg_build() {

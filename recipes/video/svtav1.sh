@@ -14,9 +14,10 @@ pkg_configure() {
   # --enable-lto when the binary won't outlive the toolchain.
   _lto_flag=OFF
   [ "$ENABLE_LTO" = true ] && _lto_flag=ON
-  run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" -DENABLE_SHARED=off \
+  PKG_CMAKE_BUILD_TYPE=Release
+  mf_cmake -DENABLE_SHARED=off \
     -DBUILD_SHARED_LIBS=OFF -DSVT_AV1_LTO=$_lto_flag \
-    ../.. -G"Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+    ../.. -G"Unix Makefiles"
 }
 
 pkg_post_install() {

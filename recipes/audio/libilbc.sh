@@ -7,4 +7,5 @@ PKG_URL="https://github.com/TimothyGu/libilbc/releases/download/v${PKG_VERSION}/
 PKG_FILENAME="libilbc-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libilbc"
 PKG_CMAKE=true
-PKG_CMAKE_FLAGS="-DCMAKE_BUILD_TYPE=Release"
+PKG_CMAKE_BUILD_TYPE="Release"
+PKG_CMAKE_FLAGS=""

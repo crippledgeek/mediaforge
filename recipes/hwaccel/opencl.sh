@@ -9,7 +9,7 @@ PKG_FFMPEG_OPT="--enable-opencl"
 PKG_LINUX_ONLY=true
 
 pkg_configure() {
-  run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" -B build/
+  mf_cmake -B build/
 }
 
 pkg_build() {
@@ -20,7 +20,7 @@ pkg_install() {
   if stamp_check "opencl-icd-loader" "$PKG_VERSION"; then
     fetch "https://github.com/KhronosGroup/OpenCL-ICD-Loader/archive/refs/tags/v${PKG_VERSION}.tar.gz" \
       "OpenCL-ICD-Loader-${PKG_VERSION}.tar.gz"
-    run cmake -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+    mf_cmake -DCMAKE_PREFIX_PATH="$PREFIX" \
       -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF -B build/
     run cmake --build build --target install
     stamp_write "opencl-icd-loader" "$PKG_VERSION"

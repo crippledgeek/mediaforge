@@ -7,4 +7,5 @@ PKG_URL="https://github.com/hoene/libmysofa/archive/refs/tags/v${PKG_VERSION}.ta
 PKG_FILENAME="libmysofa-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libmysofa"
 PKG_CMAKE=true
-PKG_CMAKE_FLAGS="-DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF"
+PKG_CMAKE_BUILD_TYPE="Release"
+PKG_CMAKE_FLAGS="-DBUILD_TESTS=OFF"

@@ -57,8 +57,8 @@ pkg_configure() {
   # floor (lib/platform.sh) raises the policy floor for sources declaring a lower
   # minimum, so uavs3d configures cleanly. (This is the min-version class the floor
   # covers; x265's explicit cmake_policy(SET ... OLD) needs a patch instead.)
-  run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-    -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release ../..
+  PKG_CMAKE_BUILD_TYPE=Release
+  mf_cmake -DBUILD_SHARED_LIBS=OFF ../..
 }
 
 pkg_build() {
