@@ -41,6 +41,10 @@ fi
 _cflags=$(pkg-config --cflags $PC_MODULES)
 # shellcheck disable=SC2086
 _libs=$(pkg-config --static --libs $PC_MODULES)
+_fail=0
+# shellcheck source=tests/lib-assert.sh
+. "$_here/lib-assert.sh"
+
 _probe="$_here/lcevc-link/link_probe.cpp"
 _cxx=${CXX:-c++}
 _out=$(mktemp -d)
@@ -56,10 +60,9 @@ echo
 # downstream consumer's link and fails iff the circular archives are unmerged.
 # shellcheck disable=SC2086
 if "$_cxx" "$_probe" $_cflags -o "$_out/probe" $_libs 2>"$_out/err"; then
-  echo "PASS: single-pass static link resolved cleanly"
+  _pass single-pass-static-link-resolves
   exit 0
 else
-  echo "FAIL: single-pass static link did not resolve:"
-  sed 's/^/    /' "$_out/err"
+  _bad single-pass-static-link-resolves "$(cat "$_out/err")"
   exit 1
 fi

@@ -66,13 +66,18 @@ while [ "$_i" -lt 50 ]; do
 done
 
 if [ -z "$PORT" ]; then
-  echo 'FAIL (server did not start)'
+  printf 'ERROR: the fixture server did not start\n' >&2
   exit 1
 fi
 
 # Source utils (log/warn/die) and the unit under test (download.sh / fetch).
+# shellcheck source=lib/utils.sh
 . "$ROOT/lib/utils.sh"
+# shellcheck source=lib/download.sh
 . "$ROOT/lib/download.sh"
+_fail=0
+# shellcheck source=tests/lib-assert.sh
+. "$ROOT/tests/lib-assert.sh"
 export DISTDIR
 
 _archive="gmp-6.3.0.tar.xz"
@@ -90,23 +95,23 @@ export PKG_URL PKG_FILENAME PKG_DIRNAME
 ( fetch "http://127.0.0.1:$PORT/$_archive" ) >/dev/null 2>&1
 _rc=$?
 
-_fail=false
-
-# Assertion (a): fetch must have failed (die -> non-zero).
+# Both halves in ONE assertion, as this file has always reported them: (a) fetch
+# failed, and (b) [load-bearing] it cached no error body as the archive. Either
+# alone is satisfiable by the wrong code -- a fetch that fails but still writes
+# the 502 body leaves the next run resolving a poisoned cache hit.
+_wrong=''
 if [ "$_rc" -eq 0 ]; then
-  echo "FAIL: fetch returned 0 on HTTP 502 (expected non-zero die)"
-  _fail=true
+  _wrong="$_wrong fetch returned 0 on HTTP 502 (expected a non-zero die);"
 fi
-
-# Assertion (b) [load-bearing]: no error body cached as the archive.
 if [ -f "$DISTDIR/$_archive" ]; then
-  echo "FAIL: HTTP error body was cached as $_archive ($(wc -c < "$DISTDIR/$_archive") bytes)"
-  _fail=true
+  _wrong="$_wrong the error body was cached as $_archive"
+  _wrong="$_wrong ($(wc -c < "$DISTDIR/$_archive") bytes);"
 fi
 
-if [ "$_fail" = true ]; then
-  exit 1
+if [ -z "$_wrong" ]; then
+  _pass failed-fetch-caches-no-error-body
+else
+  _bad failed-fetch-caches-no-error-body "$_wrong"
 fi
 
-echo 'PASS'
-exit 0
+exit "$_fail"

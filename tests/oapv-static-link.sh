@@ -25,21 +25,22 @@ if ! grep -q -- '-loapv' "$_pcdir/libavcodec.pc"; then
 fi
 
 _fail=0
+# shellcheck source=tests/lib-assert.sh
+. "$_here/lib-assert.sh"
 
 # 1) The archive is installed flat in lib/, not a lib/oapv subdir.
 if [ -f "$PREFIX/lib/liboapv.a" ]; then
-  echo "PASS: liboapv.a present in lib/"
+  _pass liboapv-archive-is-flat-in-lib
 else
-  echo "FAIL: $PREFIX/lib/liboapv.a missing (still in lib/oapv?)"; _fail=1
+  _bad liboapv-archive-is-flat-in-lib "$PREFIX/lib/liboapv.a missing (still in lib/oapv?)"
 fi
 
 # 2) No .pc emits a lib/oapv subdir -L.
 if grep -rn -- '/oapv ' "$_pcdir/oapv.pc" "$_pcdir/libavcodec.pc" 2>/dev/null | grep -q -- '-L'; then
-  echo "FAIL: a .pc still emits a lib/oapv subdir -L:"
-  grep -rn -- '-L[^ ]*/oapv' "$_pcdir/oapv.pc" "$_pcdir/libavcodec.pc" 2>/dev/null | sed 's/^/    /'
-  _fail=1
+  _bad no-pc-emits-an-oapv-subdir-l \
+    "$(grep -rn -- '-L[^ ]*/oapv' "$_pcdir/oapv.pc" "$_pcdir/libavcodec.pc" 2>/dev/null)"
 else
-  echo "PASS: no lib/oapv subdir -L in oapv.pc / libavcodec.pc"
+  _pass no-pc-emits-an-oapv-subdir-l
 fi
 
 # 3) The acceptance: a trivial consumer static-links the whole FFmpeg clean.
@@ -50,11 +51,10 @@ command -v mold >/dev/null 2>&1 && _ld="-fuse-ld=mold"
 # shellcheck disable=SC2046
 if gcc "$_out/t.c" $(PKG_CONFIG_LIBDIR="$_pcdir" pkg-config --static --cflags --libs \
      libavcodec libavformat libavfilter libavdevice libavutil) $_ld -o "$_out/t" 2>"$_out/err"; then
-  echo "PASS: full-FFmpeg static link clean (LINK_OK)${_ld:+ [mold]}"
+  _pass downstream-static-links-full-ffmpeg
 else
-  echo "FAIL: downstream static link failed:"
-  grep -iE 'library not found|undefined|cannot find' "$_out/err" | head -10 | sed 's/^/    /'
-  _fail=1
+  _bad downstream-static-links-full-ffmpeg \
+    "$(grep -iE 'library not found|undefined|cannot find' "$_out/err" | head -10)"
 fi
 
 exit "$_fail"

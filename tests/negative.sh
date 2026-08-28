@@ -5,49 +5,51 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
 _fail=0
+# shellcheck source=tests/lib-assert.sh
+. "$ROOT/tests/lib-assert.sh"
+
+# _run <assertion-name> <expected-text> <command...>: the command must exit
+# non-zero AND say the expected thing. _run_log is the same without the exit
+# requirement, for a build that legitimately succeeds while logging a skip.
 _run() {
-  _desc=$1; shift
+  _name=$1; shift
   _expect=$1; shift
   _output=$("$@" 2>&1) && _rc=0 || _rc=$?
   if [ "$_rc" = "0" ]; then
-    printf 'FAIL [%s]: expected non-zero exit, got 0\n' "$_desc" >&2
-    _fail=1
+    _bad "$_name" "expected a non-zero exit, got 0"
     return
   fi
   if ! printf '%s' "$_output" | grep -q "$_expect"; then
-    printf 'FAIL [%s]: stderr did not contain "%s"\n' "$_desc" "$_expect" >&2
-    printf '  got: %s\n' "$_output" >&2
-    _fail=1
+    _bad "$_name" "output did not contain \"$_expect\"; got: $_output"
     return
   fi
-  printf 'PASS [%s]\n' "$_desc"
+  _pass "$_name"
 }
 
 _run_log() {
-  _desc=$1; shift
+  _name=$1; shift
   _expect=$1; shift
   _output=$("$@" 2>&1) || true
   if ! printf '%s' "$_output" | grep -q "$_expect"; then
-    printf 'FAIL [%s]: output did not contain "%s"\n' "$_desc" "$_expect" >&2
-    _fail=1
+    _bad "$_name" "output did not contain \"$_expect\"; got: $_output"
     return
   fi
-  printf 'PASS [%s]\n' "$_desc"
+  _pass "$_name"
 }
 
-_run "unknown pkg with suggestion" "Did you mean: openssl" \
+_run unknown-pkg-suggests-nearest "Did you mean: openssl" \
   ./mediaforge.sh build --disable=openss --dry-run --yes
 
-_run_log "force-enable does not bypass nonfree guard" "Skipping srt (requires --nonfree)" \
+_run_log force-enable-does-not-bypass-nonfree-guard "Skipping srt (requires --nonfree)" \
   ./mediaforge.sh build --enable=srt --dry-run --yes
 
-_run "--menu --yes is rejected" "mutually exclusive" \
+_run menu-and-yes-are-mutually-exclusive "mutually exclusive" \
   ./mediaforge.sh build --menu --yes
 
-_run "unknown pkg, no suggestion" "Run '.*--list-pkgs'" \
+_run unknown-pkg-without-suggestion-points-at-list-pkgs "Run '.*--list-pkgs'" \
   ./mediaforge.sh build --disable=zzznonexistent --dry-run --yes
 
-_run "--spirv bogus rejected" "Invalid --spirv" \
+_run spirv-bogus-value-rejected "Invalid --spirv" \
   ./mediaforge.sh build --spirv=bogus --dry-run --yes
 
 # Regression: a mutex-disabled recipe that was previously stamped must NOT
@@ -77,10 +79,9 @@ trap 'rm -f "$_stampfile" "$_glslang_stampfile" "$_xavs2_stampfile"' EXIT
 _out=$(./mediaforge.sh build --tls=openssl --dry-run --yes 2>&1) || true
 rm -f "$_stampfile"
 if printf '%s' "$_out" | grep -q 'enable-gnutls'; then
-  printf 'FAIL [stamp-leak]: --enable-gnutls leaked while --tls=openssl\n' >&2
-  _fail=1
+  _bad stamped-tls-loser-flag-suppressed "--enable-gnutls leaked while --tls=openssl"
 else
-  printf 'PASS [stamp-leak: disabled backend flag suppressed]\n'
+  _pass stamped-tls-loser-flag-suppressed
 fi
 
 # glslang stamped + --spirv=shaderc must NOT leak --enable-libglslang. The two
@@ -90,10 +91,9 @@ fi
 _out=$(./mediaforge.sh build --spirv=shaderc --dry-run --yes 2>&1) || true
 rm -f "$_glslang_stampfile"
 if printf '%s' "$_out" | grep -q 'enable-libglslang'; then
-  printf 'FAIL [spirv stamp-leak]: --enable-libglslang leaked while --spirv=shaderc\n' >&2
-  _fail=1
+  _bad stamped-spirv-loser-flag-suppressed "--enable-libglslang leaked while --spirv=shaderc"
 else
-  printf 'PASS [spirv stamp-leak suppressed]\n'
+  _pass stamped-spirv-loser-flag-suppressed
 fi
 
 # Regression: a GPL recipe built in a prior --enable-gpl run (stamp present)
@@ -103,10 +103,9 @@ fi
 _out=$(./mediaforge.sh build --dry-run --yes 2>&1) || true
 rm -f "$_xavs2_stampfile"
 if printf '%s' "$_out" | grep -q 'enable-libxavs2'; then
-  printf 'FAIL [gpl-stamp-leak]: --enable-libxavs2 leaked into a free build\n' >&2
-  _fail=1
+  _bad stamped-gpl-flag-suppressed-in-free-build "--enable-libxavs2 leaked into a free build"
 else
-  printf 'PASS [gpl-stamp-leak: GPL flag suppressed in free build]\n'
+  _pass stamped-gpl-flag-suppressed-in-free-build
 fi
 
 exit "$_fail"

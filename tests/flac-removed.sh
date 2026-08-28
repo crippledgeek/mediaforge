@@ -14,31 +14,30 @@ _root=$(CDPATH='' cd -- "$_here/.." && pwd)
 cd "$_root" || exit 1
 
 _fail=0
+# shellcheck source=tests/lib-assert.sh
+. "$_root/tests/lib-assert.sh"
 
 # 1) No source emits the invalid FFmpeg flag.
 if grep -rn -- '--enable-libflac' recipes/ lib/ mediaforge.sh >/dev/null 2>&1; then
-  echo "FAIL: '--enable-libflac' still referenced in source:"
-  grep -rn -- '--enable-libflac' recipes/ lib/ mediaforge.sh | sed 's/^/    /'
-  _fail=1
+  _bad no-source-emits-enable-libflac \
+    "still referenced: $(grep -rn -- '--enable-libflac' recipes/ lib/ mediaforge.sh)"
 else
-  echo "PASS: no source references --enable-libflac"
+  _pass no-source-emits-enable-libflac
 fi
 
 # 2) The flac recipe is gone.
 if [ -f recipes/audio/flac.sh ]; then
-  echo "FAIL: recipes/audio/flac.sh still present"
-  _fail=1
+  _bad flac-recipe-removed "recipes/audio/flac.sh is still present"
 else
-  echo "PASS: recipes/audio/flac.sh removed"
+  _pass flac-recipe-removed
 fi
 
 # 3) The --flac selector is rejected as an unknown option (fast: dies before build).
 _out=$(./mediaforge.sh build --flac=native 2>&1)
 if printf '%s\n' "$_out" | grep -qi 'unknown option'; then
-  echo "PASS: --flac is rejected as an unknown option"
+  _pass flac-selector-rejected-as-unknown
 else
-  echo "FAIL: --flac was accepted (selector not fully removed)"
-  _fail=1
+  _bad flac-selector-rejected-as-unknown "--flac was accepted; the selector is not fully removed"
 fi
 
 exit "$_fail"

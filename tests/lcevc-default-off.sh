@@ -22,6 +22,8 @@ _root=$(CDPATH='' cd -- "$_here/.." && pwd)
 cd "$_root" || exit 1
 
 _fail=0
+# shellcheck source=tests/lib-assert.sh
+. "$_root/tests/lib-assert.sh"
 
 # Extract the accumulated FFmpeg configure-opts line from a dry-run.
 _configure_line() {
@@ -31,13 +33,12 @@ _configure_line() {
 # 1) default build: flag absent
 _default=$(_configure_line)
 if [ -z "$_default" ]; then
-  echo "FAIL: default dry-run emitted no configure line — cannot assert"
-  _fail=1
+  _bad default-build-omits-lcevc-flag "the dry-run emitted no configure line — cannot assert"
 elif printf '%s\n' "$_default" | grep -q -- '--enable-liblcevc-dec'; then
-  echo "FAIL: default build passed --enable-liblcevc-dec to FFmpeg (should be opt-in)"
-  _fail=1
+  _bad default-build-omits-lcevc-flag \
+    "--enable-liblcevc-dec was passed to FFmpeg; lcevc is opt-in"
 else
-  echo "PASS: default build omits --enable-liblcevc-dec"
+  _pass default-build-omits-lcevc-flag
 fi
 
 # 2) --enable=lcevc: flag present.
@@ -56,13 +57,11 @@ fi
 
 _optin=$(_configure_line --enable=lcevc)
 if [ -z "$_optin" ]; then
-  echo "FAIL: --enable=lcevc dry-run emitted no configure line — cannot assert"
-  _fail=1
+  _bad optin-lcevc-passes-flag "the dry-run emitted no configure line — cannot assert"
 elif printf '%s\n' "$_optin" | grep -q -- '--enable-liblcevc-dec'; then
-  echo "PASS: --enable=lcevc passes --enable-liblcevc-dec to FFmpeg"
+  _pass optin-lcevc-passes-flag
 else
-  echo "FAIL: --enable=lcevc did not pass --enable-liblcevc-dec"
-  _fail=1
+  _bad optin-lcevc-passes-flag "--enable=lcevc did not pass --enable-liblcevc-dec"
 fi
 
 exit "$_fail"

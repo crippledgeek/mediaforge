@@ -55,7 +55,7 @@ mkdir -p "$_repo"
   # Serve arbitrary SHAs over file:// the way a real forge does.
   git config uploadpack.allowAnySHA1InWant true
   git config uploadpack.allowReachableSHA1InWant true
-) || { printf 'FAIL [fixture] could not build fixture repo\n' >&2; exit 1; }
+) || { printf 'ERROR: could not build the fixture repo\n' >&2; exit 1; }
 _OLD=$(git -C "$_repo" rev-parse HEAD~1)
 _NEW=$(git -C "$_repo" rev-parse HEAD)
 

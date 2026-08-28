@@ -4,14 +4,11 @@
 # tests/lib-assert.sh is where every test that uses the shared reporters routes
 # its verdict, and the only file nothing else asserts on: a defect in _pass or
 # _bad does not fail a test, it changes what a passing test PRINTS — and
-# printing is the whole interface. Not the whole suite goes through it: several
-# tests still print PASS/FAIL inline, in spellings oracle-baseline counts
-# identically, and `grep -L lib-assert tests/*.sh` narrows them to a candidate
-# list rather than a count here that would drift -- it returns a superset,
-# since this library, tests/lib-provenance.sh and the two gates appear in it
-# too. Converging those is #48 -- three spellings across twelve files, each
-# call site needing a name invented for it -- not this file's job; being
-# correct about the ones that DO route through it is.
+# printing is the whole interface. Every test in the suite routes through it
+# now (#48 converged the last twelve, which printed PASS/FAIL inline in three
+# further spellings); `grep -L lib-assert tests/*.sh` returns only this
+# library, tests/lib-provenance.sh, and the two gates that format their own
+# output.
 #
 # tests/oracle-baseline.sh reads that output with `grep -c '^PASS'` and
 # `grep -c '^FAIL'` to decide whether a newly added file could detect its own
