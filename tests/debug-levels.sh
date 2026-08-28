@@ -40,25 +40,13 @@ _d() {
     _bad "$1" "$2 produced nothing — claim would be vacuous"
     return
   fi
-  # shellcheck disable=SC2254
-  case "$_out" in
-    $4) _pass "$1" ;;
-    *)  _bad "$1" "$2($3) = [$_out]" ;;
-  esac
+  _glob "$1" "$_out" "$4" "$2($3)"
 }
 
 # name  fn  level  glob-that-must-NOT-match
 _d_not() {
   if _have "$2"; then _out=$("$2" "$3"); else _out=''; fi
-  if [ -z "$_out" ]; then
-    _bad "$1" "$2 produced nothing — negative claim would be vacuous"
-    return
-  fi
-  # shellcheck disable=SC2254
-  case "$_out" in
-    $4) _bad "$1" "$2($3) = [$_out]" ;;
-    *)  _pass "$1" ;;
-  esac
+  _glob_not "$1" "$_out" "$4" "$2($3)"
 }
 
 # --- the optimization axis --------------------------------------------------
@@ -223,14 +211,34 @@ done
 # helper and read the build type it emits. wired-cmake is a grep; this asserts
 # the value, including that a recipe's own type still wins when no level is set,
 # which is the branch's load-bearing default-path claim.
-_mf_cmake_bt() { # level -> the -DCMAKE_BUILD_TYPE mf_cmake emits
+# ONE harness for "what command line does framework helper X emit at level Y".
+# There were two, written by copying: same subshell, same run() stub, same
+# eval-the-function-body mechanism, same pair of suppressions, differing only in
+# which helper they loaded and how they filtered the output. They had already
+# drifted -- the cmake copy sourced lib/flags.sh and the meson copy did not,
+# working only because this file sources it at the top. Converged so the
+# mechanism has one definition and cannot drift again.
+#
+# The variables and run() below have no reader the linter can see: their consumer
+# is the helper body eval'd two lines down, and shellcheck does not follow eval.
+# They ARE read -- that is the entire mechanism -- so the finding is wrong here
+# rather than tolerated.
+_emitted() { # helper-name  level  [args-to-the-helper...]
+  _em_fn="$1"; _em_lvl="$2"; shift 2
   # shellcheck disable=SC2034
-  ( PREFIX=/PFX; PKG_CMAKE_BUILD_TYPE="Release"; MF_DEBUG_LEVEL="$1"
+  ( PREFIX=/PFX; PKG_CMAKE_BUILD_TYPE="Release"; PKG_MESON_BUILDTYPE=""
+    MF_DEBUG_LEVEL="$_em_lvl"
     # shellcheck disable=SC2329
-    run() { printf '%s\n' "$*"; }
+    run() { printf '%s
+' "$*"; }
     . lib/flags.sh 2>/dev/null || exit 0
-    eval "$(sed -n '/^mf_cmake() {/,/^}/p' lib/framework.sh)"
-    mf_cmake . | tr ' ' '\n' | grep -- '-DCMAKE_BUILD_TYPE=' | head -1 ) 2>/dev/null
+    eval "$(sed -n "/^$_em_fn() {/,/^}/p" lib/framework.sh)"
+    "$_em_fn" "$@" ) 2>/dev/null
+}
+
+_mf_cmake_bt() { # level -> the -DCMAKE_BUILD_TYPE mf_cmake emits
+  _emitted mf_cmake "$1" . | tr ' ' '
+' | grep -- '-DCMAKE_BUILD_TYPE=' | head -1
 }
 for _pair in ':-DCMAKE_BUILD_TYPE=Release' 'symbols:-DCMAKE_BUILD_TYPE=RelWithDebInfo' 'balanced:-DCMAKE_BUILD_TYPE=Debug' 'full:-DCMAKE_BUILD_TYPE=Debug'; do
   _lv=${_pair%%:*}; _want=${_pair#*:}
@@ -269,16 +277,8 @@ _wired wired-dryrun-no-write mediaforge.sh 'DRY_RUN:-false}" != true'
 # makes it worth pinning: nothing would have failed, and the build log would
 # have read `--buildtype=release --buildtype=debug` forever.
 _mf_bt_count() { # level -> how many --buildtype the helper emits
-  # The three variables and run() below have no reader that the linter can see:
-  # their consumer is the mf_meson body eval'd on the next line, and shellcheck
-  # does not follow eval. They are read -- that is the entire mechanism of this
-  # check -- so the finding is wrong for this code rather than tolerated.
-  # shellcheck disable=SC2034
-  ( PREFIX=/PFX; PKG_MESON_BUILDTYPE=""; MF_DEBUG_LEVEL="$1"
-    # shellcheck disable=SC2329
-    run() { printf '%s\n' "$*"; }
-    eval "$(sed -n '/^mf_meson() {/,/^}/p' lib/framework.sh)"
-    mf_meson build 2>/dev/null | tr ' ' '\n' | grep -c -- '--buildtype=' ) 2>/dev/null || printf '0'
+  _emitted mf_meson "$1" build | tr ' ' '
+' | grep -c -- '--buildtype=' || printf '0'
 }
 for _lvl in '' symbols balanced full; do
   # On the merge base mf_meson exists but knows nothing of debug levels, so it

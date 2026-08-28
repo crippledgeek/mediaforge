@@ -133,7 +133,17 @@ fi
 # leave it out and the test aborts on a missing include, having asserted
 # nothing, which the gate would report as an empty baseline rather than as the
 # missing helper it is. So the branch's test helpers travel with it.
-for _lib in $_libs; do
+#
+# MODIFIED helpers travel too, not just added ones. $_libs comes from the same
+# --diff-filter=A computation as $_files, so a shared helper that this branch
+# EXTENDED -- rather than created -- was left behind, and an added test using the
+# new helper aborted on the base with "command not found". The gate then reported
+# a missing DONE sentinel, which reads as "this test cannot run" when the truth
+# is "this gate did not ship it the helper". The paragraph above already gives
+# the reason and it applies identically: a helper is not the subject under test,
+# it is the scaffolding the subject needs to make its claim.
+_libs_mod=$(git diff --name-only "$_base" -- 'tests/lib-*.sh' 2>/dev/null || true)
+for _lib in $_libs $_libs_mod; do
   [ -f "$_lib" ] || continue
   cp "$_lib" "$_tmp/$_lib"
 done
