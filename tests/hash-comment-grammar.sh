@@ -43,13 +43,17 @@
 #     skips the very line it was asked for and returns nothing. A parser holding
 #     its own literal still finds it.
 #
-# Repoint rather than widen: a genuine widening wants alternation, and the
-# constant has to serve `sed` in tests/lib-provenance.sh as well as awk, so it
-# must stay in the subset BRE and ERE share -- `(#|sha256)` is ERE only. The
-# consequence to know is that under probe 2 the comment lines are not treated as
-# comments either; the probe holds because neither has three fields. A
-# three-field comment added to the fixture would break probe 2 for a reason
-# unrelated to what it pins.
+# Repoint rather than widen, and not for want of a portable widening:
+# `^[[:space:]]*[#s]` is a strict superset, identical in BRE and ERE, and would
+# be observable. It is rejected because it swallows the `size` record too, so the
+# probe would stop isolating the line under test. Repointing mutes exactly one
+# record, which is the assertion.
+#
+# The consequence to know is that under probe 2 the comment lines are not treated
+# as comments either; the probe holds because a comment's first field is `#`, so
+# `$1 == key` can never fire on one whatever its field count. What WOULD break
+# probe 2 is a second three-field record for the same (filename, keyword) pair,
+# which the override does not mute -- not a comment of any shape.
 #
 # Narrowing is not observable in hash_lookup (neither comment line has three
 # fields, so it matches no lookup either way) and repointing is not observable in

@@ -107,7 +107,11 @@ IFS=$_oldifs
 if [ "$_n" -eq 0 ]; then
   _pass no-in-tree-line-number-citations
 else
-  _bad no-in-tree-line-number-citations "$_n comment(s) cite an in-tree file by line number; cite the function or symbol instead:$_offenders"
+  # The offender list prints separately rather than as the _bad detail: the
+  # shared reporter flattens newlines (see tests/lib-assert.sh), which is right
+  # for a one-line message and would run this list into a single unreadable line.
+  _bad no-in-tree-line-number-citations "$_n comment(s) cite an in-tree file by line number; cite the function or symbol instead"
+  printf '%s\n' "$_offenders" >&2
 fi
 
 printf 'DONE:\n'
