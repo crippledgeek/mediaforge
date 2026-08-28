@@ -127,7 +127,10 @@ c'
 # 9. ...and accepts a pattern beginning with a dash. Without the `--` in
 #    _evidence, `grep -iE "-L"` reads -L as --files-without-match and prints
 #    "(standard input)" instead of the matching line -- measured, not assumed.
-_got=$(printf 'x\n-L/nope\n' | _evidence 1 '-L')
+# The trailing line matters: without it the tail fallback returns -L/nope too,
+# and the probe passes whether or not the guard is there -- measured, and the
+# first draft of this probe had exactly that hole.
+_got=$(printf 'x\n-L/nope\nlast\n' | _evidence 1 '-L')
 _want 'evidence-accepts-dash-pattern' "$_got" '-L/nope'
 
 if [ -z "$_wrong" ]; then
