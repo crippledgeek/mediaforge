@@ -88,11 +88,14 @@ _log=$(_run_install "$_s" "$_d") || true
 # EVERYTHING would satisfy the first two, so the binary — a legitimate
 # destination reached before the symlinked class — must still have been placed.
 if [ -f "$_out/libmediaforge-probe.a" ]; then
-  _bad symlinked-lib-refused-others-install "a static lib was written THROUGH the symlink at lib/ to $_out"
+  _bad symlinked-lib-refused-others-install \
+    "a static lib was written THROUGH the symlink at lib/ to $_out"
 elif ! printf '%s' "$_log" | grep -q 'Refusing a privileged write'; then
-  _bad symlinked-lib-refused-others-install "the symlinked lib/ was not refused: $(printf '%s' "$_log" | tail -2)"
+  _bad symlinked-lib-refused-others-install \
+    "the symlinked lib/ was not refused: $(printf '%s' "$_log" | tail -2)"
 elif [ ! -f "$_d/bin/ffmpeg" ] || [ "$(cat "$_d/bin/ffmpeg" 2>/dev/null)" != "FFMPEG-BINARY" ]; then
-  _bad symlinked-lib-refused-others-install "the guard also blocked a legitimate destination — no bin/ffmpeg in $_d"
+  _bad symlinked-lib-refused-others-install \
+    "the guard also blocked a legitimate destination — no bin/ffmpeg in $_d"
 else
   _pass symlinked-lib-refused-others-install
 fi
@@ -115,11 +118,14 @@ ln -s "$_out" "$_d/include"
 _log=$(_run_install "$_s" "$_d") || true
 
 if [ -f "$_out/mediaforge-probe.h" ]; then
-  _bad symlinked-include-refusal-ends-install "a header was written THROUGH the symlink at include/ to $_out"
+  _bad symlinked-include-refusal-ends-install \
+    "a header was written THROUGH the symlink at include/ to $_out"
 elif ! printf '%s' "$_log" | grep -q 'Refusing a privileged write'; then
-  _bad symlinked-include-refusal-ends-install "the symlinked include/ was not refused: $(printf '%s' "$_log" | tail -2)"
+  _bad symlinked-include-refusal-ends-install \
+    "the symlinked include/ was not refused: $(printf '%s' "$_log" | tail -2)"
 elif [ -f "$_d/.mediaforge-manifest" ]; then
-  _bad symlinked-include-refusal-ends-install "the refusal did not end the run — a manifest was finalized and success reported"
+  _bad symlinked-include-refusal-ends-install \
+    "the refusal did not end the run — a manifest was finalized and success reported"
 else
   _pass symlinked-include-refusal-ends-install
 fi
@@ -148,11 +154,14 @@ _run_install "$_s" "$_d" >/dev/null 2>&1 || true
 # Both halves: an untouched sentinel is trivially true of an install that wrote
 # nothing at all, so the manifest must also have been written as a real file.
 if [ "$(cat "$_sentinel" 2>/dev/null)" != "SENTINEL-MUST-SURVIVE" ]; then
-  _bad symlinked-manifest-path-replaced "written THROUGH the symlink — sentinel now: $(cat "$_sentinel" 2>/dev/null)"
+  _bad symlinked-manifest-path-replaced \
+    "written THROUGH the symlink — sentinel now: $(cat "$_sentinel" 2>/dev/null)"
 elif [ -L "$_d/.mediaforge-manifest" ]; then
-  _bad symlinked-manifest-path-replaced "the path is still a symlink — nothing was written, so the sentinel proves nothing"
+  _bad symlinked-manifest-path-replaced \
+    "the path is still a symlink — nothing was written, so the sentinel proves nothing"
 elif ! grep -q '^bin/ffmpeg$' "$_d/.mediaforge-manifest" 2>/dev/null; then
-  _bad symlinked-manifest-path-replaced "no real manifest at $_d/.mediaforge-manifest listing the installed files"
+  _bad symlinked-manifest-path-replaced \
+    "no real manifest at $_d/.mediaforge-manifest listing the installed files"
 else
   _pass symlinked-manifest-path-replaced
 fi
@@ -188,7 +197,8 @@ else
   elif printf '%s' "$_log" | tr '\n' ' ' | grep -q 'Installed .* files'; then
     _bad failed-manifest-write-aborts "a failed manifest write was reported as a successful install"
   else
-    _bad failed-manifest-write-aborts "neither aborted nor reported: $(printf '%s' "$_log" | tail -2)"
+    _bad failed-manifest-write-aborts \
+      "neither aborted nor reported: $(printf '%s' "$_log" | tail -2)"
   fi
   rm -rf "$_s" "$_d"
 fi
@@ -236,12 +246,15 @@ if awk '/^_needs_priv\(\)/,/^}/' lib/install.sh | grep -q '_resolve_existing'; t
   elif [ "$_np_answer" = "NEEDS-PRIV" ]; then
     _pass shared-ancestor-walk-escalates-on-unenterable
   else
-    _bad shared-ancestor-walk-escalates-on-unenterable "_needs_priv delegates but no longer answers for an unenterable ancestor: '$_np_answer'"
+    _bad shared-ancestor-walk-escalates-on-unenterable \
+      "_needs_priv delegates but no longer answers for an unenterable ancestor: '$_np_answer'"
   fi
 elif awk '/^_needs_priv\(\)/,/^}/' lib/install.sh | grep -q 'while \[ ! -d'; then
-  _bad shared-ancestor-walk-escalates-on-unenterable "_needs_priv still carries its own ancestor walk instead of calling _resolve_existing"
+  _bad shared-ancestor-walk-escalates-on-unenterable \
+    "_needs_priv still carries its own ancestor walk instead of calling _resolve_existing"
 else
-  _bad shared-ancestor-walk-escalates-on-unenterable "_needs_priv neither walks nor resolves — the privilege decision has no ancestor"
+  _bad shared-ancestor-walk-escalates-on-unenterable \
+    "_needs_priv neither walks nor resolves — the privilege decision has no ancestor"
 fi
 
 # ─── a symlinked LEAF is replaced, not followed ─────────────────────────────
@@ -264,11 +277,14 @@ ln -s "$_sentinel" "$_d/lib/libmediaforge-probe.a"
 _log=$(_run_install "$_s" "$_d") || true
 
 if [ "$(cat "$_sentinel" 2>/dev/null)" != "SENTINEL-UNTOUCHED" ]; then
-  _bad symlinked-leaf-replaced-not-followed "a static lib was written THROUGH a leaf symlink onto $_sentinel"
+  _bad symlinked-leaf-replaced-not-followed \
+    "a static lib was written THROUGH a leaf symlink onto $_sentinel"
 elif [ -L "$_d/lib/libmediaforge-probe.a" ]; then
-  _bad symlinked-leaf-replaced-not-followed "the leaf is still a symlink — nothing was installed, so the sentinel proves nothing"
+  _bad symlinked-leaf-replaced-not-followed \
+    "the leaf is still a symlink — nothing was installed, so the sentinel proves nothing"
 elif [ "$(cat "$_d/lib/libmediaforge-probe.a" 2>/dev/null)" != "STATIC-LIB" ]; then
-  _bad symlinked-leaf-replaced-not-followed "no static lib at the leaf destination under $_d — nothing was installed"
+  _bad symlinked-leaf-replaced-not-followed \
+    "no static lib at the leaf destination under $_d — nothing was installed"
 else
   _pass symlinked-leaf-replaced-not-followed
 fi
@@ -295,10 +311,12 @@ else
   chmod 644 "$_s/lib/libmediaforge-probe.a" 2>/dev/null
 
   if ! printf '%s' "$_log" | grep -q 'failed to install'; then
-    _bad failed-copy-aborts-unrecorded "an unreadable source did not abort the install: $(printf '%s' "$_log" | tail -2)"
+    _bad failed-copy-aborts-unrecorded \
+      "an unreadable source did not abort the install: $(printf '%s' "$_log" | tail -2)"
   elif [ -f "$_d/.mediaforge-manifest" ] \
     && grep -q 'libmediaforge-probe.a' "$_d/.mediaforge-manifest" 2>/dev/null; then
-    _bad failed-copy-aborts-unrecorded "the failed copy was recorded in the manifest — uninstall would claim to remove it"
+    _bad failed-copy-aborts-unrecorded \
+      "the failed copy was recorded in the manifest — uninstall would claim to remove it"
   else
     _pass failed-copy-aborts-unrecorded
   fi

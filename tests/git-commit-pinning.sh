@@ -77,7 +77,7 @@ _NEW=$(git -C "$_repo" rev-parse HEAD)
 # the base as one that cannot be guarding the change. They print as INFO, and
 # only speak up as FAIL when the fixture itself is broken.
 if git clone -q --depth 1 --branch "v$_OLD" "$_repo" "$_fx/oldshape" 2>/dev/null; then
-  _bad "fixture: --branch v<sha> must fail" "clone unexpectedly succeeded"
+  _bad fixture-branch-sha-must-fail "clone unexpectedly succeeded"
 else
   printf 'INFO: --branch v<sha> is rejected by git (the #28 failure mode)\n'
 fi
@@ -86,7 +86,7 @@ fi
 if git clone -q --depth 1 --branch "v9.9.9" "$_repo" "$_fx/tagshape" 2>/dev/null; then
   printf 'INFO: --branch <real tag> succeeds, so the fixture is sound\n'
 else
-  _bad "fixture: --branch <real tag> should succeed" "fixture repo is broken"
+  _bad fixture-branch-tag-must-succeed "fixture repo is broken"
 fi
 
 # -- 2. fetch_git checks out exactly the requested commit. -------------------
@@ -96,18 +96,18 @@ if command -v fetch_git > /dev/null 2>&1; then
   if ( fetch_git "$_repo" "$_d" "$_OLD" ) > /dev/null 2>&1; then
     _got=$(git -C "$_d" rev-parse HEAD 2>/dev/null)
     if [ "$_got" = "$_OLD" ]; then
-      _pass "fetch_git checks out the requested commit"
+      _pass fetch-git-checks-out-requested-commit
     else
-      _bad "fetch_git checks out the requested commit" "want=$_OLD got=$_got"
+      _bad fetch-git-checks-out-requested-commit "want=$_OLD got=$_got"
     fi
     # Content, not just the ref: the OLD commit's file must be there.
     if [ "$(cat "$_d/f.txt" 2>/dev/null)" = old ]; then
-      _pass "fetch_git delivers that commit's content"
+      _pass fetch-git-delivers-that-content
     else
-      _bad "fetch_git delivers that commit's content" "f.txt != 'old'"
+      _bad fetch-git-delivers-that-content "f.txt != 'old'"
     fi
   else
-    _bad "fetch_git checks out the requested commit" "fetch_git returned non-zero"
+    _bad fetch-git-checks-out-requested-commit "fetch_git returned non-zero"
   fi
 
   # -- 3. A stale clone at the WRONG commit is re-fetched, not reused. -------
@@ -118,12 +118,12 @@ if command -v fetch_git > /dev/null 2>&1; then
   if ( fetch_git "$_repo" "$_d2" "$_OLD" ) > /dev/null 2>&1; then
     _got=$(git -C "$_d2" rev-parse HEAD 2>/dev/null)
     if [ "$_got" = "$_OLD" ]; then
-      _pass "stale clone at wrong commit is re-fetched"
+      _pass stale-clone-refetched
     else
-      _bad "stale clone at wrong commit is re-fetched" "want=$_OLD got=$_got (reused)"
+      _bad stale-clone-refetched "want=$_OLD got=$_got (reused)"
     fi
   else
-    _bad "stale clone at wrong commit is re-fetched" "fetch_git returned non-zero"
+    _bad stale-clone-refetched "fetch_git returned non-zero"
   fi
 
   # -- 4. A clone already AT the commit is reused (no needless refetch). -----
@@ -132,9 +132,9 @@ if command -v fetch_git > /dev/null 2>&1; then
   : > "$_d3/.reuse-marker"
   ( fetch_git "$_repo" "$_d3" "$_OLD" ) > /dev/null 2>&1
   if [ -f "$_d3/.reuse-marker" ]; then
-    _pass "clone already at the commit is reused"
+    _pass matching-clone-reused
   else
-    _bad "clone already at the commit is reused" "directory was rebuilt"
+    _bad matching-clone-reused "directory was rebuilt"
   fi
 
   # -- 4b. A DEST that exists but is not a clone is replaced, not git-init'd.
@@ -150,12 +150,12 @@ if command -v fetch_git > /dev/null 2>&1; then
   if ( fetch_git "$_repo" "$_d5" "$_OLD" ) > /dev/null 2>&1; then
     _got=$(git -C "$_d5" rev-parse HEAD 2>/dev/null)
     if [ "$_got" = "$_OLD" ] && [ "$(cat "$_d5/f.txt" 2>/dev/null)" = old ]; then
-      _pass "non-clone directory at DEST is replaced"
+      _pass non-clone-dest-replaced
     else
-      _bad "non-clone directory at DEST is replaced" "HEAD=$_got f.txt=$(cat "$_d5/f.txt" 2>/dev/null)"
+      _bad non-clone-dest-replaced "HEAD=$_got f.txt=$(cat "$_d5/f.txt" 2>/dev/null)"
     fi
   else
-    _bad "non-clone directory at DEST is replaced" "fetch_git failed on a non-clone DEST"
+    _bad non-clone-dest-replaced "fetch_git failed on a non-clone DEST"
   fi
 
   # -- 4c. A dangling SYMLINK at DEST is replaced too. -----------------------
@@ -167,12 +167,12 @@ if command -v fetch_git > /dev/null 2>&1; then
   if ( fetch_git "$_repo" "$_d6" "$_OLD" ) > /dev/null 2>&1; then
     _got=$(git -C "$_d6" rev-parse HEAD 2>/dev/null)
     if [ "$_got" = "$_OLD" ]; then
-      _pass "dangling symlink at DEST is replaced"
+      _pass dangling-symlink-dest-replaced
     else
-      _bad "dangling symlink at DEST is replaced" "HEAD=$_got"
+      _bad dangling-symlink-dest-replaced "HEAD=$_got"
     fi
   else
-    _bad "dangling symlink at DEST is replaced" "fetch_git failed on a symlink DEST"
+    _bad dangling-symlink-dest-replaced "fetch_git failed on a symlink DEST"
   fi
 
   # -- 5. An unreachable commit fails loudly. -------------------------------
@@ -180,12 +180,12 @@ if command -v fetch_git > /dev/null 2>&1; then
   # failure path rather than an argument-validation path.
   _ghost=0123456789abcdef0123456789abcdef01234567
   if ( fetch_git "$_repo" "$_fx/c4" "$_ghost" ) > /dev/null 2>&1; then
-    _bad "unreachable commit must fail" "fetch_git returned success"
+    _bad unreachable-commit-fails-loudly "fetch_git returned success"
   else
-    _pass "unreachable commit fails loudly"
+    _pass unreachable-commit-fails-loudly
   fi
 else
-  _bad "fetch_git exists" "no fetch_git helper in lib/download.sh"
+  _bad fetch-git-helper-exists "no fetch_git helper in lib/download.sh"
 fi
 
 # -- 6. Neither recipe interpolates a version into a --branch ref any more. --
@@ -194,9 +194,9 @@ fi
 # oracle that matched prose would fail on the fixed tree for the wrong reason.
 for _r in recipes/other/librtmp.sh recipes/hwaccel/libplacebo.sh; do
   if sed 's/[[:space:]]*#.*$//' "$_r" | grep -qE 'branch[^|]*\$\{?PKG_VERSION'; then
-    _bad "$_r does not clone by --branch \$PKG_VERSION" "still builds a ref from PKG_VERSION"
+    _bad "no-branch-from-version-$_r" "still builds a ref from PKG_VERSION"
   else
-    _pass "$_r does not clone by --branch \$PKG_VERSION"
+    _pass "no-branch-from-version-$_r"
   fi
 done
 
@@ -215,14 +215,14 @@ done
 # other unpinned mirror, or if fetch_git is dropped entirely.
 if sed 's/[[:space:]]*#.*$//' recipes/video/av1.sh \
    | grep -qE 'fetch_git[^#]*PKG_COMMIT'; then
-  _pass "av1 fetches via fetch_git at PKG_COMMIT"
+  _pass av1-fetches-via-fetch-git-at-commit
 else
-  _bad "av1 fetches via fetch_git at PKG_COMMIT" "no fetch_git call using PKG_COMMIT"
+  _bad av1-fetches-via-fetch-git-at-commit "no fetch_git call using PKG_COMMIT"
 fi
 if sed 's/[[:space:]]*#.*$//' recipes/video/av1.sh | grep -q '+archive'; then
-  _bad "av1 does not fetch a gitiles +archive tarball" "PKG_URL still uses +archive"
+  _bad av1-not-a-gitiles-archive-tarball "PKG_URL still uses +archive"
 else
-  _pass "av1 does not fetch a gitiles +archive tarball"
+  _pass av1-not-a-gitiles-archive-tarball
 fi
 
 # -- 7. Every profile supplies a 40-hex commit for all three recipes. --------
@@ -235,11 +235,11 @@ for _p in profiles/ffmpeg-*.conf; do
     _hex=$(printf '%s' "$_val" | tr -d '0-9a-f')
     _len=${#_val}
     if [ -z "$_val" ]; then
-      _bad "$(basename "$_p") $_v is a 40-hex commit" "unset"
+      _bad "commit-var-is-40-hex-$(basename "$_p")-$_v" "unset"
     elif [ "$_len" -eq 40 ] && [ -z "$_hex" ]; then
-      _pass "$(basename "$_p") $_v is a 40-hex commit"
+      _pass "commit-var-is-40-hex-$(basename "$_p")-$_v"
     else
-      _bad "$(basename "$_p") $_v is a 40-hex commit" "not a commit: $_val"
+      _bad "commit-var-is-40-hex-$(basename "$_p")-$_v" "not a commit: $_val"
     fi
   done
 done
@@ -255,9 +255,9 @@ for _p in profiles/ffmpeg-*.conf; do
     _val=$(awk -F'"' -v k="^$_v=" '$0 ~ k { print $2; exit }' "$_p")
     _hex=$(printf '%s' "$_val" | tr -d '0-9a-f')
     if [ "${#_val}" -eq 40 ] && [ -z "$_hex" ]; then
-      _bad "$(basename "$_p") $_v is a version, not a commit" "holds a SHA: $_val"
+      _bad "version-var-is-not-a-sha-$(basename "$_p")-$_v" "holds a SHA: $_val"
     else
-      _pass "$(basename "$_p") $_v is a version, not a commit"
+      _pass "version-var-is-not-a-sha-$(basename "$_p")-$_v"
     fi
   done
 done
@@ -265,9 +265,9 @@ done
 # -- 8. Each git-sourced recipe declares the git it shells out to. ----------
 for _r in recipes/other/librtmp.sh recipes/video/av1.sh; do
   if grep -qE '^PKG_REQUIRES_CMD=.*git' "$_r"; then
-    _pass "$_r declares its git dependency"
+    _pass "declares-git-dependency-$_r"
   else
-    _bad "$_r declares its git dependency" "PKG_REQUIRES_CMD does not name git"
+    _bad "declares-git-dependency-$_r" "PKG_REQUIRES_CMD does not name git"
   fi
 done
 
