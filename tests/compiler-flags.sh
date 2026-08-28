@@ -139,5 +139,50 @@ _lt own-ldflags-present    '-L/p/lib' '-L/opt/lib' '-L/p/lib*'
 # an -O2 appearing here would mean mf_compose_cflags had been reused by mistake.
 _lt ldflags-gets-no-opt-default '-L/p/lib' '' '-L/p/lib'
 
+# --- PKG_C_STD: a declaration, not sixteen copies of a mechanism ------------
+# Sixteen recipes each carried a pkg_prepare() whose entire body appended
+# -std=gnu11 to CFLAGS and exported it, because GCC 15 defaults to -std=gnu23
+# and those sources predate it. Beyond the duplication, it meant a recipe
+# wanting a REAL prepare step had to remember to carry the flag along with it --
+# librtmp and pkg-config both did, which is how the two shapes diverged.
+# Matched as a regex whose "." stands in for the dollar sign, so this file never
+# contains a literal $ inside quotes. Both the fixed-string and case-glob
+# spellings trip SC2016 ("expressions don't expand in single quotes"), which is
+# wrong here -- the dollar is source text being searched for, not an expansion --
+# but writing it a way the linter cannot misread beats arguing with it.
+if grep -qE -- '-std=.PKG_C_STD' lib/framework.sh 2>/dev/null; then
+  _pass c-std-applied-by-framework
+else
+  _bad c-std-applied-by-framework "lib/framework.sh never applies PKG_C_STD"
+fi
+
+# Reset per recipe, like every other PKG_*. Without it the first recipe to
+# declare gnu11 would impose it on every later recipe -- and since -std changes
+# which language the compiler accepts, that silently alters builds that never
+# asked for it.
+if grep -qE '^[[:space:]]*PKG_C_STD=""' lib/framework.sh 2>/dev/null; then
+  _pass c-std-reset-between-recipes
+else
+  _bad c-std-reset-between-recipes "reset_recipe does not clear PKG_C_STD"
+fi
+
+# The invariant: no recipe hand-rolls the append any more. A survivor would
+# still work, which is exactly why nothing would notice it drifting.
+_inline=$(grep -rn 'CFLAGS -std=' recipes/ 2>/dev/null || true)
+if [ -z "$_inline" ]; then
+  _pass no-recipe-inlines-c-std
+else
+  _bad no-recipe-inlines-c-std "$(printf '%s' "$_inline" | head -3)"
+fi
+
+# The floor for the assertion above: it is a "grep finds nothing" claim, and it
+# would pass on a tree where no recipe needs a C standard at all.
+_decl=$(grep -rcE '^PKG_C_STD=' recipes/ 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')
+if [ "$_decl" -ge 12 ]; then
+  _pass c-std-declarations-present
+else
+  _bad c-std-declarations-present "only $_decl recipe(s) declare PKG_C_STD; expected >=12"
+fi
+
 printf 'DONE: compiler-flags\n'
 exit "$_fail"

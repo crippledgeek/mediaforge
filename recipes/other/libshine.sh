@@ -8,7 +8,4 @@ PKG_FFMPEG_OPT="--enable-libshine"
 
 # libshine 3.1.1 has unprototyped functions incompatible with C23
 # (empty parens mean void in C23, but functions take arguments)
-pkg_prepare() {
-  CFLAGS="$CFLAGS -std=gnu11"
-  export CFLAGS
-}
+PKG_C_STD="gnu11"

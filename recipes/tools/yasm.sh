@@ -7,7 +7,4 @@ PKG_URL="https://github.com/yasm/yasm/releases/download/v${PKG_VERSION}/yasm-${P
 
 # yasm 1.3.0 uses "false"/"true" as enum constants in bitvect.h,
 # which conflicts with C23 reserved keywords (GCC 15+ defaults to -std=gnu23)
-pkg_prepare() {
-  CFLAGS="$CFLAGS -std=gnu11"
-  export CFLAGS
-}
+PKG_C_STD="gnu11"

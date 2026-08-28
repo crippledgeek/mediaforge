@@ -8,8 +8,9 @@ PKG_FFMPEG_OPT="--enable-libbs2b"
 PKG_CONFIGURE_FLAGS="--disable-sndfile"
 
 # bs2b has old C code incompatible with C23 (GCC 15+)
+PKG_C_STD="gnu11"
+
 pkg_prepare() {
-  CFLAGS="$CFLAGS -std=gnu11"
   LIBS="-lm"
-  export CFLAGS LIBS
+  export LIBS
 }

@@ -6,10 +6,7 @@ PKG_URL="https://downloads.xiph.org/releases/theora/libtheora-${PKG_VERSION}.tar
 PKG_FFMPEG_OPT="--enable-libtheora"
 
 # libtheora 1.2.0 has older C code incompatible with C23
-pkg_prepare() {
-  CFLAGS="$CFLAGS -std=gnu11"
-  export CFLAGS
-}
+PKG_C_STD="gnu11"
 
 pkg_configure() {
   run ./configure --prefix="$PREFIX" \

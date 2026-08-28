@@ -17,10 +17,9 @@ PKG_REQUIRES_CMD="git"
 PKG_FFMPEG_OPT="--enable-librtmp"
 
 # librtmp has old C code incompatible with C23 (GCC 15+)
-pkg_prepare() {
-  CFLAGS="$CFLAGS -std=gnu11"
-  export CFLAGS
+PKG_C_STD="gnu11"
 
+pkg_prepare() {
   # No tarball available — fetch the pinned commit from the official git repo.
   fetch_git https://git.ffmpeg.org/rtmpdump.git "$DISTDIR/rtmpdump" "$PKG_COMMIT"
   cd "$DISTDIR/rtmpdump" || die "Failed to cd to rtmpdump"

@@ -114,6 +114,11 @@ reset_recipe() {
   # Empty means mf_meson's own default (release), which is what all eighteen
   # call sites passed explicitly before they were converged.
   PKG_MESON_BUILDTYPE=""
+  # A C standard this recipe's source needs. Thirteen recipes used to spell this
+  # as a pkg_prepare() whose entire body appended -std=gnu11 to CFLAGS and
+  # exported it -- which also meant a recipe wanting a REAL prepare step had to
+  # remember to carry the flag along with it.
+  PKG_C_STD=""
   PKG_GITHUB_REPO=""
   # Recipe-declared install intent. If true, the recipe's pkgconfig files
   # listed in PKG_PC_FILES (space-separated, without .pc suffix) are queued
@@ -353,6 +358,17 @@ run_recipe() {
       _dl_dir="$PKG_DIRNAME"
     fi
     fetch "$PKG_URL" "$_dl_file" "$_dl_dir"
+  fi
+
+  # A recipe that declares a C standard gets it appended for the duration of its
+  # own build. Applied after the save above and before any phase runs, so the
+  # restore at the end of this function takes it back off again -- one recipe's
+  # -std cannot leak into the next. GCC 15 defaults to -std=gnu23, which is what
+  # made this necessary for the older sources in the tree (K&R definitions,
+  # unprototyped functions, C23 reserved keywords).
+  if [ -n "$PKG_C_STD" ]; then
+    CFLAGS="$CFLAGS -std=$PKG_C_STD"
+    export CFLAGS
   fi
 
   # Run phases

@@ -7,10 +7,7 @@ PKG_GITHUB_REPO="cacalabs/libcaca"
 PKG_FFMPEG_OPT="--enable-libcaca"
 
 # libcaca has old C code incompatible with C23 (GCC 15+)
-pkg_prepare() {
-  CFLAGS="$CFLAGS -std=gnu11"
-  export CFLAGS
-}
+PKG_C_STD="gnu11"
 
 pkg_configure() {
   run ./configure --prefix="$PREFIX" --disable-shared --enable-static \
