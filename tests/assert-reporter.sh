@@ -14,7 +14,7 @@
 # `grep -c '^FAIL'` to decide whether a newly added file could detect its own
 # change, so the reporters' exact bytes are a gate input, not cosmetics.
 #
-# TWO assertions, and the split is deliberate.
+# THREE assertions, and the split is deliberate.
 #
 # Probes 1-6 are ONE compound assertion, for a reason that is now HISTORICAL and
 # is written in the past tense on purpose. oracle-baseline requires that no
@@ -155,7 +155,36 @@ c'
 _got=$(printf 'x\n-L/nope\nlast\n' | _evidence 1 '-L')
 _want 'evidence-accepts-dash-pattern' "$_got" '-L/nope'
 
-_wrong_ev=$_wrong   # last handoff: no _want may follow this line
+_wrong_ev=$_wrong
+_wrong=''
+
+# 10-12. _wired is the third thing this library now owns, and it is a reporter:
+# it calls _pass/_bad itself, so a defect in it prints a wrong verdict rather
+# than failing anything. It moved here from tests/debug-levels.sh and
+# tests/ccache.sh, which held character-identical copies that had already
+# drifted in their failure wording.
+_got=$(_probe <<'EOF'
+_wired name tests/lib-assert.sh '_wired()'
+EOF
+)
+_want 'wired-passes-on-a-hit' "$_got" 'PASS [name]'
+
+# A needle that is absent must FAIL rather than pass quietly -- the whole point
+# of the helper is asserting that wiring exists.
+_probe >/dev/null <<'EOF'
+_wired name tests/lib-assert.sh 'no-such-needle-anywhere'
+EOF
+_want 'wired-fails-on-a-miss' "$(cat "$_err")" 'FAIL [name] tests/lib-assert.sh never mentions no-such-needle-anywhere'
+
+# FIXED-string matching, not regex. Real needles in-tree are case labels like
+# `--ccache)` whose parenthesis is a regex metacharacter; under -E that needle
+# would match a line without it and report wiring that is not there.
+_probe >/dev/null <<'EOF'
+_wired name tests/lib-assert.sh 'a)b'
+EOF
+_want 'wired-needle-is-literal' "$(cat "$_err")" 'FAIL [name] tests/lib-assert.sh never mentions a)b'
+
+_wrong_wired=$_wrong   # last handoff: no _want may follow this line
 
 if [ -z "$_wrong_rep" ]; then
   _pass reporter-output-contract-holds
@@ -169,6 +198,12 @@ else
   _bad evidence-helper-contract-holds "$_wrong_ev"
 fi
 
+if [ -z "$_wrong_wired" ]; then
+  _pass wired-helper-contract-holds
+else
+  _bad wired-helper-contract-holds "$_wrong_wired"
+fi
+
 printf 'DONE: assert-reporter\n'
 
 # Exits on $_wrong, NOT on $_fail, and this is the one file in the suite that
@@ -177,5 +212,5 @@ printf 'DONE: assert-reporter\n'
 # line and still exit 0 -- measured: mutating `_fail=1` out of the library left
 # this file reporting the defect on stdout while tests/run.sh, which reads exit
 # status, went green.
-[ -z "$_wrong_rep$_wrong_ev" ] || exit 1
+[ -z "$_wrong_rep$_wrong_ev$_wrong_wired" ] || exit 1
 exit 0

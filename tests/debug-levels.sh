@@ -144,9 +144,6 @@ done
 # The functions above are pure; these assert that something actually CALLS them.
 # A correct table nothing consults is the failure mode this whole file exists
 # for, and it is invisible to every assertion above.
-_wired() { # name  file  needle
-  if grep -qF -- "$3" "$2" 2>/dev/null; then _pass "$1"; else _bad "$1" "$2 never calls $3"; fi
-}
 _wired wired-cmake       lib/framework.sh 'mf_debug_cmake_type'
 _wired wired-meson       lib/framework.sh 'mf_debug_meson_args'
 _wired wired-ffmpeg      recipes/ffmpeg.sh 'mf_debug_ffmpeg_opts'
