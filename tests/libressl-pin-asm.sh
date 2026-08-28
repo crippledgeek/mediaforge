@@ -16,8 +16,8 @@ cd "$_root" || exit 1
 _recipe="recipes/crypto/libressl.sh"
 _fail=0
 
-_pass() { printf 'PASS: %s\n' "$1"; }
-_bad()  { printf 'FAIL: %s\n' "$1"; _fail=1; }
+# shellcheck source=tests/lib-assert.sh
+. "$_root/tests/lib-assert.sh"
 
 # Read a recipe's default version out of its `PKG_VERSION="${PKG_VERSION_X:-N}"`
 # line. The pattern deliberately avoids a literal '${' so it needs no
@@ -32,11 +32,11 @@ _recipe_default_version() {
 # TLS stack missing an upstream-declared security fix.
 _want=$(_recipe_default_version "$_recipe")
 if [ -z "$_want" ]; then
-  _bad "cannot read the libressl default version from $_recipe"
+  _bad libressl-pin-past-cms-fix "cannot read the default version from $_recipe"
 elif [ "$_want" = "4.0.0" ]; then
-  _bad "libressl still pins 4.0.0, which misses the 4.2.0 CMS security fix"
+  _bad libressl-pin-past-cms-fix "still pins 4.0.0, which misses the 4.2.0 CMS fix"
 else
-  _pass "libressl pins $_want"
+  _pass libressl-pin-past-cms-fix
 fi
 
 # The ROOT CAUSE of the staleness, not merely the symptom: check_updates
@@ -45,9 +45,10 @@ fi
 # PKG_GITHUB_REPO, so `check-updates` never queried this pin at all. Upstream
 # tags are v-prefixed, which _strip_tag_prefix already normalises.
 if grep -q '^PKG_GITHUB_REPO="libressl/portable"' "$_recipe"; then
-  _pass "libressl is visible to check-updates"
+  _pass libressl-visible-to-check-updates
 else
-  _bad "libressl has no PKG_GITHUB_REPO — check-updates skips it (check_updates in lib/updates.sh)"
+  _bad libressl-visible-to-check-updates \
+    "no PKG_GITHUB_REPO — check_updates (lib/updates.sh) skips the recipe"
 fi
 
 # Sourced the way lib/updates.sh sources it, and the variable read back. This is
@@ -63,9 +64,9 @@ _probe=$(
   printf '%s' "$PKG_GITHUB_REPO"
 )
 if [ "$_probe" = "libressl/portable" ]; then
-  _pass "sourcing the recipe yields PKG_GITHUB_REPO=libressl/portable"
+  _pass sourced-recipe-holds-github-repo
 else
-  _bad "sourced recipe gave PKG_GITHUB_REPO='$_probe'"
+  _bad sourced-recipe-holds-github-repo "sourced recipe gave PKG_GITHUB_REPO='$_probe'"
 fi
 
 # libressl and mbedtls were the two --tls arms no profile pinned, so a --profile
@@ -80,15 +81,16 @@ for _pkg in libressl mbedtls; do
   _pkgwant=$(_recipe_default_version "recipes/crypto/$_pkg.sh")
   _var=$(printf 'PKG_VERSION_%s' "$_pkg" | tr '[:lower:]' '[:upper:]')
   if [ -z "$_pkgwant" ]; then
-    _bad "cannot read the $_pkg default version from its recipe"
+    _bad "recipe-default-version-readable-$_pkg" "cannot read it from the recipe"
     continue
   fi
   for _prof in profiles/ffmpeg-*.conf; do
     _base=$(basename "$_prof")
     if grep -q "^$_var=\"$_pkgwant\"$" "$_prof"; then
-      _pass "$_base pins $_var=$_pkgwant"
+      _pass "profile-pins-recipe-default-$_pkg-${_base%.conf}"
     else
-      _bad "$_base does not pin $_var=$_pkgwant (the recipe default)"
+      _bad "profile-pins-recipe-default-$_pkg-${_base%.conf}" \
+        "$_base does not pin $_var=$_pkgwant (the recipe default)"
     fi
   done
 done
@@ -103,9 +105,9 @@ done
 # "NOT passed, deliberately" note, and a whole-file grep would match that prose
 # and report a regression that does not exist.
 if grep -v '^[[:space:]]*#' "$_recipe" | grep -q -- '--disable-asm'; then
-  _bad "libressl still passes --disable-asm (drops AES-NI/SHA/bignum asm)"
+  _bad libressl-builds-with-asm "--disable-asm is still passed (drops AES-NI/SHA/bignum asm)"
 else
-  _pass "libressl builds with assembly enabled"
+  _pass libressl-builds-with-asm
 fi
 
 # --with-pic is NOT what gives these objects -fPIC — cmd_build's
@@ -114,9 +116,9 @@ fi
 # which LibreSSL's C and perlasm paths read, and makes the recipe independent of
 # a CFLAGS assignment several files away.
 if grep -v '^[[:space:]]*#' "$_recipe" | grep -q -- '--with-pic'; then
-  _pass "libressl passes --with-pic"
+  _pass libressl-passes-with-pic
 else
-  _bad "libressl does not pass --with-pic"
+  _bad libressl-passes-with-pic "--with-pic is not passed"
 fi
 
 # The #18 scope guard that used to live here has done its job and is retired:

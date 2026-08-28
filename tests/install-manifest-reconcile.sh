@@ -35,8 +35,8 @@ _root=$(CDPATH='' cd -- "$_here/.." && pwd)
 cd "$_root" || exit 1
 
 _fail=0
-_pass() { printf 'PASS: %s\n' "$1"; }
-_bad()  { printf 'FAIL: %s\n' "$1"; _fail=1; }
+# shellcheck source=tests/lib-assert.sh
+. "$_root/tests/lib-assert.sh"
 
 # One temp root for the whole file, removed on exit however we leave. Each case
 # takes a fresh subdirectory of it, so a `exit 1` on a later mktemp cannot strand
@@ -117,9 +117,9 @@ _run_install "$_s" "$_d" >/dev/null
 _drop_from_stage "$_s"
 _prune_out=$(_run_install "$_s" "$_d")
 if [ ! -e "$_d/lib/libmediaforge-drop.a" ] && [ -f "$_d/lib/libmediaforge-keep.a" ]; then
-  _pass "a dropped static archive is pruned on reinstall, the kept one survives"
+  _pass reinstall-prunes-dropped-keeps-rest
 else
-  _bad "a dropped static archive is pruned on reinstall, the kept one survives"
+  _bad reinstall-prunes-dropped-keeps-rest
 fi
 
 # The manifest is the record uninstall acts on, so what it says has to match
@@ -131,25 +131,25 @@ fi
 # show up here and in nothing else.
 _manifest_set=$(LC_ALL=C sort "$_d/.mediaforge-manifest" 2>/dev/null)
 if [ -n "$_manifest_set" ] && [ "$_manifest_set" = "$(_disk_set "$_d")" ]; then
-  _pass "after the prune the manifest and the installed tree describe the same set"
+  _pass manifest-matches-disk-after-prune
 else
-  _bad "after the prune the manifest and the installed tree describe the same set"
+  _bad manifest-matches-disk-after-prune
 fi
 
 # The count is reported, and it is the count of files actually removed. Silence
 # would leave an operator with no way to know a privileged deletion happened.
 if printf '%s\n' "$_prune_out" | grep -q 'pruned 2 file(s)'; then
-  _pass "the prune reports how many files it removed"
+  _pass prune-reports-removed-count
 else
-  _bad "the prune reports how many files it removed"
+  _bad prune-reports-removed-count
 fi
 
 # A directory the prune empties is collected, like the bottom-up sweep
 # do_uninstall already runs. Paired with the surviving sibling header.
 if [ ! -d "$_d/include/drop" ] && [ -f "$_d/include/mediaforge-probe.h" ]; then
-  _pass "a directory emptied by the prune is removed, its sibling header is not"
+  _pass emptied-directory-collected-sibling-kept
 else
-  _bad "a directory emptied by the prune is removed, its sibling header is not"
+  _bad emptied-directory-collected-sibling-kept
 fi
 
 # ─── the prune touches nothing mediaforge did not install ───────────────────
@@ -162,9 +162,9 @@ printf 'NOT-OURS\n' > "$_d/lib/libsomeone-else.a"
 _drop_from_stage "$_s"
 _run_install "$_s" "$_d" >/dev/null
 if [ -f "$_d/lib/libsomeone-else.a" ] && [ ! -e "$_d/lib/libmediaforge-drop.a" ]; then
-  _pass "a file mediaforge never installed survives the prune"
+  _pass foreign-file-survives-prune
 else
-  _bad "a file mediaforge never installed survives the prune"
+  _bad foreign-file-survives-prune
 fi
 
 # ─── a traversing entry in the OLD manifest is refused ──────────────────────
@@ -192,9 +192,9 @@ _run_install "$_s" "$_d" >/dev/null
 if [ -f "$_out_dir/escape/probe" ] \
    && [ -f "$_out_dir/absolute-probe" ] \
    && [ ! -e "$_d/lib/libmediaforge-drop.a" ]; then
-  _pass "relative, mid-path and absolute manifest entries are all refused by the prune"
+  _pass traversing-manifest-entry-refused
 else
-  _bad "relative, mid-path and absolute manifest entries are all refused by the prune"
+  _bad traversing-manifest-entry-refused
 fi
 
 # ─── the directory sweep refuses a traversing entry too ─────────────────────
@@ -214,9 +214,9 @@ _run_uninstall "$_s" "$_d" >/dev/null
 # satisfied by an uninstall that died before reaching the directory pass, which
 # would turn this green for the wrong reason after some future change.
 if [ -d "$_out_dir/victim" ] && [ ! -e "$_d/bin/ffmpeg" ]; then
-  _pass "an empty directory outside the prefix survives a traversing manifest entry"
+  _pass directory-sweep-refuses-traversal
 else
-  _bad "an empty directory outside the prefix survives a traversing manifest entry"
+  _bad directory-sweep-refuses-traversal
 fi
 
 # ─── a symlinked intermediate cannot redirect the deletion ─────────────────
@@ -250,9 +250,9 @@ mv "$_d/lib" "$_d/lib.orig"
 ln -s "$_out_dir/elsewhere" "$_d/lib"
 _sym_out=$(_run_uninstall "$_s" "$_d")
 if [ -f "$_out_dir/elsewhere/libmediaforge-keep.a" ]; then
-  _pass "a symlinked class directory cannot redirect a privileged deletion"
+  _pass symlinked-dir-cannot-redirect-deletion
 else
-  _bad "a symlinked class directory cannot redirect a privileged deletion"
+  _bad symlinked-dir-cannot-redirect-deletion
 fi
 
 # Refusing quietly would leave an operator with a partial uninstall and no idea
@@ -260,9 +260,9 @@ fi
 # everything cannot satisfy this.
 if printf '%s\n' "$_sym_out" | grep -q 'resolves outside' \
    && [ ! -e "$_d/bin/ffmpeg" ]; then
-  _pass "the refusal is reported, and entries outside the symlink still go"
+  _pass deletion-refusal-reported-others-proceed
 else
-  _bad "the refusal is reported, and entries outside the symlink still go"
+  _bad deletion-refusal-reported-others-proceed
 fi
 
 # ─── a damaged removal helper is refused, not read as success ──────────────
@@ -306,9 +306,9 @@ _run_install "$_s" "$_d" >/dev/null
 
 _run_with_damaged_helper empty ''
 if printf '%s\n' "$_damaged_out" | grep -q 'is empty' && [ -f "$_d/bin/ffmpeg" ]; then
-  _pass "an empty removal helper aborts the sweep instead of reporting zero"
+  _pass empty-removal-helper-aborts-sweep
 else
-  _bad "an empty removal helper aborts the sweep instead of reporting zero"
+  _bad empty-removal-helper-aborts-sweep
 fi
 
 # A helper that is valid, non-empty, and does nothing — the input the REMOVED
@@ -319,9 +319,9 @@ _run_with_damaged_helper silent ':'
 # prints REMOVED today, so matching it would pass by coincidence and stop the
 # day a neighbouring message mentions the sentinel.
 if printf '%s\n' "$_damaged_out" | grep -q 'without completing' && [ -f "$_d/bin/ffmpeg" ]; then
-  _pass "a helper that exits 0 without the sentinel is refused"
+  _pass helper-without-sentinel-refused
 else
-  _bad "a helper that exits 0 without the sentinel is refused"
+  _bad helper-without-sentinel-refused
 fi
 
 # Truncated mid-construct: `sh` returns 2 for a syntax error, which the caller
@@ -330,9 +330,9 @@ fi
 # happening, for a file that is merely broken.
 _run_with_damaged_helper syntax 'if'
 if printf '%s\n' "$_damaged_out" | grep -q 'failed to parse' && [ -f "$_d/bin/ffmpeg" ]; then
-  _pass "a helper truncated mid-construct is reported as damaged, not as an attack"
+  _pass truncated-helper-diagnosed-as-damage
 else
-  _bad "a helper truncated mid-construct is reported as damaged, not as an attack"
+  _bad truncated-helper-diagnosed-as-damage
 fi
 
 # A count that is not a number. `[0-9]*` in a case pattern means "one digit then
@@ -341,9 +341,9 @@ fi
 # expression rather than as a message naming the helper.
 _run_with_damaged_helper malformed 'printf "REMOVED 5garbage\n"'
 if printf '%s\n' "$_damaged_out" | grep -q 'malformed count' && [ -f "$_d/bin/ffmpeg" ]; then
-  _pass "a non-numeric count is rejected by name, not passed to arithmetic"
+  _pass non-numeric-count-rejected
 else
-  _bad "a non-numeric count is rejected by name, not passed to arithmetic"
+  _bad non-numeric-count-rejected
 fi
 
 # ─── an unreadable manifest is refused, not counted as zero ────────────────
@@ -360,9 +360,9 @@ _unreadable_out=$(_run_uninstall "$_s" "$_d")
 chmod 600 "$_d/.mediaforge-manifest"
 if printf '%s\n' "$_unreadable_out" | grep -q 'cannot open the manifest' \
    && [ -f "$_d/bin/ffmpeg" ]; then
-  _pass "an unreadable manifest aborts the sweep instead of reporting zero removed"
+  _pass unreadable-manifest-aborts-sweep
 else
-  _bad "an unreadable manifest aborts the sweep instead of reporting zero removed"
+  _bad unreadable-manifest-aborts-sweep
 fi
 
 # ─── the whole list costs ONE privileged exec ──────────────────────────────
@@ -406,9 +406,9 @@ PREFIX="$_s" SCRIPT_DIR="$_root" VERBOSE=0 sh -c '
 _exec_count=$(wc -l < "$_sudo_log" | tr -d ' ')
 _entry_count=$(wc -l < "$_d/.mediaforge-manifest" | tr -d ' ')
 if [ "$_exec_count" = 1 ] && [ "$_entry_count" -gt 1 ] && [ ! -e "$_d/bin/ffmpeg" ]; then
-  _pass "removing a whole manifest costs one privileged exec, and the files go"
+  _pass whole-manifest-removal-costs-one-exec
 else
-  _bad "removing a whole manifest costs one privileged exec, and the files go"
+  _bad whole-manifest-removal-costs-one-exec
 fi
 
 # ─── the sweeps run through the same helper as everything else ─────────────
@@ -436,9 +436,9 @@ ln -s "$_out_dir/anchor" "$_d/lib/live.link"
 _run_uninstall "$_s" "$_d" >/dev/null
 
 if [ ! -d "$_d/lib/orphan" ]; then
-  _pass "nested empty directories are swept to a fixpoint, not one level deep"
+  _pass empty-directory-sweep-reaches-fixpoint
 else
-  _bad "nested empty directories are swept to a fixpoint, not one level deep"
+  _bad empty-directory-sweep-reaches-fixpoint
 fi
 
 # The sweep's other two properties — a dangling link goes, a live one stays —
@@ -456,9 +456,9 @@ if [ ! -e "$_d/lib/dangling.link" ] && [ ! -L "$_d/lib/dangling.link" ] \
    && [ -L "$_d/lib/live.link" ] \
    && [ -f "$_out_dir/anchor" ] \
    && [ ! -d "$_d/lib/orphan" ]; then
-  _pass "a dangling symlink is swept, a live one and its target are left alone"
+  _pass dangling-symlink-swept-live-kept
 else
-  _bad "a dangling symlink is swept, a live one and its target are left alone"
+  _bad dangling-symlink-swept-live-kept
 fi
 
 # ─── an already-deleted entry is not reported as an escape attempt ─────────
@@ -482,9 +482,9 @@ rm -rf "${_d:?}/include"
 _tidied_out=$(_run_uninstall "$_s" "$_d")
 if ! printf '%s\n' "$_tidied_out" | grep -q 'resolves outside' \
    && [ ! -d "$_d/lib/orphan" ]; then
-  _pass "an entry whose directory is already gone is not called an escape"
+  _pass already-deleted-entry-not-an-escape
 else
-  _bad "an entry whose directory is already gone is not called an escape"
+  _bad already-deleted-entry-not-an-escape
 fi
 
 # ─── uninstall creates nothing outside the target prefix ───────────────────
@@ -511,9 +511,9 @@ PREFIX="$_absent_prefix" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" 
     do_uninstall "$1"
   ' _ "$_d" >/dev/null 2>&1
 if [ ! -e "$_absent_prefix" ] && [ ! -d "$_d/lib/orphan" ]; then
-  _pass "uninstall creates nothing under \$PREFIX, which it never needed"
+  _pass uninstall-creates-nothing-outside-prefix
 else
-  _bad "uninstall creates nothing under \$PREFIX, which it never needed"
+  _bad uninstall-creates-nothing-outside-prefix
 fi
 
 # ─── an install that copies nothing changes nothing ─────────────────────────
@@ -536,18 +536,18 @@ _empty_out=$(_run_install "$_s" "$_d")
 if [ -f "$_d/lib/libmediaforge-keep.a" ] \
    && [ -f "$_d/.mediaforge-manifest" ] \
    && grep -q 'libmediaforge-keep\.a' "$_d/.mediaforge-manifest"; then
-  _pass "an install that copies nothing leaves the tree and the manifest intact"
+  _pass no-op-install-changes-nothing
 else
-  _bad "an install that copies nothing leaves the tree and the manifest intact"
+  _bad no-op-install-changes-nothing
 fi
 
 # Leaving them alone silently is indistinguishable from a successful install of
 # zero files, and the exit status stays 0 either way, so the warning IS the
 # signal. README.md advertises it; assert the thing it advertises.
 if printf '%s\n' "$_empty_out" | grep -q 'Nothing was installed'; then
-  _pass "an install that copies nothing says so"
+  _pass no-op-install-reports-itself
 else
-  _bad "an install that copies nothing says so"
+  _bad no-op-install-reports-itself
 fi
 
 # ─── uninstall after an install-over-install is still pristine ──────────────
@@ -562,9 +562,9 @@ _drop_from_stage "$_s"
 _run_install "$_s" "$_d" >/dev/null
 _run_uninstall "$_s" "$_d" >/dev/null
 if [ ! -d "$_d" ]; then
-  _pass "an isolated prefix removes itself after install-over-install + uninstall"
+  _pass isolated-prefix-pristine-after-reinstall-uninstall
 else
-  _bad "an isolated prefix removes itself after install-over-install + uninstall"
+  _bad isolated-prefix-pristine-after-reinstall-uninstall
 fi
 
 printf 'DONE: install-manifest-reconcile\n'
