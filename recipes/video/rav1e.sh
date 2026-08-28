@@ -26,6 +26,31 @@ pkg_prepare() {
 
 pkg_configure() {
   export RUSTFLAGS="-C target-cpu=native"
+
+  # rav1e is the one recipe the composed CFLAGS cannot reach: cargo compiles
+  # Rust, and Rust does not read CFLAGS at all. Left alone, `--debug=full` would
+  # build ~108 recipes at -O0 -g3 and this one fully optimized with no symbols --
+  # the "reaches three of the four knobs" failure at recipe granularity, and
+  # silent because it still links.
+  #
+  # openssl needs no such handling despite also having its own configure: it
+  # reads CFLAGS from the environment and places it LAST
+  # (LIB_CFLAGS=-fPIC $(CNF_CFLAGS) $(CFLAGS)), so the level already reaches it.
+  # Verified by configuring it with -O0 -g3 and reading the generated makefile.
+  #
+  # The translation lives here rather than in the shared table because it is
+  # cargo's vocabulary, not the tree's: cargo has no -Og, so `balanced` maps to
+  # opt-level=1, the closest thing it offers. Kept in the RELEASE profile, which
+  # is what `cargo cinstall --release` below builds, so only these two knobs move.
+  if [ -n "${MF_DEBUG_LEVEL:-}" ]; then
+    export CARGO_PROFILE_RELEASE_DEBUG=2
+    case "$(mf_debug_opt "$MF_DEBUG_LEVEL")" in
+      -O0) export CARGO_PROFILE_RELEASE_OPT_LEVEL=0 ;;
+      -Og) export CARGO_PROFILE_RELEASE_OPT_LEVEL=1 ;;
+      *)   export CARGO_PROFILE_RELEASE_OPT_LEVEL=2 ;;
+    esac
+    log "rav1e: cargo release profile at opt-level=$CARGO_PROFILE_RELEASE_OPT_LEVEL with debug info"
+  fi
 }
 
 pkg_build() {

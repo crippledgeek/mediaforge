@@ -270,6 +270,35 @@ _wired wired-small-conflict mediaforge.sh 'overrides --debug for FFmpeg itself'
 # A dry run must not record a level for a build that never happened, or the next
 # real build believes the workspace already matches and skips the guard.
 _wired wired-dryrun-no-write mediaforge.sh 'DRY_RUN:-false}" != true'
+# rav1e is the one recipe the composed CFLAGS cannot reach -- cargo compiles
+# Rust, which does not read CFLAGS -- so it needs its own translation or it
+# builds fully optimized while everything else is debug, and still links.
+# openssl needs none: it reads CFLAGS from the environment and puts it last,
+# verified against its generated makefile.
+_wired wired-rav1e-cargo recipes/video/rav1e.sh 'CARGO_PROFILE_RELEASE_DEBUG'
+
+# The cargo translation must track the table rather than hardcoding levels: it
+# switches on mf_debug_opt's output, so a level whose optimization changes moves
+# with it. Asserted by mapping each level through the same case the recipe uses.
+_cargo_opt() { # level -> the opt-level the recipe would set
+  case "$(mf_debug_opt "$1")" in
+    -O0) printf '0' ;;
+    -Og) printf '1' ;;
+    *)   printf '2' ;;
+  esac
+}
+if _have mf_debug_opt; then
+  for _pair in 'full:0' 'balanced:1' 'symbols:2'; do
+    _lv=${_pair%%:*}; _want=${_pair#*:}
+    _got=$(_cargo_opt "$_lv")
+    if [ "$_got" = "$_want" ]; then _pass "cargo-opt-level-$_lv"
+    else _bad "cargo-opt-level-$_lv" "got=$_got want=$_want"; fi
+  done
+else
+  for _lv in full balanced symbols; do
+    _bad "cargo-opt-level-$_lv" "debug support absent — claim would be vacuous"
+  done
+fi
 
 # --- exactly one --buildtype reaches meson ----------------------------------
 # The first wiring passed the recipe's buildtype AND the level's, in that order.
