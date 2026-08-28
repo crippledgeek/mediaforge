@@ -1,0 +1,65 @@
+# shellcheck shell=sh
+# The `# with key <fingerprint>` grammar, defined ONCE.
+#
+# Two files ask different questions of this line -- tests/upstream-provenance.sh
+# asks whether a stanza is well formed, tests/signing-keys.sh asks which
+# fingerprints the tree pins -- but the grammar itself is one piece of knowledge,
+# and it was implemented twice before this file existed. The two copies had
+# already drifted on the day they were written: one folded case before matching
+# and the other did not, so `# With key <fpr>` counted as a well-formed pin in
+# the first file while being INVISIBLE to the second -- which meant the key it
+# named was never required to be committed. That is the exact failure both files
+# argue in their own comments that they close.
+#
+# So the recogniser lives here and both call sites use it. A change to the
+# grammar reaches both by construction rather than by someone remembering.
+#
+# Recognition is two steps, and they are separate on purpose:
+#
+#   PROVENANCE_PIN_INTENT_RE -- "was this line MEANT as a pin", matched against
+#     the comment body lowercased. Any hex-ish token qualifies, so a malformed
+#     fingerprint is still recognised as an attempted pin and can be reported as
+#     malformed. Prose ("with key rotation pending upstream") is not hex and so
+#     is not a pin -- reading its third word as a fingerprint once failed the
+#     whole gate on a comment. End-anchored: trailing text means the line says
+#     something the grammar does not cover, so it is not a pin either.
+#
+#   PROVENANCE_FPR_RE -- "is it a USABLE pin", matched against the token as
+#     written. Uppercase is required because that is what `gpg --fingerprint`
+#     prints and what Arch's validpgpkeys requires, and 40 hex characters is the
+#     full fingerprint rather than a truncated long-id.
+#
+# A line matching the first but not the second is a malformed pin: loud, and
+# never counted as a usable one.
+#
+# PROVENANCE_COMMENT_RE strips the comment marker. It is shared for the same
+# reason the two above are: "how much of the line is the marker" is part of the
+# same grammar, and it was the half still written twice after the first
+# convergence. The pattern uses no construct that differs between BRE and ERE,
+# which is what lets one string serve both `sed s///` here and awk's `sub()` in
+# tests/upstream-provenance.sh.
+#
+# It must also contain NO BACKSLASH. The awk consumers receive it through
+# `-v`, which performs escape processing on the assigned value while sed does
+# not: `^\t*#` reaches awk as a literal tab and sed as backslash-t. A widening
+# that used \t, \. or \\ would therefore reach the two kinds of consumer
+# DIFFERENTLY -- the silent divergence this constant exists to prevent, arriving
+# through the mechanism meant to prevent it. Character classes express
+# everything needed here without one.
+PROVENANCE_COMMENT_RE='^[[:space:]]*#[[:space:]]*'
+PROVENANCE_PIN_INTENT_RE='^with[[:space:]]+key[[:space:]]+[0-9a-f]+[[:space:]]*$'
+PROVENANCE_FPR_RE='^[0-9A-F]{40}$'
+
+# provenance_pinned_fprs FILE...
+# Emit each USABLE pinned fingerprint, sorted and deduplicated.
+#
+# The leading `#` is stripped before the fields are read rather than matched as
+# a field, because `#with key X` and `# with key X` differ in field NUMBER and
+# only the second would be seen -- an unrecognised pin here is invisible, which
+# is the failure this file exists to prevent.
+provenance_pinned_fprs() {
+  sed -n "s/$PROVENANCE_COMMENT_RE//p" "$@" 2>/dev/null \
+    | awk -v PIN="$PROVENANCE_PIN_INTENT_RE" -v FPR="$PROVENANCE_FPR_RE" '
+        tolower($0) ~ PIN && $3 ~ FPR { print $3 }' \
+    | sort -u
+}

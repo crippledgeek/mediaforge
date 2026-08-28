@@ -1,5 +1,11 @@
 
 # Locally calculated 2026-08-25
+# no signature recorded: nettle-3.10.2.tar.gz.sig was made 2025-06-26 with
+# 343C2FF0FBEE5EC2EDBEF399F3599FF828C67298, which expired 2025-01-15 -- so the
+# signature postdates the expiry and gpg returns EXPKEYSIG. Re-checked for #40
+# against keys/343C2FF0FBEE5EC2EDBEF399F3599FF828C67298.asc (the same key gmp
+# pins, committed there because gmp's signature predates the lapse): the verdict
+# is unchanged and is now reproducible offline from the committed material.
 sha256  fe9ff51cb1f2abb5e65a6b8c10a92da0ab5ab6eaf26e7fc2b675c45f1fb519b5  nettle-3.10.2.tar.gz
 size    2644644  nettle-3.10.2.tar.gz
 
