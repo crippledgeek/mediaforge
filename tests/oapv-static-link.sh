@@ -39,7 +39,7 @@ fi
 if grep -rn -- '/oapv ' "$_pcdir/oapv.pc" "$_pcdir/libavcodec.pc" 2>/dev/null | grep -q -- '-L'; then
   _bad no-pc-emits-an-oapv-subdir-search-path \
     "$(grep -rn -- '/oapv ' "$_pcdir/oapv.pc" "$_pcdir/libavcodec.pc" 2>/dev/null \
-        | _evidence 10 '\-L')"
+        | _evidence 10 '-L')"
 else
   _pass no-pc-emits-an-oapv-subdir-search-path
 fi

@@ -124,9 +124,10 @@ _got=$(printf 'a\nb\nc\n' | _evidence 2 'nothing-here')
 _want 'evidence-falls-back-to-tail' "$_got" 'b
 c'
 
-# 9. ...and accepts a pattern beginning with a dash, which grep would otherwise
-#    read as an option.
-_got=$(printf 'x\n-L/nope\n' | _evidence 1 '\-L')
+# 9. ...and accepts a pattern beginning with a dash. Without the `--` in
+#    _evidence, `grep -iE "-L"` reads -L as --files-without-match and prints
+#    "(standard input)" instead of the matching line -- measured, not assumed.
+_got=$(printf 'x\n-L/nope\n' | _evidence 1 '-L')
 _want 'evidence-accepts-dash-pattern' "$_got" '-L/nope'
 
 if [ -z "$_wrong" ]; then

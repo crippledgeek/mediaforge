@@ -49,8 +49,9 @@
 # `FAIL [name]` with no diagnosis at all; and an uncapped `cat` of a linker log
 # becomes one flattened multi-kilobyte line, since _bad collapses newlines.
 #
-# `grep -- "$2"` so a pattern beginning with a dash (`\-L`) is read as a pattern
-# rather than as options.
+# `grep -- "$2"` so a pattern beginning with a dash (`-L`) is read as a pattern
+# rather than as options: without it `grep -iE "-L"` takes -L as
+# --files-without-match and prints "(standard input)" instead of the match.
 _evidence() {
   _ev=$(cat)
   _ev_hit=$(printf '%s\n' "$_ev" | grep -iE -- "$2" | head -n "$1")
