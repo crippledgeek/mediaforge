@@ -120,4 +120,12 @@ else
 fi
 
 printf 'DONE: assert-reporter\n'
-exit "$_fail"
+
+# Exits on $_wrong, NOT on $_fail, and this is the one file in the suite that
+# should. Every other test trusts _bad to set _fail; here _fail IS part of the
+# subject, so trusting it would let a _bad that stopped setting it print a FAIL
+# line and still exit 0 -- measured: mutating `_fail=1` out of the library left
+# this file reporting the defect on stdout while tests/run.sh, which reads exit
+# status, went green.
+[ -z "$_wrong" ] || exit 1
+exit 0
