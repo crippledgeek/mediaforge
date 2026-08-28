@@ -117,6 +117,20 @@ default_noop() {
   :
 }
 
+# Accumulate this recipe's FFmpeg configure flag.
+#
+# run_recipe has THREE exits -- already-stamped, dry-run, and a completed build --
+# and every one of them must contribute the flag, or FFmpeg is configured without
+# a codec whose library is present. That invariant was three identical copies of
+# the same four lines, so a fourth exit path would have had to remember it; now
+# it is one call. tests/dry-run-matrix.sh is what would eventually notice a miss,
+# and only for the dry-run path.
+accumulate_ffmpeg_opt() {
+  if [ -n "$PKG_FFMPEG_OPT" ]; then
+    FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
+  fi
+}
+
 # Reset all PKG_* variables and phase functions between recipes
 reset_recipe() {
   PKG_NAME=""
@@ -358,18 +372,14 @@ run_recipe() {
   # Check stamp (stamp_check returns 1 if already built)
   if ! stamp_check "$PKG_NAME" "$PKG_VERSION"; then
     # Already built — accumulate ffmpeg option and skip
-    if [ -n "$PKG_FFMPEG_OPT" ]; then
-      FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
-    fi
+    accumulate_ffmpeg_opt
     return 0
   fi
 
   # Dry-run short-circuit: print intent, accumulate ffmpeg flag, skip download/build
   if [ "${DRY_RUN:-false}" = true ]; then
     log "Would build $PKG_NAME-$PKG_VERSION"
-    if [ -n "$PKG_FFMPEG_OPT" ]; then
-      FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
-    fi
+    accumulate_ffmpeg_opt
     return 0
   fi
 
@@ -417,10 +427,7 @@ run_recipe() {
   # Mark as done
   stamp_write "$PKG_NAME" "$PKG_VERSION"
 
-  # Accumulate ffmpeg configure option
-  if [ -n "$PKG_FFMPEG_OPT" ]; then
-    FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
-  fi
+  accumulate_ffmpeg_opt
 
   # Restore compiler flags
   CFLAGS="$_saved_cflags"

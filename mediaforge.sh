@@ -231,6 +231,23 @@ _add_skip_checksum() {
 
 # ─── Build ───────────────────────────────────────────────────────────
 
+# Source the requested version profile, if one was named.
+#
+# Three subcommands need it -- build, check-updates and makesum -- and each had
+# its own copy. They had already drifted: two logged which profile was in use and
+# one did so silently, so `check-updates --profile=7.1` gave no indication it was
+# reading 7.1's pins. One definition, and it always says.
+load_profile() {
+  [ -n "$PROFILE_NAME" ] || return 0
+  _profile_file="$SCRIPT_DIR/profiles/ffmpeg-${PROFILE_NAME}.conf"
+  if [ ! -f "$_profile_file" ]; then
+    die "Profile not found: $_profile_file"
+  fi
+  # shellcheck disable=SC1090
+  . "$_profile_file"
+  log "Using profile: ffmpeg-${PROFILE_NAME}"
+}
+
 cmd_build() {
   # Unified option parser — handles both short and long options
   while [ $# -gt 0 ]; do
@@ -448,14 +465,7 @@ cmd_build() {
   fi
 
   # Load version profile if specified
-  if [ -n "$PROFILE_NAME" ]; then
-    _profile_file="$SCRIPT_DIR/profiles/ffmpeg-${PROFILE_NAME}.conf"
-    if [ ! -f "$_profile_file" ]; then
-      die "Profile not found: $_profile_file"
-    fi
-    . "$_profile_file"
-    log "Using profile: ffmpeg-${PROFILE_NAME}"
-  fi
+  load_profile
 
   # Setup traps
   setup_traps
@@ -665,13 +675,7 @@ cmd_check_updates() {
     shift
   done
 
-  if [ -n "$PROFILE_NAME" ]; then
-    _profile_file="$SCRIPT_DIR/profiles/ffmpeg-${PROFILE_NAME}.conf"
-    if [ ! -f "$_profile_file" ]; then
-      die "Profile not found: $_profile_file"
-    fi
-    . "$_profile_file"
-  fi
+  load_profile
 
   . "$SCRIPT_DIR/lib/updates.sh"
   check_updates
@@ -773,14 +777,7 @@ cmd_makesum() {
     return
   fi
 
-  if [ -n "$PROFILE_NAME" ]; then
-    _profile_file="$SCRIPT_DIR/profiles/ffmpeg-${PROFILE_NAME}.conf"
-    if [ ! -f "$_profile_file" ]; then
-      die "Profile not found: $_profile_file"
-    fi
-    . "$_profile_file"
-    log "Using profile: ffmpeg-${PROFILE_NAME}"
-  fi
+  load_profile
 
   # Same validation cmd_build's --enable=/--disable= go through, so a typo
   # fails fast with a suggestion instead of silently matching nothing.
