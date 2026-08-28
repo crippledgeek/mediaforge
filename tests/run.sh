@@ -59,6 +59,12 @@ sh tests/upstream-provenance.sh
 # holder can change afterwards, so without the material a recorded verdict can
 # flip with no commit touching this tree.
 sh tests/signing-keys.sh
+# Pins the sidecar comment grammar (#45): overriding HASH_COMMENT_RE must change
+# what hash_file_validate and hash_lookup do. Asserted by mutation rather than by
+# grep, because the claim is that the parsers READ the shared definition -- a
+# second copy spelled differently would satisfy a grep and still be a second
+# copy. Nothing else in the suite would notice one.
+sh tests/hash-comment-grammar.sh
 # Runs the unmerged test files against the merge base and fails if any assertion
 # passes there. Catches the oracle that drifted into matching an error message,
 # and the fixture whose path collided with the value it was distinguishing —

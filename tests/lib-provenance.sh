@@ -1,5 +1,12 @@
 # shellcheck shell=sh
-# The `# with key <fingerprint>` grammar, defined ONCE.
+# The `# with key <fingerprint>` pin grammar, defined ONCE.
+#
+# The comment MARKER that heads such a line is not here: it lives in
+# lib/download.sh, which parses the same sidecars to read their digests, and this
+# file sources it below. #45 moved it there. The split follows the consumers --
+# a build asks where the records are, only the tests ask which keys the tree
+# pins -- and putting the marker anywhere else left the production parser
+# holding a hand-written copy of it.
 #
 # Two files ask different questions of this line -- tests/upstream-provenance.sh
 # asks whether a stanza is well formed, tests/signing-keys.sh asks which
@@ -32,21 +39,19 @@
 # A line matching the first but not the second is a malformed pin: loud, and
 # never counted as a usable one.
 #
-# PROVENANCE_COMMENT_RE strips the comment marker. It is shared for the same
-# reason the two above are: "how much of the line is the marker" is part of the
-# same grammar, and it was the half still written twice after the first
-# convergence. The pattern uses no construct that differs between BRE and ERE,
-# which is what lets one string serve both `sed s///` here and awk's `sub()` in
-# tests/upstream-provenance.sh.
+# HASH_COMMENT_RE, from lib/download.sh, strips the marker. It is shared for the
+# same reason the two above are: "how much of the line is the marker" is part of
+# the same grammar, and it was the half still written three times after the
+# first convergence -- once here and once in each of lib/download.sh's two
+# parsers.
+# Its no-backslash constraint is documented at its definition and applies to
+# every consumer, this file's `sed` included.
 #
-# It must also contain NO BACKSLASH. The awk consumers receive it through
-# `-v`, which performs escape processing on the assigned value while sed does
-# not: `^\t*#` reaches awk as a literal tab and sed as backslash-t. A widening
-# that used \t, \. or \\ would therefore reach the two kinds of consumer
-# DIFFERENTLY -- the silent divergence this constant exists to prevent, arriving
-# through the mechanism meant to prevent it. Character classes express
-# everything needed here without one.
-PROVENANCE_COMMENT_RE='^[[:space:]]*#[[:space:]]*'
+# Requires $ROOT to be set by the caller, for the source line below.
+
+# shellcheck source=lib/download.sh
+. "$ROOT/lib/download.sh"
+
 PROVENANCE_PIN_INTENT_RE='^with[[:space:]]+key[[:space:]]+[0-9a-f]+[[:space:]]*$'
 PROVENANCE_FPR_RE='^[0-9A-F]{40}$'
 
@@ -58,7 +63,7 @@ PROVENANCE_FPR_RE='^[0-9A-F]{40}$'
 # only the second would be seen -- an unrecognised pin here is invisible, which
 # is the failure this file exists to prevent.
 provenance_pinned_fprs() {
-  sed -n "s/$PROVENANCE_COMMENT_RE//p" "$@" 2>/dev/null \
+  sed -n "s/$HASH_COMMENT_RE//p" "$@" 2>/dev/null \
     | awk -v PIN="$PROVENANCE_PIN_INTENT_RE" -v FPR="$PROVENANCE_FPR_RE" '
         tolower($0) ~ PIN && $3 ~ FPR { print $3 }' \
     | sort -u

@@ -35,8 +35,8 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT" || exit 1
 _fail=0
 
-_pass() { printf 'PASS [%s]\n' "$1"; }
-_bad()  { printf 'FAIL [%s] %s\n' "$1" "${2-}" >&2; _fail=1; }
+# shellcheck source=tests/lib-assert.sh
+. "$ROOT/tests/lib-assert.sh"
 
 # Every filename in this repository's OWN sources, one per line. Membership in
 # this list is what separates an in-tree citation (rots) from an external one
@@ -107,7 +107,14 @@ IFS=$_oldifs
 if [ "$_n" -eq 0 ]; then
   _pass no-in-tree-line-number-citations
 else
-  _bad no-in-tree-line-number-citations "$_n comment(s) cite an in-tree file by line number; cite the function or symbol instead:$_offenders"
+  # The offender list prints separately rather than as the _bad detail: the
+  # shared reporter flattens newlines (see tests/lib-assert.sh), which is right
+  # for a one-line message and would run this list into a single unreadable line.
+  _bad no-in-tree-line-number-citations "$_n comment(s) cite an in-tree file by line number; cite the function or symbol instead"
+  # $_offenders is built by prepending "\n    ..." per hit, so it opens with an
+  # empty line; drop the blanks rather than the leading newline, which is what
+  # keeps one offender per line.
+  printf '%s\n' "$_offenders" | sed '/^[[:space:]]*$/d' >&2
 fi
 
 printf 'DONE:\n'

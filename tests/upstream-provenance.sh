@@ -39,8 +39,8 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT" || exit 1
 . "$ROOT/tests/lib-provenance.sh"
 _fail=0
 
-_pass() { printf 'PASS [%s]\n' "$1"; }
-_bad()  { printf 'FAIL [%s] %s\n' "$1" "$(printf '%s' "${2-}" | tr '\n' ' ')" >&2; _fail=1; }
+# shellcheck source=tests/lib-assert.sh
+. "$ROOT/tests/lib-assert.sh"
 
 # Floor, not an exact count: #36 recorded 19 upstream digests, and a sidecar
 # legitimately loses a block when a profile drops a pinned version. Ten is far
@@ -69,7 +69,7 @@ _MIN_UPSTREAM_CLAIMS=10
 # that the negative test exercises must be the same one the tree is checked
 # with, or the test proves nothing about the tree.
 _scan_claims() {
-  awk -v F="$1" -v CMT="$PROVENANCE_COMMENT_RE" '
+  awk -v F="$1" -v CMT="$HASH_COMMENT_RE" '
     function check(  i, a) {
       for (i = 1; i <= nc; i++) {
         a = calgo[i]
@@ -139,7 +139,7 @@ _size_claims() {
 # an independent packager pins and therefore what can be corroborated.
 _scan_sigs() {
   awk -v F="$1" -v PIN="$PROVENANCE_PIN_INTENT_RE" -v FPR="$PROVENANCE_FPR_RE" \
-      -v CMT="$PROVENANCE_COMMENT_RE" '''
+      -v CMT="$HASH_COMMENT_RE" '''
     function check(  ) {
       if (!url && !key) return
       if (url && !key) printf("%s: block verifies %s but names no key\n", F, url)

@@ -36,8 +36,8 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT" || exit 1
 _fail=0
 
-_pass() { printf 'PASS [%s]\n' "$1"; }
-_bad()  { printf 'FAIL [%s] %s\n' "$1" "${2-}" >&2; _fail=1; }
+# shellcheck source=tests/lib-assert.sh
+. "$ROOT/tests/lib-assert.sh"
 
 # -- Fixture: a repo with an OLD commit, then a NEWER one carrying a tag. -----
 # Mirrors the real shape: rtmpdump's `v2.6` tag resolves to a commit ten ahead

@@ -28,8 +28,8 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT" || exit 1
 _fail=0
 
-_pass() { printf 'PASS [%s]\n' "$1"; }
-_bad()  { printf 'FAIL [%s] %s\n' "$1" "${2-}" >&2; _fail=1; }
+# shellcheck source=tests/lib-assert.sh
+. "$ROOT/tests/lib-assert.sh"
 
 HOOK=.githooks/pre-push
 ZERO=0000000000000000000000000000000000000000

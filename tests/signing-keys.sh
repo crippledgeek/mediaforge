@@ -49,8 +49,8 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT" || exit 1
 . "$ROOT/tests/lib-provenance.sh"
 _fail=0
 
-_pass() { printf 'PASS [%s]\n' "$1"; }
-_bad()  { printf 'FAIL [%s] %s\n' "$1" "$(printf '%s' "${2-}" | tr '\n' ' ')" >&2; _fail=1; }
+# shellcheck source=tests/lib-assert.sh
+. "$ROOT/tests/lib-assert.sh"
 
 KEYDIR=keys
 
@@ -255,7 +255,7 @@ fi
 INDEX=$KEYDIR/INDEX
 
 _index_fprs() {
-  awk -v CMT="$PROVENANCE_COMMENT_RE" '$0 ~ CMT || NF == 0 { next } { print $1 }' \
+  awk -v CMT="$HASH_COMMENT_RE" '$0 ~ CMT || NF == 0 { next } { print $1 }' \
     "$INDEX" 2>/dev/null | sort -u
 }
 

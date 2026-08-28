@@ -40,6 +40,47 @@ file_size() {
   wc -c < "$1" | tr -d ' '
 }
 
+# HASH_COMMENT_RE -- how much of a line is the comment marker, for the `.hash`
+# sidecars this file parses and for `keys/INDEX`, which tests/signing-keys.sh
+# reads with the same grammar.
+#
+# Defined ONCE, here, because the two consumers below and the test files that
+# parse the same KIND of line all ask the same question of it. The test-side
+# list is deliberately not enumerated: it drifted twice in the three commits
+# that introduced this constant. `grep -rl HASH_COMMENT_RE tests/` finds every
+# file that mentions it, which is a SUPERSET of the parsers -- some files probe
+# the constant or name it in prose instead. A superset that cannot rot beats an
+# exact list that has.
+#
+# The marker was written out three times before this constant existed, and #44
+# converged only the test side; the two copies that survived were the production
+# ones, in the functions tests/checksum-verification.sh exercises.
+#
+# The pin grammar that reads the REST of such a comment -- `# with key <fpr>` --
+# lives in tests/lib-provenance.sh, which sources this file for the marker. It
+# stays there because nothing in a build asks which keys the tree pins; only the
+# tests do. Splitting on that line keeps each half in the file that consumes it.
+#
+# The pattern contains NO BACKSLASH, and must not grow one. Consumers receive it
+# through awk's `-v`, which performs escape processing on the assigned value,
+# while `sed` does not: `^\t*#` would reach awk as a literal tab and sed as
+# backslash-t. A widening using \t, \. or \\ would therefore reach the two kinds
+# of consumer DIFFERENTLY -- the silent divergence this constant exists to
+# prevent, arriving through the mechanism meant to prevent it. Character classes
+# express everything needed here without one.
+#
+# No `${VAR:?}` guard at the two consumers below, deliberately. They live in this
+# file, and the assignment is unconditional top-level code above them, so no
+# reachable path reaches them with it empty -- colocation is the guarantee, which
+# is why the constant was moved here rather than into a constants file nobody
+# remembers to source. (For the test consumers the guarantee is their `.` line,
+# not colocation.) A per-call guard would also be worse than useless in
+# hash_lookup: every call site is a command substitution, so `${VAR:?}` would
+# exit only the subshell and hand the caller the empty digest it was meant to
+# prevent. That last point holds because nothing in the call chain sets `-e`; a
+# future `set -e` would invert it.
+HASH_COMMENT_RE='^[[:space:]]*#[[:space:]]*'
+
 # hash_file_validate HASHFILE
 # Die unless every record in HASHFILE is well formed. A parser that skipped a
 # line it could not read would silently skip a digest, so every defect is
@@ -52,8 +93,8 @@ file_size() {
 # it; keeping a weak-hash code path out of the tree entirely is the point.
 hash_file_validate() {
   _hf="$1"
-  _err=$(awk '
-    /^[[:space:]]*#/ { next }
+  _err=$(awk -v CMT="$HASH_COMMENT_RE" '
+    $0 ~ CMT { next }
     /^[[:space:]]*$/ { next }
     {
       if (NF != 3) { printf("line %d: expected 3 fields, got %d\n", NR, NF); next }
@@ -89,8 +130,8 @@ $_err"
 # hash_lookup HASHFILE FILENAME KEYWORD
 # Print the recorded value for that (filename, keyword) pair, or nothing.
 hash_lookup() {
-  awk -v want="$2" -v key="$3" '
-    /^[[:space:]]*#/ { next }
+  awk -v want="$2" -v key="$3" -v CMT="$HASH_COMMENT_RE" '
+    $0 ~ CMT { next }
     /^[[:space:]]*$/ { next }
     NF == 3 && $1 == key && $3 == want { print $2; exit }
   ' "$1"
