@@ -24,7 +24,8 @@ _output=$(./mediaforge.sh build --tls=mbedtls --dry-run --yes 2>&1) || true
 if printf '%s' "$_output" | grep -q "tls=mbedtls"; then
   _pass cli-tls-wins-with-whiptail-masked
 else
-  _bad cli-tls-wins-with-whiptail-masked "did not pick mbedtls: $_output"
+  _bad cli-tls-wins-with-whiptail-masked \
+    "did not pick mbedtls: $(printf '%s\n' "$_output" | grep 'Choices:')"
 fi
 
 # Confirm that non-interactive (no TTY) invocations apply the conservative default
@@ -32,7 +33,8 @@ _output=$(./mediaforge.sh build --dry-run --yes 2>&1) || true
 if printf '%s' "$_output" | grep -q "tls=gnutls"; then
   _pass non-interactive-default-is-gnutls
 else
-  _bad non-interactive-default-is-gnutls "$_output"
+  _bad non-interactive-default-is-gnutls \
+    "$(printf '%s\n' "$_output" | grep 'Choices:')"
 fi
 
 exit "$_fail"
