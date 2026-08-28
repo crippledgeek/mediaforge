@@ -11,8 +11,7 @@
 # -g flags, and one encode of the same 20s fixture took 0.34s against 0.11s at
 # -O2. Three times slower, shipped in every release since the first commit.
 # dav1d and svtav1 were unaffected because meson and cmake set optimization
-# themselves,
-# which is why the symptom never showed up as a whole-tree slowdown.
+# themselves, which is why the symptom never showed up as a whole-tree slowdown.
 #
 # The GNU coding standards state the rule this file enforces: CFLAGS belongs to
 # the user ("Users expect to be able to specify CFLAGS freely themselves") and a
@@ -220,6 +219,43 @@ if [ "$_decl" -ge 12 ]; then
   _pass c-std-declarations-present
 else
   _bad c-std-declarations-present "only $_decl recipe(s) declare PKG_C_STD; expected >=12"
+fi
+
+# --- no recipe may REPLACE the composed flag line ---------------------------
+# The ownership fix reaches a recipe only if the recipe extends $CFLAGS rather
+# than assigning over it. Two did the latter and were invisible to it:
+#
+#   bzip2  passed CFLAGS= as a make COMMAND-LINE variable, which outranks the
+#          environment entirely -- so the operator's flags, the -O2 default and
+#          everything else were discarded, and its own hardcoded "-O2 -g" is why
+#          libbz2.a was the only archive in workspace/lib carrying DWARF.
+#   dav1d  did `export CFLAGS="-arch arm64"` on macOS ARM, replacing the whole
+#          line: no -fPIC, no optimization, no user flags, and -- the part that
+#          is a plain bug rather than a policy question -- no -I$PREFIX/include.
+#
+# Both are the same defect this file exists to pin, one layer down. A recipe
+# setting CFLAGS is fine; a recipe setting it WITHOUT deriving from $CFLAGS is
+# not. The check looks for an assignment whose right-hand side never mentions
+# $CFLAGS, which is exactly the distinction.
+# The dollar is built rather than written literally. Inside single quotes the
+# linter reads it as a failed expansion (SC2016), and it is neither an expansion
+# nor a mistake here -- it is the character being searched for. Note also that a
+# comment line may not BEGIN with the linter's own name, or the line is parsed
+# as a directive (SC1072/SC1073); that is why this paragraph is worded around it.
+_d='$'
+# Comment lines are excluded first. Both fixed recipes now carry a comment
+# QUOTING the old assignment so the next reader knows why the derivation
+# matters, and a check that reads prose as code reports the explanation as the
+# offence -- which is exactly what happened on the first run of this assertion.
+_clobber=$(grep -rnE '(^|[^_[:alnum:]])(export +)?CFLAGS=' recipes/ 2>/dev/null \
+           | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' \
+           | grep -vF "CFLAGS=\"${_d}CFLAGS" \
+           | grep -vF "${_d}CFLAGS\"" \
+           | grep -vE "_cflagsbackup|CFLAGS=\"[${_d}]_" || true)
+if [ -z "$_clobber" ]; then
+  _pass no-recipe-replaces-composed-cflags
+else
+  _bad no-recipe-replaces-composed-cflags "$(printf '%s' "$_clobber" | head -3)"
 fi
 
 printf 'DONE: compiler-flags\n'

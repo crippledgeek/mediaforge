@@ -10,7 +10,12 @@ PKG_REQUIRES_MESON=true
 pkg_configure() {
   _cflagsbackup="$CFLAGS"
   if [ "$OS_MACOS_ARM" = true ]; then
-    export CFLAGS="-arch arm64"
+    # APPEND, never replace. This used to assign CFLAGS="-arch arm64" outright,
+    # which on macOS ARM threw away the operator's flags, the -O2 default,
+    # -fPIC, and -- the part that is a plain bug rather than a policy question --
+    # mediaforge's own -I$PREFIX/include, so the build lost the prefix's headers
+    # on exactly the platform this branch exists to support.
+    export CFLAGS="$CFLAGS -arch arm64"
   fi
   rm -rf build && mkdir -p build
   # FFmpeg links libdav1d.a; it never invokes dav1d's CLI. Building the tools

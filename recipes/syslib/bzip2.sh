@@ -14,7 +14,23 @@ pkg_configure() {
 }
 
 pkg_build() {
-  run make -j "$MJOBS" CFLAGS="-Wall -Winline -O2 -g -D_FILE_OFFSET_BITS=64 -fPIC" libbz2.a
+  # CFLAGS has to be passed on the make COMMAND LINE, not exported: bzip2's
+  # Makefile assigns its own CFLAGS, and a make command-line variable is the
+  # only thing that outranks that assignment.
+  #
+  # It must be DERIVED from the composed line rather than replacing it, which is
+  # what it used to do. The old literal was
+  #   "-Wall -Winline -O2 -g -D_FILE_OFFSET_BITS=64 -fPIC"
+  # and because a command-line variable outranks the environment, it discarded
+  # the operator's CFLAGS, mediaforge's include path, and the -O2 default alike.
+  # Its hardcoded "-g" is also why libbz2.a was the ONLY archive in
+  # workspace/lib carrying DWARF -- an accident, not a decision.
+  #
+  # What stays local is what is genuinely bzip2's: its two warning flags and
+  # _FILE_OFFSET_BITS=64 (upstream's BIGFILES). -O2 and -fPIC are dropped
+  # because the composed line already carries both.
+  run make -j "$MJOBS" \
+    CFLAGS="$CFLAGS -Wall -Winline -D_FILE_OFFSET_BITS=64" libbz2.a
 }
 
 pkg_install() {
