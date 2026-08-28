@@ -67,6 +67,12 @@ pkg_build() {
 pkg_install() {
   # Pass the same CRYPTO so `install_base`'s librtmp.pc target substitutes
   # the matching REQ_$(CRYPTO) into Requires.
+  # XCFLAGS on this run too: `install` depends on install_base, which depends on
+  # librtmp.a, so the install target has a compilable prerequisite. It is
+  # up to date by the time this runs and rebuilds nothing today -- but that is a
+  # property of build order, not of the command, and the two invocations
+  # disagreeing on flags is the shape giflib was just fixed for.
   _crypto=$(_librtmp_crypto)
-  run make SYS=posix prefix="$PREFIX" SHARED= CRYPTO="$_crypto" install
+  run make SYS=posix prefix="$PREFIX" SHARED= CRYPTO="$_crypto" \
+    XCFLAGS="$CFLAGS -I$PREFIX/include" XLDFLAGS="-L$PREFIX/lib" install
 }

@@ -591,5 +591,87 @@ else
   done
 fi
 
+# --- the eighth path: build files that turn the knobs back --------------------
+# Three archives came out of a full --debug=full build without what the level
+# promised, and none of them was a missing knob -- each was a project's own build
+# file overriding one we had already set. They are pinned here by mechanism.
+#
+# liblc3: its meson.build carries default_options: ['b_lto=true']. Our
+# --buildtype replaces the buildtype sitting right beside it and leaves b_lto
+# alone, and an LTO object holds GIMPLE rather than DWARF -- so liblc3.a had zero
+# .debug_info across all 12 members while meson-info reported buildtype debug,
+# debug True and optimization 0, every one of them correctly applied. --debug's
+# help text promises "Forces LTO off"; for meson recipes it now does.
+for _lv in symbols balanced full; do
+  _d "meson-lto-off-$_lv" mf_debug_meson_args "$_lv" '*-Db_lto=false*'
+done
+if _have mf_debug_meson_args && [ -z "$(mf_debug_meson_args '')" ]; then
+  _pass meson-none-when-no-debug
+else
+  _bad meson-none-when-no-debug "expected empty"
+fi
+
+# The assertions column exists because libvpx needed to ASK. Its --enable-debug
+# keeps symbols and drops -DNDEBUG in one flag, so a recipe reaching for it at
+# `symbols` would turn assertions on at the one level promising no measurable
+# cost. The concept was already spelled three ways above -- meson's b_ndebug,
+# cmake's Debug-vs-RelWithDebInfo, FFmpeg's --disable-optimizations -- and a
+# build system speaking none of them had no way to read it.
+_d assertions-symbols-off  mf_debug_assertions symbols  'off'
+_d assertions-balanced-on  mf_debug_assertions balanced 'on'
+_d assertions-full-on      mf_debug_assertions full     'on'
+if _have mf_debug_assertions && [ -z "$(mf_debug_assertions '')" ]; then
+  _pass assertions-none-when-no-debug
+else
+  _bad assertions-none-when-no-debug "expected empty"
+fi
+# The column must AGREE with the two vocabularies that already encode it, or the
+# tree says two different things about the same level.
+_d assertions-agree-symbols-meson mf_debug_meson_args symbols  '*-Db_ndebug=true*'
+_d assertions-agree-full-meson    mf_debug_meson_args full     '*-Db_ndebug=false*'
+
+# libvpx builds libvpx_g.a with the symbols and installs a stripped copy of it
+# (measured: 52.8 MB / 460 debug sections vs 4.9 MB / none). It must disable
+# that strip, and it must read the assertions column rather than deciding for
+# itself which levels want -DNDEBUG dropped.
+_wired vpx-disables-the-strip   recipes/video/libvpx.sh 'HAVE_GNU_STRIP=no'
+_wired vpx-reads-assertions     recipes/video/libvpx.sh 'mf_debug_assertions'
+# ...and APPLIES both, rather than defining helpers nothing calls. Matched with
+# a regex whose "." stands in for the dollar, the same way the rav1e assertion
+# above does it, so this file contains no literal $( inside quotes for the
+# linter to read as a failed expansion.
+# Folded through _mf_logical first: the call sits on a continuation line, and a
+# line-oriented grep reads the invocation and its arguments as separate lines --
+# the same trap the bare-make scan above folds for.
+if _mf_logical recipes/video/libvpx.sh |
+     grep -qE -- 'run ./configure.*.\(_libvpx_debug_configure\)'; then
+  _pass vpx-applies-configure
+else
+  _bad vpx-applies-configure "the configure helper is defined but never called"
+fi
+if _mf_logical recipes/video/libvpx.sh |
+     grep -qE -- 'run make.*.\(_libvpx_debug_make\)'; then
+  _pass vpx-applies-make
+else
+  _bad vpx-applies-make "the make helper is defined but never called"
+fi
+
+# libilbc ASSIGNS CMAKE_C_FLAGS, replacing what cmake takes from the
+# environment. Fixed by patch, not by a -D: a plain set() in a CMakeLists makes
+# a normal variable that shadows the cache entry -DCMAKE_C_FLAGS_DEBUG writes,
+# so the flag would be accepted and ignored.
+_wired ilbc-applies-the-patch recipes/audio/libilbc.sh 'libilbc-cmake-append-flags.patch'
+if [ -f patches/libilbc-cmake-append-flags.patch ]; then
+  _pass ilbc-patch-exists
+else
+  _bad ilbc-patch-exists "recipe applies a patch that is not in the tree"
+fi
+# The patch must APPEND rather than assign, which is the whole point of it.
+if grep -q 'CMAKE_C_FLAGS}' patches/libilbc-cmake-append-flags.patch 2>/dev/null; then
+  _pass ilbc-patch-appends
+else
+  _bad ilbc-patch-appends "the patch assigns the flags instead of appending to them"
+fi
+
 printf 'DONE: debug-levels\n'
 exit "$_fail"

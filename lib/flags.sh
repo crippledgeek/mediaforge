@@ -87,7 +87,16 @@ MF_DEFAULT_OPT="-O2"
 #   1 optimization   flows through MF_DEFAULT_OPT so the operator's -O still wins
 #   2 symbol flags   empty when no level is active, so a normal build is unchanged
 #   3 cmake type     forced OVER the recipe's own; empty leaves the recipe alone
-#   4 meson args     buildtype AND b_ndebug, which meson does not tie together
+#   4 meson args     buildtype AND b_ndebug, which meson does not tie together,
+#                    AND b_lto=false. That last is not belt-and-braces: liblc3's
+#                    own meson.build carries default_options: ['b_lto=true'], and
+#                    our --buildtype overrides the buildtype beside it while
+#                    leaving b_lto alone. LTO objects hold GIMPLE rather than
+#                    DWARF, so liblc3.a came out of a --debug=full build with
+#                    zero .debug_info across all 12 members -- while --debug's
+#                    own help text promises "Forces LTO off". Measured, not
+#                    reasoned: meson-info reported b_lto=True with buildtype
+#                    debug, debug True and optimization 0 all correctly applied.
 #   5 ffmpeg opts    without --disable-stripping the final binary is stripped
 #                    whatever the ~110 libraries did
 #   7 cargo env       profile overrides for cargo, which compiles Rust and reads
@@ -119,6 +128,17 @@ MF_DEFAULT_OPT="-O2"
 #                    2. `-lineinfo` is the cheap one (line tables, device
 #                    optimization intact) and `-G` is full device debug, which
 #                    disables device optimization the way -O0 does on the host.
+#   9 assertions     whether THIS level wants assertions compiled in, as a plain
+#                    on/off a recipe can branch on. The concept already exists
+#                    three times above in three vocabularies -- meson's
+#                    b_ndebug, cmake's Debug-vs-RelWithDebInfo, and FFmpeg's
+#                    own --disable-optimizations -- and a build system speaking
+#                    none of them had no way to ask. libvpx is the one: its
+#                    --enable-debug both keeps symbols AND drops -DNDEBUG, so a
+#                    recipe reaching for it at `symbols` would turn assertions
+#                    on at the one level whose promise is no measurable cost.
+#                    Stated here so the recipe asks rather than re-deriving what
+#                    each level means.
 #   6 canonical name  the level's own name, empty for the no-level row. Validity
 #                    is derived from THIS rather than from the symbol flags: a
 #                    future strip-only or NDEBUG-only level would legitimately
@@ -133,24 +153,24 @@ mf_debug_field() { # level field-number
   case "$1" in
     symbols)
       set -- '-O2' '-g3 -fno-omit-frame-pointer' 'RelWithDebInfo' \
-             '--buildtype=debugoptimized -Db_ndebug=true' \
+             '--buildtype=debugoptimized -Db_ndebug=true -Db_lto=false' \
              '--enable-debug=3 --disable-stripping' 'symbols' \
              'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_LTO=false' \
-             '-lineinfo' ;;
+             '-lineinfo' 'off' ;;
     balanced)
       set -- '-Og' '-g3 -fno-omit-frame-pointer' 'Debug' \
-             '--buildtype=debug --optimization=g -Db_ndebug=false' \
+             '--buildtype=debug --optimization=g -Db_ndebug=false -Db_lto=false' \
              '--enable-debug=3 --disable-stripping --disable-optimizations' 'balanced' \
              'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_OPT_LEVEL=1 CARGO_PROFILE_RELEASE_LTO=false' \
-             '-g -lineinfo' ;;
+             '-g -lineinfo' 'on' ;;
     full)
       set -- '-O0' '-g3 -fno-omit-frame-pointer' 'Debug' \
-             '--buildtype=debug -Db_ndebug=false' \
+             '--buildtype=debug -Db_ndebug=false -Db_lto=false' \
              '--enable-debug=3 --disable-stripping --disable-optimizations' 'full' \
              'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_OPT_LEVEL=0 CARGO_PROFILE_RELEASE_LTO=false' \
-             '-g -G' ;;
+             '-g -G' 'on' ;;
     *)
-      set -- '-O2' '' '' '' '--disable-debug' '' '' '' ;;
+      set -- '-O2' '' '' '' '--disable-debug' '' '' '' '' ;;
   esac
   shift $((_mf_dbg_f - 1))
   printf '%s' "$1"
@@ -166,6 +186,7 @@ mf_debug_ffmpeg_opts() { mf_debug_field "$1" 5; }
 mf_debug_name()        { mf_debug_field "$1" 6; }
 mf_debug_cargo_env()   { mf_debug_field "$1" 7; }
 mf_debug_nvcc()        { mf_debug_field "$1" 8; }
+mf_debug_assertions()  { mf_debug_field "$1" 9; }
 
 # Validity is DERIVED from the table rather than being a separate list to keep
 # in step: a level is real exactly when the table echoes its own name back. An

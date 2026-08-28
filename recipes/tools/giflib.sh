@@ -28,8 +28,11 @@ pkg_build() {
   run make CFLAGS="$(_giflib_cflags)"
 }
 
-# Same macro on the install run: its `all` prerequisite relinks the shared
-# library, and a bare make there would build that half at the Makefile's -O2.
+# Same macro on the install run. Not because that run rebuilds anything today --
+# `all` is the default goal and pkg_build already built it with these flags, so
+# install finds everything up to date -- but because the two invocations must
+# agree: a macro that depends on build order for its correctness is one
+# reordering away from compiling half the library at the Makefile's -O2.
 pkg_install() {
   run make PREFIX="$PREFIX" CFLAGS="$(_giflib_cflags)" install
 }
