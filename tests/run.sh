@@ -65,7 +65,8 @@ sh tests/signing-keys.sh
 # second copy spelled differently would satisfy a grep and still be a second
 # copy. Nothing else in the suite would notice one.
 sh tests/hash-comment-grammar.sh
-# Pins the shared reporters themselves (#46): a defect in tests/lib-assert.sh
+# Pins the shared reporters and the evidence helper beside them (#46, #48): a
+# defect in tests/lib-assert.sh
 # does not fail a test — it changes what a passing test PRINTS, which is
 # exactly what oracle-baseline below counts. Nothing else asserts on that
 # output, and since #48 every test in this file routes through it, bar the two

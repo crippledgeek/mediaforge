@@ -14,21 +14,30 @@
 # `grep -c '^FAIL'` to decide whether a newly added file could detect its own
 # change, so the reporters' exact bytes are a gate input, not cosmetics.
 #
-# ONE compound assertion, deliberately -- it covers the reporters (probes 1-6)
-# and the _evidence helper they share (probes 7-9). oracle-baseline requires that no
-# assertion in a newly added file passes on the merge base, and five of the six
-# reporter probes below held there already — only the no-detail form's output
-# had a trailing space. Asserting them separately would put five free passes on
-# the base and the gate would correctly reject the file, so the whole contract
-# is asserted together with the one the base gets wrong carrying it. That is
-# also the honest shape: the claim is "the printed contract holds", not six
-# independent facts.
+# TWO assertions, and the split is deliberate.
 #
-# Every probe runs in its own shell rather than in this one, because _bad sets
-# _fail=1 by design — calling it here would fail this file for doing its job.
-# That shell also isolates the stream split: stdout and stderr are captured
+# Probes 1-6 are ONE compound assertion because oracle-baseline requires that no
+# assertion in a newly added file passes on the merge base, and five of the six
+# held there already — only the no-detail form's output had a trailing space.
+# Asserting them separately would put five free passes on the base and the gate
+# would correctly reject the file, so the printed contract is asserted together
+# with the one the base gets wrong carrying it.
+#
+# Probes 7-9 cover _evidence and stand alone, because that argument does not
+# reach them: _evidence does not exist on the base, so each of them fails there
+# and none is a free pass. Folding them in would report a broken helper as
+# `FAIL [reporter-output-contract-holds]` -- a name that does not name the claim
+# being made, which is the rule at tests/lib-assert.sh's head and the defect
+# that got a duplicate row deleted from tests/dry-run-matrix.sh on this branch.
+# _evidence is also not a reporter: it is not part of the printed contract
+# oracle-baseline reads with `grep -c '^PASS'`, which is what probes 1-6 are about.
+#
+# Probes 1-6 each run in their own shell rather than in this one, because _bad
+# sets _fail=1 by design — calling it here would fail this file for doing its
+# job. That shell also isolates the stream split: stdout and stderr are captured
 # separately, so "PASS went to stdout" and "FAIL went to stderr" are assertable
-# rather than assumed.
+# rather than assumed. Probes 7-9 need no isolation: _evidence touches neither
+# stream nor _fail, so they call it here.
 #
 # No `set -e`: the single check reports and this file exits with the accumulated
 # status, and the baseline gate depends on a file that reaches its DONE line.
@@ -114,6 +123,9 @@ EOF
 )
 _want 'pass-leaves-fail' "$_got" '0'
 
+_wrong_rep=$_wrong
+_wrong=''
+
 # 7. _evidence yields at most N matching lines...
 _got=$(printf 'a\nERROR one\nb\nERROR two\nc\n' | _evidence 1 'error')
 _want 'evidence-matches-and-caps' "$_got" 'ERROR one'
@@ -133,10 +145,18 @@ c'
 _got=$(printf 'x\n-L/nope\nlast\n' | _evidence 1 '-L')
 _want 'evidence-accepts-dash-pattern' "$_got" '-L/nope'
 
-if [ -z "$_wrong" ]; then
+_wrong_ev=$_wrong
+
+if [ -z "$_wrong_rep" ]; then
   _pass reporter-output-contract-holds
 else
-  _bad reporter-output-contract-holds "$_wrong"
+  _bad reporter-output-contract-holds "$_wrong_rep"
+fi
+
+if [ -z "$_wrong_ev" ]; then
+  _pass evidence-helper-contract-holds
+else
+  _bad evidence-helper-contract-holds "$_wrong_ev"
 fi
 
 printf 'DONE: assert-reporter\n'
@@ -147,5 +167,5 @@ printf 'DONE: assert-reporter\n'
 # line and still exit 0 -- measured: mutating `_fail=1` out of the library left
 # this file reporting the defect on stdout while tests/run.sh, which reads exit
 # status, went green.
-[ -z "$_wrong" ] || exit 1
+[ -z "$_wrong_rep$_wrong_ev" ] || exit 1
 exit 0
