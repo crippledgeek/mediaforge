@@ -41,6 +41,12 @@ sh tests/recipe-identity.sh
 # exited 0 regardless would leave the tree looking guarded when it is not, and
 # nothing else here would notice.
 sh tests/pre-push-hook.sh
+# Pins that the agent-artifact ignore patterns actually BITE. .gitignore fails
+# silently: a pattern that matches nothing is indistinguishable in `git status`
+# from one that works, and the artifact just shows up untracked and committable.
+# graphify-out/ was missing while every sibling was present, which is what this
+# was written for. Asks git, not the file's text, so an inert pattern is a miss.
+sh tests/gitignore-artifacts.sh
 # Pins the sidecar provenance convention (#36): a comment claiming "<algo> from
 # <URL>" must head a block that actually records that algo, and the extra
 # upstream digests must be CHECKED rather than inert. Nothing else in the suite
