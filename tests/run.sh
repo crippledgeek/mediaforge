@@ -52,6 +52,13 @@ sh tests/gitignore-artifacts.sh
 # upstream digests must be CHECKED rather than inert. Nothing else in the suite
 # reads a provenance comment, so an overclaiming one is otherwise invisible.
 sh tests/upstream-provenance.sh
+# Pins the committed signing keys (#40): a `# with key <fpr>` line must have the
+# matching keys/<fpr>.asc, a committed key must be cited by some block, and each
+# INDEX row must state what the committed bytes themselves say. The pin alone
+# records only WHICH key signed; expiry and revocation are self-signatures the
+# holder can change afterwards, so without the material a recorded verdict can
+# flip with no commit touching this tree.
+sh tests/signing-keys.sh
 # Runs the unmerged test files against the merge base and fails if any assertion
 # passes there. Catches the oracle that drifted into matching an error message,
 # and the fixture whose path collided with the value it was distinguishing —

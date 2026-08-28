@@ -1,0 +1,35 @@
+# Committed upstream signing keys, and what each one says about itself AS
+# COMMITTED (issue #40).
+#
+# Every key here is the material behind a `# with key <fingerprint>` line in a
+# recipe sidecar, exported minimal (`--export-options export-minimal`, so a key
+# carries its own self-signatures and no third party's) from
+# hkps://keyserver.ubuntu.com on 2026-08-28.
+#
+# WHY THE STATE IS RECORDED HERE. Expiry is a self-signature the holder can
+# extend at any time, and extending it flips a past signature from EXPKEYSIG to
+# GOODSIG with nothing about the signature or the bytes changing. Asking `gpg`
+# today answers about today; this file answers about pin time, and
+# tests/signing-keys.sh checks each row against the committed bytes so the two
+# cannot drift apart.
+#
+# THIS IS NOT A TRUST ROOT. The fingerprints are corroborated by Arch and
+# Buildroot pinning the same values, not by anything in this directory --
+# committing the key makes the record stable and auditable, not
+# self-authenticating.
+#
+# fingerprint                               state    expiry      primary uid
+155D3FC500C834486D1EEA677FD9FCCB000BEEEE  valid    -           Jim Meyering <jim@meyering.net>
+343C2FF0FBEE5EC2EDBEF399F3599FF828C67298  expired  2025-01-15  Niels Möller <nisse@lysator.liu.se>
+462225C3B46F34879FC8496CD605848ED7E69871  expired  2026-06-29  Daiki Ueno <ueno@unixuser.org>
+6B0E6B70976DE303EDF2F601F9C3D6BDB8232B5D  valid    -           WebP release signing key <webp-discuss@webmproject.org>
+6B99CE97F17F48C27F722D71023A4420C7EC6914  valid    -           Dan Nicholson <nicholson@endlessm.com>
+71C2CC22B1C4602927D2F3AAA7A16B4A2527436A  valid    -           Eric Blake <eblake@redhat.com>
+82F854F3CE73174B8B63174091FCC32B6769AA64  valid    -           Zack Weinberg <zackw@panix.com>
+88A228D89B07C2C77D0C780903D5DF8CFDD3E8E7  valid    2034-06-16  libssh release key (release key) <libssh@libssh.org>
+9001B85AF9E1B83DF1BDA942F5BE8B267C6A406D  expired  2025-02-10  Bruno Haible (Open Source Development) <bruno@clisp.org>
+907D226E7E13FA337F014A083672782A9BF368F3  valid    -           David Robillard <d@drobilla.net>
+B1FA7D81EEB8E66399178B9733EBBFC47B3DD87D  valid    -           Even Rouault <even.rouault@spatialys.com>
+B7B00AEE1F960EEA0FED66FB9259A8F2D2D44C84  expired  2026-03-16  Ralph Giles <giles@thaumas.net>
+E30674707856409FF1948010BE6C3AAC63AD8E3F  valid    -           Werner Lemberg <wl@gnu.org>
+EC3CFE88F6CA0788774F5C1D1AA44BE649DE760A  valid    -           Mark Wielaard <mark@klomp.org>

@@ -1,4 +1,10 @@
 
 # sha256 from https://cdn.openbsd.org/pub/OpenBSD/LibreSSL/SHA256
+# no signature recorded: libressl-4.3.2.tar.gz.asc was made 2026-05-26 by a
+# subkey of A1EB079B8D3EB92B4EBD3139663AF51BD5E4D8D5, which expired 2026-03-03
+# -- so the signature postdates the expiry and gpg returns EXPKEYSIG.
+# Re-checked for #40; the verdict is unchanged. The key is deliberately NOT
+# committed under keys/: nothing here cites it, and a committed key no block
+# references is the orphan tests/signing-keys.sh exists to reject.
 sha256  edf01aee24c65d69e6a9efcb9d44bcda682ff9d4f3bbbd95e794e1dfa90847b5  libressl-4.3.2.tar.gz
 size    9302254  libressl-4.3.2.tar.gz
