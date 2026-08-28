@@ -6,20 +6,23 @@
 # _bad does not fail a test, it changes what a passing test PRINTS — and
 # printing is the whole interface. Not the whole suite goes through it: several
 # tests still print PASS/FAIL inline, in spellings oracle-baseline counts
-# identically, and `grep -L lib-assert tests/*.sh` names them rather than a
-# count here that would drift. Converging those is not this file's job; being
-# correct about the ones that DO route through it is. tests/oracle-baseline.sh reads that
-# output with `grep -c '^PASS'` and `grep -c '^FAIL'` to decide whether a newly
-# added file could detect its own change, so the reporters' exact bytes are a
-# gate input, not cosmetics.
+# identically, and `grep -L lib-assert tests/*.sh` narrows them to a candidate
+# list rather than a count here that would drift -- it returns a superset,
+# since this library, tests/lib-provenance.sh and the two gates appear in it
+# too. Converging those is not this file's job; being correct about the ones
+# that DO route through it is.
+#
+# tests/oracle-baseline.sh reads that output with `grep -c '^PASS'` and
+# `grep -c '^FAIL'` to decide whether a newly added file could detect its own
+# change, so the reporters' exact bytes are a gate input, not cosmetics.
 #
 # ONE compound assertion, deliberately. oracle-baseline requires that no
 # assertion in a newly added file passes on the merge base, and five of the six
-# numbered probes below held there already — only the no-detail form's output had a
-# trailing space. Asserting them separately would put five free passes on the
-# base and the gate would correctly reject the file, so the whole contract is
-# asserted together with the one the base gets wrong carrying it. That is also
-# the honest shape: the claim is "the printed contract holds", not six
+# numbered probes below held there already — only the no-detail form's output
+# had a trailing space. Asserting them separately would put five free passes on
+# the base and the gate would correctly reject the file, so the whole contract
+# is asserted together with the one the base gets wrong carrying it. That is
+# also the honest shape: the claim is "the printed contract holds", not six
 # independent facts.
 #
 # Every probe runs in its own shell rather than in this one, because _bad sets
