@@ -111,7 +111,10 @@ else
   # shared reporter flattens newlines (see tests/lib-assert.sh), which is right
   # for a one-line message and would run this list into a single unreadable line.
   _bad no-in-tree-line-number-citations "$_n comment(s) cite an in-tree file by line number; cite the function or symbol instead"
-  printf '%s\n' "$_offenders" >&2
+  # $_offenders is built by prepending "\n    ..." per hit, so it opens with an
+  # empty line; drop the blanks rather than the leading newline, which is what
+  # keeps one offender per line.
+  printf '%s\n' "$_offenders" | sed '/^[[:space:]]*$/d' >&2
 fi
 
 printf 'DONE:\n'

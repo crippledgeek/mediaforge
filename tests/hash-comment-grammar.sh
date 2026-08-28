@@ -52,8 +52,11 @@
 # The consequence to know is that under probe 2 the comment lines are not treated
 # as comments either; the probe holds because a comment's first field is `#`, so
 # `$1 == key` can never fire on one whatever its field count. What WOULD break
-# probe 2 is a second three-field record for the same (filename, keyword) pair,
-# which the override does not mute -- not a comment of any shape.
+# probe 2 is a second three-field record for the same (filename, keyword) pair
+# placed BEFORE the real one -- not a comment of any shape. Note where that
+# breaks: the override mutes the duplicate too, so it is the SHIPPED-grammar
+# conjunct that fails, because hash_lookup prints the first match and exits and
+# would return the duplicate's digest.
 #
 # Narrowing is not observable in hash_lookup (neither comment line has three
 # fields, so it matches no lookup either way) and repointing is not observable in

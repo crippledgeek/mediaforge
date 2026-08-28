@@ -47,8 +47,10 @@ file_size() {
 # Defined ONCE, here, because the two consumers below and the test files that
 # parse the same KIND of line all ask the same question of it. The test-side
 # list is deliberately not enumerated: it drifted twice in the three commits
-# that introduced this constant, and `grep -rl HASH_COMMENT_RE tests/` answers
-# it without rotting.
+# that introduced this constant. `grep -rl HASH_COMMENT_RE tests/` finds every
+# file that mentions it, which is a SUPERSET of the parsers -- some files probe
+# the constant or name it in prose instead. A superset that cannot rot beats an
+# exact list that has.
 #
 # The marker was written out three times before this constant existed, and #44
 # converged only the test side; the two copies that survived were the production
