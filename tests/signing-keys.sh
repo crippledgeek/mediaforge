@@ -131,14 +131,21 @@ _epoch_to_iso() {
 }
 
 # _key_expiry FILE
-# Emit the primary key's expiry as YYYY-MM-DD, or `-` when it carries none.
+# Emit the primary key's expiry as YYYY-MM-DD, `-` when it carries none, or
+# `unreadable` when gpg cannot parse the file at all.
 #
 # Field 7 of the pub record is the expiration timestamp and is empty for a key
 # that never expires -- a different fact from a key whose expiry lies ahead, and
-# INDEX records them differently for that reason.
+# INDEX records them differently for that reason. An absent pub record is a
+# THIRD fact, and folding it into `-` would have reported an unparseable key as
+# one that never expires. _key_state already distinguishes it; this now matches.
 _key_expiry() {
-  _ke=$(gpg --show-keys --with-colons "$1" 2>/dev/null | awk -F: '$1 == "pub" { print $7; exit }')
-  if [ -z "$_ke" ]; then printf '%s\n' '-'; else _epoch_to_iso "$_ke"; fi
+  _kp=$(gpg --show-keys --with-colons "$1" 2>/dev/null | awk -F: '$1 == "pub" { print "pub:" $7; exit }')
+  case "$_kp" in
+    '')     printf '%s\n' 'unreadable' ;;
+    'pub:') printf '%s\n' '-' ;;
+    *)      _epoch_to_iso "${_kp#pub:}" ;;
+  esac
 }
 
 # gpg CREATES its homedir on first use and reads the invoker's gpg.conf from it.
@@ -149,9 +156,17 @@ _key_expiry() {
 # later, and two traps would mean the second silently replaced the first.
 # ${x:+"$x"} rather than "$x": an unset scratch dir must contribute NO argument
 # at all, and `rm -rf ""` is an error rather than a no-op.
+#
+# INT and TERM exit rather than sharing the EXIT handler, because a POSIX shell
+# RESUMES the script after a non-EXIT trap returns: catching Ctrl-C to clean up
+# and then running the remaining assertions is not what an interrupt means. The
+# exit re-enters the EXIT trap, so the cleanup still happens exactly once, and
+# 128+signal is the status a killed process conventionally reports.
 _gpghome=''
 _fx=''
-trap 'rm -rf ${_gpghome:+"$_gpghome"} ${_fx:+"$_fx"}' EXIT INT TERM
+trap 'rm -rf ${_gpghome:+"$_gpghome"} ${_fx:+"$_fx"}' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Probes the CAPABILITY, not just the binary. --show-keys arrived in GnuPG
 # 2.1.23; against an older gpg the helpers return empty and the assertions fail

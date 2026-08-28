@@ -69,7 +69,7 @@ _MIN_UPSTREAM_CLAIMS=10
 # that the negative test exercises must be the same one the tree is checked
 # with, or the test proves nothing about the tree.
 _scan_claims() {
-  awk -v F="$1" '
+  awk -v F="$1" -v CMT="$PROVENANCE_COMMENT_RE" '
     function check(  i, a) {
       for (i = 1; i <= nc; i++) {
         a = calgo[i]
@@ -80,7 +80,7 @@ _scan_claims() {
     function reset() { check(); nc = 0; delete rec; delete calgo; delete curl }
     /^[[:space:]]*$/ { reset(); next }
     /^[[:space:]]*#/ {
-      l = $0; sub(/^[[:space:]]*#[[:space:]]*/, "", l)
+      l = $0; sub(CMT, "", l)
       # Matched case-folded: RFC 3986 section 3.1 makes scheme names
       # case-insensitive, so "HTTPS://" copy-pasted out of a vendor page is a
       # human transcription rather than a contrived input -- and an
@@ -138,7 +138,8 @@ _size_claims() {
 # (bzip2 and libressl are both signed by a subkey), because the primary is what
 # an independent packager pins and therefore what can be corroborated.
 _scan_sigs() {
-  awk -v F="$1" -v PIN="$PROVENANCE_PIN_INTENT_RE" -v FPR="$PROVENANCE_FPR_RE" '''
+  awk -v F="$1" -v PIN="$PROVENANCE_PIN_INTENT_RE" -v FPR="$PROVENANCE_FPR_RE" \
+      -v CMT="$PROVENANCE_COMMENT_RE" '''
     function check(  ) {
       if (!url && !key) return
       if (url && !key) printf("%s: block verifies %s but names no key\n", F, url)
@@ -157,7 +158,7 @@ _scan_sigs() {
     # single-quoted shell string, and one would end it.)
     NF == 3 && $1 ~ /^(sha256|sha512|sha1|size)$/ { reset(); next }
     /^[[:space:]]*#/ {
-      l = $0; sub(/^[[:space:]]*#[[:space:]]*/, "", l); lc = tolower(l)
+      l = $0; sub(CMT, "", l); lc = tolower(l)
       if (lc ~ /^pgp[[:space:]]+signature[[:space:]]+verified[[:space:]]+[a-z][a-z0-9+.-]*:\/\//) {
         split(l, w, /[[:space:]]+/)
         if (url) printf("%s: names a second signature %s before naming a key for %s\n", F, w[4], url)

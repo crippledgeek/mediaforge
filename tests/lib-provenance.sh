@@ -31,6 +31,13 @@
 #
 # A line matching the first but not the second is a malformed pin: loud, and
 # never counted as a usable one.
+# PROVENANCE_COMMENT_RE strips the comment marker. It is shared for the same
+# reason the two above are: "how much of the line is the marker" is part of the
+# same grammar, and it was the half still written twice after the first
+# convergence. The pattern uses no construct that differs between BRE and ERE,
+# which is what lets one string serve both `sed s///` here and awk's `sub()` in
+# tests/upstream-provenance.sh.
+PROVENANCE_COMMENT_RE='^[[:space:]]*#[[:space:]]*'
 PROVENANCE_PIN_INTENT_RE='^with[[:space:]]+key[[:space:]]+[0-9a-f]+[[:space:]]*$'
 PROVENANCE_FPR_RE='^[0-9A-F]{40}$'
 
@@ -42,7 +49,7 @@ PROVENANCE_FPR_RE='^[0-9A-F]{40}$'
 # only the second would be seen -- an unrecognised pin here is invisible, which
 # is the failure this file exists to prevent.
 provenance_pinned_fprs() {
-  sed -n 's/^[[:space:]]*#[[:space:]]*//p' "$@" 2>/dev/null \
+  sed -n "s/$PROVENANCE_COMMENT_RE//p" "$@" 2>/dev/null \
     | awk -v PIN="$PROVENANCE_PIN_INTENT_RE" -v FPR="$PROVENANCE_FPR_RE" '
         tolower($0) ~ PIN && $3 ~ FPR { print $3 }' \
     | sort -u

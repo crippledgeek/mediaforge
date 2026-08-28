@@ -85,9 +85,16 @@ if [ -n "$_libs" ]; then
   # A library the suite RUNS is a test wearing a library's name, and it would
   # have just been excused from the gate. Checked against the runner, not
   # against the file, because the runner is what decides.
+  #
+  # ANY mention in run.sh, not `^sh <path>$`: the anchored form matched only the
+  # one-line-per-test convention the file happens to use today, so an indented
+  # call, an env prefix, a `|| exit 1`, or a loop would have slipped past the
+  # guard that exists precisely to catch someone routing around the exclusion.
+  # A guard on a hiding place must fail loud, and run.sh has no legitimate
+  # reason to name a library at all -- it runs tests and sources nothing.
   _smuggled=$(printf '%s\n' "$_libs" | while read -r _lib; do
                 [ -n "$_lib" ] || continue
-                grep -q "^sh $_lib\$" tests/run.sh && printf '%s\n' "$_lib"
+                grep -q "$_lib" tests/run.sh && printf '%s\n' "$_lib"
               done)
   if [ -n "$_smuggled" ]; then
     printf 'FAIL: %s is run by tests/run.sh, so it is a test, not a library\n' "$_smuggled" >&2
