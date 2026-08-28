@@ -36,6 +36,105 @@
 # behaviour rather than choosing a new one.
 MF_DEFAULT_OPT="-O2"
 
+# --- debug levels ------------------------------------------------------------
+#
+# Three levels, named for what they give you, selected by --debug[=LEVEL].
+# The costs below were measured on this tree (lame, dav1d, svtav1 built at each
+# level), not estimated:
+#
+#   symbols   -O2 -g3   assertions off   runtime cost: none measurable
+#   balanced  -Og -g3   assertions ON    ~2x slower
+#   full      -O0 -g3   assertions ON    4-5x slower  (bare --debug)
+#
+# The shape follows the tools we drive rather than an invented vocabulary.
+# FFmpeg's own configure separates --enable-debug=LEVEL from
+# --disable-optimizations and --disable-stripping; meson separates `debug` from
+# `optimization`, with `buildtype` as a shorthand; Debian's DEB_BUILD_OPTIONS
+# separates `noopt` from `nostrip`. Only cmake conflates them into build types.
+# So debug is modelled here as two independent axes -- an optimization level and
+# a symbol level -- with the three named levels as the shorthand people type.
+#
+# -g3 rather than -g2: level 3 adds macro definitions, which is worth having in
+# a tree as macro-dense as libav*. -fno-omit-frame-pointer so a backtrace is
+# reliable at every level, including `symbols`, where the whole point is getting
+# a usable trace out of an optimized build.
+
+# The optimization level for a debug level. This flows through MF_DEFAULT_OPT --
+# the one place that already decides optimization -- rather than being appended
+# separately, so the operator's own -O still wins by coming last.
+mf_debug_opt() {
+  case "$1" in
+    balanced) printf -- '-Og' ;;
+    full)     printf -- '-O0' ;;
+    *)        printf -- '-O2' ;;   # symbols, and the no-debug default
+  esac
+}
+
+# The symbol flags a debug level adds. Empty when no debug level is active, so
+# a normal build is byte-for-byte what it was before this feature existed.
+mf_debug_cflags() {
+  case "$1" in
+    symbols|balanced|full) printf -- '-g3 -fno-omit-frame-pointer' ;;
+    *)                     printf '' ;;
+  esac
+}
+
+# The cmake build type a debug level forces, overriding whatever the recipe
+# declared. Empty means "leave the recipe's own choice alone".
+#
+# `Debug` is deliberate for both balanced and full: it is the only stock cmake
+# type that does NOT define NDEBUG, so assertions come on. It also sets only -g
+# and no -O at all (measured on cmake 4.3.2: CMAKE_C_FLAGS_DEBUG = "-g"), which
+# is exactly what lets the -Og/-O0 from CFLAGS survive -- no per-level
+# CMAKE_C_FLAGS_DEBUG override is needed.
+mf_debug_cmake_type() {
+  case "$1" in
+    symbols)       printf 'RelWithDebInfo' ;;
+    balanced|full) printf 'Debug' ;;
+    *)             printf '' ;;
+  esac
+}
+
+# The meson arguments a debug level forces.
+#
+# b_ndebug is named EXPLICITLY at every level because meson does not tie it to
+# buildtype the way cmake ties NDEBUG to build type: meson's own documentation
+# states that -Ddebug=false does not define NDEBUG. Leaving it implicit is how
+# the cmake and meson halves of a tree end up disagreeing about whether
+# assertions are live -- silently, since both still compile and link.
+mf_debug_meson_args() {
+  case "$1" in
+    symbols)  printf -- '--buildtype=debugoptimized -Db_ndebug=true' ;;
+    balanced) printf -- '--buildtype=debug --optimization=g -Db_ndebug=false' ;;
+    full)     printf -- '--buildtype=debug -Db_ndebug=false' ;;
+    *)        printf '' ;;
+  esac
+}
+
+# FFmpeg's own flags. Without these the final binary is stripped no matter what
+# every library did -- recipes/ffmpeg.sh passes --disable-debug unconditionally
+# otherwise, and FFmpeg's Makefile links ffmpeg_g and then strips it to ffmpeg.
+#
+# --disable-optimizations for balanced and full stops FFmpeg adding its own -O3
+# on top; the level's own -O then arrives through --extra-cflags. `symbols`
+# keeps FFmpeg optimized, which is the entire point of that level.
+mf_debug_ffmpeg_opts() {
+  case "$1" in
+    symbols)       printf -- '--enable-debug=3 --disable-stripping' ;;
+    balanced|full) printf -- '--enable-debug=3 --disable-stripping --disable-optimizations' ;;
+    *)             printf -- '--disable-debug' ;;
+  esac
+}
+
+# The levels --debug accepts. Kept beside the functions above so a new level
+# cannot be added to one and forgotten in the other.
+mf_debug_level_valid() {
+  case "$1" in
+    symbols|balanced|full) return 0 ;;
+    *)                     return 1 ;;
+  esac
+}
+
 # True when $1 already contains an -O flag of any spelling: -O, -O0..-O3, -Os,
 # -Og, -Ofast.
 #

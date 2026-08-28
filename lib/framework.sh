@@ -25,9 +25,15 @@
 # Every other argument passes through untouched, which is why the differing
 # source-dir spellings (`.`, `-S . -B build`, `../../../source`) all still work.
 mf_cmake() {
-  if [ -n "${PKG_CMAKE_BUILD_TYPE:-}" ]; then
+  # A debug level OVERRIDES the recipe's own build type. That is the whole
+  # reason this helper exists: the ten recipes that name no build type and the
+  # 25 pinned to Release would otherwise stay optimized while the rest of the
+  # tree went debug, and the result still compiles and still links.
+  _mf_bt=$(mf_debug_cmake_type "${MF_DEBUG_LEVEL:-}")
+  [ -n "$_mf_bt" ] || _mf_bt="${PKG_CMAKE_BUILD_TYPE:-}"
+  if [ -n "$_mf_bt" ]; then
     run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-      -DCMAKE_BUILD_TYPE="$PKG_CMAKE_BUILD_TYPE" "$@"
+      -DCMAKE_BUILD_TYPE="$_mf_bt" "$@"
   else
     run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" "$@"
   fi
@@ -52,9 +58,26 @@ mf_cmake() {
 mf_meson() {
   _mf_builddir="$1"
   shift
-  run meson setup "$_mf_builddir" --prefix="$PREFIX" \
-    --buildtype="${PKG_MESON_BUILDTYPE:-release}" \
-    --default-library=static --libdir="$PREFIX/lib" "$@"
+  # A debug level replaces the buildtype AND names b_ndebug explicitly, because
+  # meson does not tie NDEBUG to buildtype the way cmake does. Its arguments are
+  # passed as a list, so they land after the defaults below and win.
+  #
+  # The level supplies its OWN --buildtype, so the recipe's is omitted entirely
+  # rather than passed first and overridden. meson does accept the flag twice
+  # and take the last (verified), but relying on that is relying on argparse's
+  # behaviour rather than on anything meson documents -- and a build log showing
+  # `--buildtype=release --buildtype=debug` invites exactly the "which one won?"
+  # question this helper exists to remove.
+  _mf_dbg=$(mf_debug_meson_args "${MF_DEBUG_LEVEL:-}")
+  if [ -n "$_mf_dbg" ]; then
+    # shellcheck disable=SC2086
+    run meson setup "$_mf_builddir" --prefix="$PREFIX" \
+      --default-library=static --libdir="$PREFIX/lib" $_mf_dbg "$@"
+  else
+    run meson setup "$_mf_builddir" --prefix="$PREFIX" \
+      --buildtype="${PKG_MESON_BUILDTYPE:-release}" \
+      --default-library=static --libdir="$PREFIX/lib" "$@"
+  fi
 }
 
 # Default phase functions

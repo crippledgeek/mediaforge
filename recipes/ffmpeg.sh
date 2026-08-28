@@ -58,8 +58,13 @@ if [ -n "$NVCCFLAGS" ]; then
   _ffconf="$_ffconf --nvccflags=\"$NVCCFLAGS\""
 fi
 
+# Debug posture, from the level in effect (lib/flags.sh). Without this the final
+# binary is stripped whatever every library did: FFmpeg's Makefile links
+# ffmpeg_g and derives a stripped ffmpeg from it, and --disable-debug leaves
+# ffmpeg_g with nothing in it either. With no --debug the value is the
+# --disable-debug this line has always passed, so a normal build is unchanged.
 _ffconf="$_ffconf \
-  --disable-debug \
+  $(mf_debug_ffmpeg_opts "${MF_DEBUG_LEVEL:-}") \
   --disable-shared \
   --enable-pthreads \
   --enable-static \

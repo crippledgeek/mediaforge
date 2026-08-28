@@ -68,6 +68,8 @@ DISABLE_PKGS=""
 ENABLE_PKGS=""
 USE_MENU=false
 ENABLE_LTO=false
+# Debug build level: "" (off), symbols, balanced or full. See lib/flags.sh.
+MF_DEBUG_LEVEL=""
 FLITE_AUDIO="none"
 SKIP_CHECKSUM=false
 SKIP_CHECKSUM_PKGS=""
@@ -102,6 +104,11 @@ cmd_help() {
   printf '  -m, --enable-small        Minimal build\n'
   printf '      --enable-lto          Enable LTO in recipes that support it (default: off; archives may break on GCC major bumps)\n'
   printf '      --disable-lto         Force LTO off (default)\n'
+  printf '      --debug[=LEVEL]       Build with debug info. LEVEL is one of:\n'
+  printf '                              symbols   -O2 -g3, assertions off, no measurable slowdown\n'
+  printf '                              balanced  -Og -g3, assertions on, ~2x slower\n'
+  printf '                              full      -O0 -g3, assertions on, 4-5x slower (default)\n'
+  printf '                            Forces LTO off. Greatly enlarges the binary.\n'
   printf '  -p, --profile=X.Y         Use version profile\n'
   printf '  -j, --jobs=N              Parallel job count (default: auto)\n'
   printf '  -u, --rebuild-outdated    Rebuild stale dependencies\n'
@@ -249,6 +256,12 @@ cmd_build() {
       --disable-lv2)       DISABLE_PKGS="$DISABLE_PKGS lv2" ;;
       --enable-static)     _enable_static=true ;;
       --enable-small)      _enable_small=true ;;
+      --debug)             MF_DEBUG_LEVEL=full ;;
+      --debug=*)
+        MF_DEBUG_LEVEL="${1#--debug=}"
+        mf_debug_level_valid "$MF_DEBUG_LEVEL" \
+          || die "Unknown --debug level '$MF_DEBUG_LEVEL' (use symbols, balanced or full)"
+        ;;
       --enable-lto)        ENABLE_LTO=true ;;
       --disable-lto)       ENABLE_LTO=false ;;
       --flite-audio=*)     FLITE_AUDIO="${1#--flite-audio=}" ;;
@@ -359,6 +372,25 @@ cmd_build() {
   # See the SCOPE note in lib/flags.sh.
   MF_OWN_CFLAGS="$MF_OWN_CFLAGS -fPIC"
   MF_OWN_CXXFLAGS="$MF_OWN_CXXFLAGS -fPIC"
+
+  # A debug level changes the optimization mediaforge defaults to, and adds the
+  # symbol flags. The optimization goes through MF_DEFAULT_OPT rather than being
+  # appended separately, so it stays in the one place that decides optimization
+  # and the operator's own -O still wins by coming last.
+  if [ -n "$MF_DEBUG_LEVEL" ]; then
+    MF_DEFAULT_OPT=$(mf_debug_opt "$MF_DEBUG_LEVEL")
+    _mf_dbg_cflags=$(mf_debug_cflags "$MF_DEBUG_LEVEL")
+    MF_OWN_CFLAGS="$MF_OWN_CFLAGS $_mf_dbg_cflags"
+    MF_OWN_CXXFLAGS="$MF_OWN_CXXFLAGS $_mf_dbg_cflags"
+    # LTO discards the per-function debug info that makes stepping work, so the
+    # two together produce a slow build with unreliable symbols. Forced off, and
+    # said out loud rather than honoured silently.
+    if [ "$ENABLE_LTO" = true ]; then
+      warn "--debug forces LTO off: LTO discards the debug info it would emit"
+      ENABLE_LTO=false
+    fi
+  fi
+
   mf_export_flags
   if [ "$_enable_static" = true ]; then
     if [ "$OS_MACOS" = true ]; then
