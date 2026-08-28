@@ -90,6 +90,24 @@ MF_DEFAULT_OPT="-O2"
 #   4 meson args     buildtype AND b_ndebug, which meson does not tie together
 #   5 ffmpeg opts    without --disable-stripping the final binary is stripped
 #                    whatever the ~110 libraries did
+#   7 cargo env       profile overrides for cargo, which compiles Rust and reads
+#                    no CFLAGS at all. Lives here rather than in the recipe
+#                    because it is level knowledge like every other column; the
+#                    recipe just applies it. NOTE `symbols` sets only debug=2 and
+#                    NOT an opt-level: cargo's release profile is opt-level=3, so
+#                    pinning 2 would DOWNGRADE the one level whose promise is no
+#                    measurable runtime cost. Measured -- `cargo build --release -v`
+#                    emits "-C opt-level=3" with no override, and omitting
+#                    OPT_LEVEL entirely at level 0 is how rustc reaches 0.
+#                    LTO=false is not optional dressing: rav1e's own manifest
+#                    pins lto = "thin" in [profile.release] (upstream v0.8.1,
+#                    verified), and cargo overrides only the keys the env names
+#                    -- so without it --debug would leave rav1e thin-LTO'd while
+#                    the help text promises "Forces LTO off", and LTO is exactly
+#                    what discards the per-function debug info being asked for.
+#                    DEBUG=2 is belt-and-braces by comparison: that manifest also
+#                    sets debug = true today, so this pins what it happens to
+#                    give rather than adding something absent.
 #   6 canonical name  the level's own name, empty for the no-level row. Validity
 #                    is derived from THIS rather than from the symbol flags: a
 #                    future strip-only or NDEBUG-only level would legitimately
@@ -105,17 +123,20 @@ mf_debug_field() { # level field-number
     symbols)
       set -- '-O2' '-g3 -fno-omit-frame-pointer' 'RelWithDebInfo' \
              '--buildtype=debugoptimized -Db_ndebug=true' \
-             '--enable-debug=3 --disable-stripping' 'symbols' ;;
+             '--enable-debug=3 --disable-stripping' 'symbols' \
+             'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_LTO=false' ;;
     balanced)
       set -- '-Og' '-g3 -fno-omit-frame-pointer' 'Debug' \
              '--buildtype=debug --optimization=g -Db_ndebug=false' \
-             '--enable-debug=3 --disable-stripping --disable-optimizations' 'balanced' ;;
+             '--enable-debug=3 --disable-stripping --disable-optimizations' 'balanced' \
+             'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_OPT_LEVEL=1 CARGO_PROFILE_RELEASE_LTO=false' ;;
     full)
       set -- '-O0' '-g3 -fno-omit-frame-pointer' 'Debug' \
              '--buildtype=debug -Db_ndebug=false' \
-             '--enable-debug=3 --disable-stripping --disable-optimizations' 'full' ;;
+             '--enable-debug=3 --disable-stripping --disable-optimizations' 'full' \
+             'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_OPT_LEVEL=0 CARGO_PROFILE_RELEASE_LTO=false' ;;
     *)
-      set -- '-O2' '' '' '' '--disable-debug' '' ;;
+      set -- '-O2' '' '' '' '--disable-debug' '' '' ;;
   esac
   shift $((_mf_dbg_f - 1))
   printf '%s' "$1"
@@ -129,6 +150,7 @@ mf_debug_cmake_type()  { mf_debug_field "$1" 3; }
 mf_debug_meson_args()  { mf_debug_field "$1" 4; }
 mf_debug_ffmpeg_opts() { mf_debug_field "$1" 5; }
 mf_debug_name()        { mf_debug_field "$1" 6; }
+mf_debug_cargo_env()   { mf_debug_field "$1" 7; }
 
 # Validity is DERIVED from the table rather than being a separate list to keep
 # in step: a level is real exactly when the table echoes its own name back. An

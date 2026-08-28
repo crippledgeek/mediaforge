@@ -29,28 +29,29 @@ pkg_configure() {
 
   # rav1e is the one recipe the composed CFLAGS cannot reach: cargo compiles
   # Rust, and Rust does not read CFLAGS at all. Left alone, `--debug=full` would
-  # build ~108 recipes at -O0 -g3 and this one fully optimized with no symbols --
-  # the "reaches three of the four knobs" failure at recipe granularity, and
-  # silent because it still links.
+  # build ~108 recipes at -O0 -g3 and this one fully optimized -- the "reaches
+  # three of the knobs" failure at recipe granularity, and silent because it
+  # still links.
+  #
+  # Precisely what was wrong: rav1e's manifest already sets debug = true, so the
+  # un-patched build did emit symbols; the gaps were the optimization level and
+  # lto = "thin", which --debug promises to force off. DEBUG=2 therefore pins
+  # what the manifest happens to give today rather than adding something absent.
   #
   # openssl needs no such handling despite also having its own configure: it
   # reads CFLAGS from the environment and places it LAST
   # (LIB_CFLAGS=-fPIC $(CNF_CFLAGS) $(CFLAGS)), so the level already reaches it.
   # Verified by configuring it with -O0 -g3 and reading the generated makefile.
   #
-  # The translation lives here rather than in the shared table because it is
-  # cargo's vocabulary, not the tree's: cargo has no -Og, so `balanced` maps to
-  # opt-level=1, the closest thing it offers. Kept in the RELEASE profile, which
-  # is what `cargo cinstall --release` below builds, so only these two knobs move.
-  if [ -n "${MF_DEBUG_LEVEL:-}" ]; then
-    export CARGO_PROFILE_RELEASE_DEBUG=2
-    case "$(mf_debug_opt "$MF_DEBUG_LEVEL")" in
-      -O0) export CARGO_PROFILE_RELEASE_OPT_LEVEL=0 ;;
-      -Og) export CARGO_PROFILE_RELEASE_OPT_LEVEL=1 ;;
-      *)   export CARGO_PROFILE_RELEASE_OPT_LEVEL=2 ;;
-    esac
-    log "rav1e: cargo release profile at opt-level=$CARGO_PROFILE_RELEASE_OPT_LEVEL with debug info"
-  fi
+  # The mapping itself lives in lib/flags.sh with the rest of the level table --
+  # it is level knowledge, not recipe knowledge. Held in a plain variable and
+  # applied to the cargo command in pkg_install rather than EXPORTED here: an
+  # export would outlive this recipe, since pkg_configure runs in the main shell
+  # and the framework's save/restore covers only CFLAGS and friends. Unsetting it
+  # at the end of this function is NOT the alternative -- cargo does not run
+  # until pkg_install, so that would drop the setting before its only consumer.
+  _rav1e_cargo_env=$(mf_debug_cargo_env "${MF_DEBUG_LEVEL:-}")
+  [ -n "$_rav1e_cargo_env" ] && log "rav1e: cargo overrides $_rav1e_cargo_env"
 }
 
 pkg_build() {
@@ -61,6 +62,13 @@ pkg_install() {
   # Build as shared library (cdylib) to avoid embedding Rust's std/alloc/gimli
   # symbols into a static .a — those cause duplicate symbol errors when any
   # other Rust project links against this FFmpeg build
-  run cargo cinstall --prefix="$PREFIX" --libdir=lib \
+  # The cargo overrides are scoped to THIS command via an env prefix, so nothing
+  # is left in the environment for the recipes that run after this one.
+  # Unquoted by design: the value is one of three fixed strings from the level
+  # table, selected by a level mediaforge.sh has already validated, so it can
+  # hold no glob and no unexpected word. Empty when no level is active, in which
+  # case the expansion vanishes and the command is exactly what it always was.
+  # shellcheck disable=SC2086
+  run ${_rav1e_cargo_env:+env $_rav1e_cargo_env} cargo cinstall --prefix="$PREFIX" --libdir=lib \
     --library-type=cdylib --release
 }

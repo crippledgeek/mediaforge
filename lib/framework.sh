@@ -119,12 +119,18 @@ default_noop() {
 
 # Accumulate this recipe's FFmpeg configure flag.
 #
-# run_recipe has THREE exits -- already-stamped, dry-run, and a completed build --
-# and every one of them must contribute the flag, or FFmpeg is configured without
-# a codec whose library is present. That invariant was three identical copies of
-# the same four lines, so a fourth exit path would have had to remember it; now
-# it is one call. tests/dry-run-matrix.sh is what would eventually notice a miss,
-# and only for the dry-run path.
+# Three of run_recipe's exits contribute the flag UNCONDITIONALLY -- already
+# stamped, dry-run, and a completed build -- and each carried its own copy of the
+# same four lines. Missing one configures FFmpeg without a codec whose library is
+# present, and the build still succeeds.
+#
+# The guard-skip path earlier in run_recipe is deliberately NOT this function: it
+# returns before these and accumulates only when the recipe already has a stamp,
+# which is its own rule rather than this one. Converging it here would change
+# that condition, so it is left alone on purpose.
+#
+# tests/dry-run-matrix.sh is what would eventually notice a miss, and only for
+# the dry-run path.
 accumulate_ffmpeg_opt() {
   if [ -n "$PKG_FFMPEG_OPT" ]; then
     FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"

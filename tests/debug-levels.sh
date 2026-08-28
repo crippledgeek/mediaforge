@@ -1,8 +1,8 @@
 #!/bin/sh
-# Pins --debug: the three levels, and that each one reaches ALL FOUR places a
+# Pins --debug: the three levels, and that each one reaches ALL FIVE places a
 # build's optimization and symbol posture is decided.
 #
-# That last part is the whole risk. A debug mode that turns three of the four
+# That last part is the whole risk. A debug mode that turns four of the five
 # knobs produces a tree that still compiles and still links, and whose stack
 # traces are simply wrong in the recipes it missed -- which is the hardest kind
 # of defect to attribute, because nothing fails. The four are:
@@ -12,6 +12,9 @@
 #   meson      buildtype AND b_ndebug, which meson does not tie together
 #   FFmpeg     its own --enable-debug/--disable-stripping, or the final binary
 #              is stripped regardless of what the ~110 libraries did
+#   cargo      rav1e is compiled by cargo, and Rust reads no CFLAGS at all, so
+#              the level has to be restated in cargo's own vocabulary -- and its
+#              manifest pins lto = "thin", which --debug promises to force off
 #
 # Levels and their measured cost, from building lame/dav1d/svtav1 at each:
 # symbols -O2 (no measurable slowdown), balanced -Og (~2x), full -O0 (4-5x).
@@ -271,60 +274,52 @@ _wired wired-small-conflict mediaforge.sh 'overrides --debug for FFmpeg itself'
 # real build believes the workspace already matches and skips the guard.
 _wired wired-dryrun-no-write mediaforge.sh 'DRY_RUN:-false}" != true'
 # rav1e is the one recipe the composed CFLAGS cannot reach -- cargo compiles
-# Rust, which does not read CFLAGS -- so it needs its own translation or it
-# builds fully optimized while everything else is debug, and still links.
+# Rust, which reads no CFLAGS -- so the level is restated in cargo's vocabulary.
 # openssl needs none: it reads CFLAGS from the environment and puts it last,
-# verified against its generated makefile.
-_wired wired-rav1e-cargo recipes/video/rav1e.sh 'CARGO_PROFILE_RELEASE_DEBUG'
+# verified against its generated makefile. Asserted below against the table's
+# cargo column and the recipe's use of it, not by grepping for a literal.
 
-# The cargo translation must track the table rather than hardcoding levels: it
-# switches on mf_debug_opt's output, so a level whose optimization changes moves
-# with it. Asserted by mapping each level through the same case the recipe uses.
-_cargo_opt() { # level -> the opt-level the recipe would set
-  case "$(mf_debug_opt "$1")" in
-    -O0) printf '0' ;;
-    -Og) printf '1' ;;
-    *)   printf '2' ;;
-  esac
-}
-if _have mf_debug_opt; then
-  for _pair in 'full:0' 'balanced:1' 'symbols:2'; do
-    _lv=${_pair%%:*}; _want=${_pair#*:}
-    _got=$(_cargo_opt "$_lv")
-    if [ "$_got" = "$_want" ]; then _pass "cargo-opt-level-$_lv"
-    else _bad "cargo-opt-level-$_lv" "got=$_got want=$_want"; fi
-  done
+# The cargo column, asserted against the TABLE rather than against a copy of it.
+# The first version of these assertions re-implemented the recipe's own case
+# statement inside this file, so they verified that the TEST mapped full->0 --
+# changing the recipe, or deleting its block entirely, left them green. The
+# mapping now lives in lib/flags.sh, so the accessor below is the real code.
+#
+# rav1e is the fifth build system the level has to reach, and the only one the
+# composed CFLAGS cannot touch, because cargo compiles Rust.
+_d cargo-symbols-debug   mf_debug_cargo_env symbols  '*CARGO_PROFILE_RELEASE_DEBUG=2*'
+_d cargo-balanced-opt1   mf_debug_cargo_env balanced '*CARGO_PROFILE_RELEASE_OPT_LEVEL=1*'
+_d cargo-full-opt0       mf_debug_cargo_env full     '*CARGO_PROFILE_RELEASE_OPT_LEVEL=0*'
+# symbols must NOT pin an opt-level: cargo's release default is opt-level=3, so
+# naming 2 would DOWNGRADE the one level that promises no measurable cost.
+_d_not cargo-symbols-no-opt-pin mf_debug_cargo_env symbols '*OPT_LEVEL*'
+# LTO off at every level. rav1e's manifest pins lto = "thin", and cargo honours
+# only the keys the env names -- so without this, --debug leaves rav1e thin-LTO'd
+# while the help text promises "Forces LTO off", and LTO is precisely what
+# discards the per-function debug info the level exists to produce.
+for _lv in symbols balanced full; do
+  _d "cargo-lto-off-$_lv" mf_debug_cargo_env "$_lv" '*CARGO_PROFILE_RELEASE_LTO=false*'
+done
+# ...and nothing at all without a level, so an ordinary build is untouched.
+if _have mf_debug_cargo_env && [ -z "$(mf_debug_cargo_env '')" ]; then
+  _pass cargo-none-when-no-debug
 else
-  for _lv in full balanced symbols; do
-    _bad "cargo-opt-level-$_lv" "debug support absent — claim would be vacuous"
-  done
+  _bad cargo-none-when-no-debug "expected empty"
 fi
 
-# --- exactly one --buildtype reaches meson ----------------------------------
-# The first wiring passed the recipe's buildtype AND the level's, in that order.
-# meson accepts the duplicate and takes the last, so it WORKED -- which is what
-# makes it worth pinning: nothing would have failed, and the build log would
-# have read `--buildtype=release --buildtype=debug` forever.
-_mf_bt_count() { # level -> how many --buildtype the helper emits
-  _emitted mf_meson "$1" build | tr ' ' '
-' | grep -c -- '--buildtype=' || printf '0'
-}
-for _lvl in '' symbols balanced full; do
-  # On the merge base mf_meson exists but knows nothing of debug levels, so it
-  # emits exactly one --buildtype for every input and this claim passes having
-  # verified nothing. Gate on the debug support being present, which is the
-  # thing actually under test.
-  if ! _have mf_debug_meson_args; then
-    _bad "meson-one-buildtype-${_lvl:-none}" "debug support absent — claim would be vacuous"
-    continue
-  fi
-  _n=$(_mf_bt_count "$_lvl")
-  if [ "$_n" = 1 ]; then
-    _pass "meson-one-buildtype-${_lvl:-none}"
-  else
-    _bad "meson-one-buildtype-${_lvl:-none}" "emitted $_n --buildtype flags"
-  fi
-done
+# The recipe must APPLY the column rather than rolling its own mapping.
+_wired recipe-uses-cargo-column recipes/video/rav1e.sh 'mf_debug_cargo_env'
+# ...scoped to the cargo command, not exported: pkg_configure runs in the main
+# shell and the framework's save/restore covers only CFLAGS and friends, so an
+# export would outlive the recipe.
+# Matched with a regex whose "." stands in for the dollar, so this file contains
+# no literal $ inside quotes -- the linter reads that as a failed expansion, and
+# it is source text being searched for rather than an expansion.
+if grep -qE -- 'env .{1}_rav1e_cargo_env' recipes/video/rav1e.sh 2>/dev/null; then
+  _pass recipe-scopes-cargo-env
+else
+  _bad recipe-scopes-cargo-env "rav1e does not scope the overrides to the cargo command"
+fi
 
 printf 'DONE: debug-levels\n'
 exit "$_fail"
