@@ -108,6 +108,17 @@ MF_DEFAULT_OPT="-O2"
 #                    DEBUG=2 is belt-and-braces by comparison: that manifest also
 #                    sets debug = true today, so this pins what it happens to
 #                    give rather than adding something absent.
+#   8 nvcc flags    the symbol half of the level in nvcc's vocabulary. nv-codec
+#                    drives FFmpeg's CUDA compilation, and nvcc is a THIRD
+#                    toolchain that reads no CFLAGS -- it already took the
+#                    optimization half through MF_DEFAULT_OPT and took no
+#                    symbols at all, so a --debug tree had symbol-less CUDA
+#                    objects. It does NOT accept the CFLAGS spelling: `-g3` is
+#                    rejected outright (`nvcc fatal: Unknown option '-g3'`,
+#                    measured on CUDA 13), which is why this cannot reuse column
+#                    2. `-lineinfo` is the cheap one (line tables, device
+#                    optimization intact) and `-G` is full device debug, which
+#                    disables device optimization the way -O0 does on the host.
 #   6 canonical name  the level's own name, empty for the no-level row. Validity
 #                    is derived from THIS rather than from the symbol flags: a
 #                    future strip-only or NDEBUG-only level would legitimately
@@ -124,19 +135,22 @@ mf_debug_field() { # level field-number
       set -- '-O2' '-g3 -fno-omit-frame-pointer' 'RelWithDebInfo' \
              '--buildtype=debugoptimized -Db_ndebug=true' \
              '--enable-debug=3 --disable-stripping' 'symbols' \
-             'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_LTO=false' ;;
+             'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_LTO=false' \
+             '-lineinfo' ;;
     balanced)
       set -- '-Og' '-g3 -fno-omit-frame-pointer' 'Debug' \
              '--buildtype=debug --optimization=g -Db_ndebug=false' \
              '--enable-debug=3 --disable-stripping --disable-optimizations' 'balanced' \
-             'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_OPT_LEVEL=1 CARGO_PROFILE_RELEASE_LTO=false' ;;
+             'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_OPT_LEVEL=1 CARGO_PROFILE_RELEASE_LTO=false' \
+             '-g -lineinfo' ;;
     full)
       set -- '-O0' '-g3 -fno-omit-frame-pointer' 'Debug' \
              '--buildtype=debug -Db_ndebug=false' \
              '--enable-debug=3 --disable-stripping --disable-optimizations' 'full' \
-             'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_OPT_LEVEL=0 CARGO_PROFILE_RELEASE_LTO=false' ;;
+             'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_OPT_LEVEL=0 CARGO_PROFILE_RELEASE_LTO=false' \
+             '-g -G' ;;
     *)
-      set -- '-O2' '' '' '' '--disable-debug' '' '' ;;
+      set -- '-O2' '' '' '' '--disable-debug' '' '' '' ;;
   esac
   shift $((_mf_dbg_f - 1))
   printf '%s' "$1"
@@ -151,6 +165,7 @@ mf_debug_meson_args()  { mf_debug_field "$1" 4; }
 mf_debug_ffmpeg_opts() { mf_debug_field "$1" 5; }
 mf_debug_name()        { mf_debug_field "$1" 6; }
 mf_debug_cargo_env()   { mf_debug_field "$1" 7; }
+mf_debug_nvcc()        { mf_debug_field "$1" 8; }
 
 # Validity is DERIVED from the table rather than being a separate list to keep
 # in step: a level is real exactly when the table echoes its own name back. An
@@ -216,6 +231,21 @@ mf_compose_cflags() {
 #
 # LDFLAGS is deliberately not exported, matching the long-standing behaviour:
 # recipes read it as a shell variable and pass it explicitly where they need it.
+# What a configure script's PREPROCESSOR-ONLY checks need from us.
+#
+# Three recipes -- nettle, gnutls and libpng -- each discovered independently
+# that AC_CHECK_HEADER runs `$CPP $CPPFLAGS` with no CFLAGS in sight, so a
+# header under $PREFIX/include is invisible to it, and each reached for the
+# nearest thing that contained the path: the whole composed CFLAGS. That works,
+# and it puts every flag on the compile line twice -- autoconf compiles with
+# `$CC -c $CFLAGS $CPPFLAGS` -- which is how a --debug build produced objects
+# whose producer reads "-g3 -g3 -O0 -O0".
+#
+# Stated once here as what it actually is: the include path. The optimization
+# and symbol flags still reach the compile-time checks through CFLAGS, which is
+# where they belong; only the preprocessor-only checks were ever the problem.
+mf_cppflags() { printf '%s' "-I$PREFIX/include"; }
+
 mf_export_flags() {
   CFLAGS=$(mf_compose_cflags "$MF_OWN_CFLAGS" "${MF_USER_CFLAGS-}")
   CXXFLAGS=$(mf_compose_cflags "$MF_OWN_CXXFLAGS" "${MF_USER_CXXFLAGS-}")

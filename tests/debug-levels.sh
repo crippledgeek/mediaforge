@@ -419,5 +419,72 @@ else
   _bad make-scan-found-recipes "scanned only $_mf_scanned recipes — the scan matched nothing"
 fi
 
+# --- the seventh path: nvcc, and the two ways a recipe can lose the flags -----
+# nvcc drives FFmpeg's CUDA compilation and is a third toolchain that reads no
+# CFLAGS, so the level has to be restated in its vocabulary exactly as cargo's
+# was. It had taken the optimization half through MF_DEFAULT_OPT since before
+# --debug existed and took no symbols at all, so a --debug tree carried
+# symbol-less CUDA objects while every other object had -g3.
+#
+# The spelling cannot be copied from the CFLAGS column: nvcc REJECTS -g3
+# outright ("nvcc fatal: Unknown option '-g3'", measured against CUDA 13's nvcc,
+# which also accepts -g, -lineinfo, -G and any combination of them). So the
+# negative assertion below is not stylistic -- a -g3 reaching nvcc fails the
+# build rather than degrading it.
+_d nvcc-symbols-lineinfo  mf_debug_nvcc symbols  '*-lineinfo*'
+_d nvcc-balanced-host-g   mf_debug_nvcc balanced '*-g*'
+_d nvcc-full-device-debug mf_debug_nvcc full     '*-G*'
+for _lv in symbols balanced full; do
+  _d_not "nvcc-no-g3-$_lv" mf_debug_nvcc "$_lv" '*-g3*'
+done
+if _have mf_debug_nvcc && [ -z "$(mf_debug_nvcc '')" ]; then
+  _pass nvcc-none-when-no-debug
+else
+  _bad nvcc-none-when-no-debug "expected empty"
+fi
+_wired recipe-uses-nvcc-column recipes/hwaccel/nv-codec.sh 'mf_debug_nvcc'
+
+# meson takes CFLAGS into c_args at SETUP, and `meson configure -Dc_args=...`
+# REPLACES that value rather than adding to it. Measured on meson 1.12.0: c_args
+# went from [-fPIC, -I/opt/inc, -fno-omit-frame-pointer] to [-march=native]
+# alone. recipes/audio/lv2.sh did exactly that to its bundled zix, so that one
+# sub-build lost -fPIC, the prefix include path and the frame pointer, while
+# keeping -O0/-g from the buildtype -- a partial loss, which is the kind that
+# reads as working.
+#
+# Scanned across every recipe rather than asserted about lv2, because the next
+# recipe to reach for `meson configure` will reach for the same option.
+# Anchored on meson's option form. An unanchored 'c_args=' also matches
+# recipes/other/srt.sh's own _enc_args variable, which has nothing to do with
+# meson -- the first version of this assertion reported it as a defect.
+_mf_cargs=$(grep -rnE -- '[-]D(c|cpp)_args=' recipes/ 2>/dev/null || true)
+if [ -z "$_mf_cargs" ]; then
+  _pass no-recipe-replaces-meson-cargs
+else
+  _bad no-recipe-replaces-meson-cargs "$_mf_cargs"
+fi
+
+# The preprocessor-only checks want the include path, not the whole composed
+# CFLAGS. Passing CFLAGS as CPPFLAGS works and puts every flag on the compile
+# line twice (autoconf compiles with `$CC -c $CFLAGS $CPPFLAGS`), which is how
+# nettle and gnutls produced objects whose producer reads "-g3 -g3 -O0 -O0".
+# mf_cppflags says it once; these assert nobody goes back to the copy.
+_mf_cpp=$(grep -rn 'CPPFLAGS="[$]CFLAGS"' recipes/ 2>/dev/null || true)
+if [ -z "$_mf_cpp" ]; then
+  _pass no-recipe-passes-cflags-as-cppflags
+else
+  _bad no-recipe-passes-cflags-as-cppflags "$_mf_cpp"
+fi
+for _r in recipes/crypto/nettle.sh recipes/crypto/gnutls.sh recipes/image/libpng.sh; do
+  _wired "uses-cppflags-helper-$(basename "$_r" .sh)" "$_r" 'mf_cppflags'
+done
+if _have mf_cppflags; then
+  _glob cppflags-is-the-include-path "$(PREFIX=/p mf_cppflags)" '*-I/p/include*' 'mf_cppflags'
+  _glob_not cppflags-carries-no-opt  "$(PREFIX=/p mf_cppflags)" '*-O*' 'mf_cppflags'
+else
+  _bad cppflags-is-the-include-path "mf_cppflags absent — claim would be vacuous"
+  _bad cppflags-carries-no-opt      "mf_cppflags absent — claim would be vacuous"
+fi
+
 printf 'DONE: debug-levels\n'
 exit "$_fail"

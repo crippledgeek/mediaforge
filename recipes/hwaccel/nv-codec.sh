@@ -73,7 +73,13 @@ pkg_post_install() {
   # The optimization level comes from MF_DEFAULT_OPT (lib/flags.sh) rather than
   # a literal -O2, so the tree states its default in one place instead of two.
   # nvcc passes -O through to the HOST compilation it drives, which is the same
-  # decision MF_DEFAULT_OPT already makes for every other recipe; device-side
-  # optimization is a separate axis (-Xptxas) that nothing here sets.
-  NVCCFLAGS="-gencode arch=compute_${_cuda_cc},code=sm_${_cuda_cc} $MF_DEFAULT_OPT"
+  # decision MF_DEFAULT_OPT already makes for every other recipe.
+  #
+  # The SYMBOL half has to be restated too, and cannot be copied from CFLAGS:
+  # nvcc is a third toolchain that reads no CFLAGS, and it rejects the spelling
+  # that column carries -- `nvcc fatal: Unknown option '-g3'` (measured, CUDA
+  # 13). Column 8 of the level table holds nvcc's own vocabulary, so device-side
+  # optimization stops being the axis nothing sets: -G at `full` disables it the
+  # way -O0 disables the host's.
+  NVCCFLAGS="-gencode arch=compute_${_cuda_cc},code=sm_${_cuda_cc} $MF_DEFAULT_OPT $(mf_debug_nvcc "${MF_DEBUG_LEVEL:-}")"
 }
