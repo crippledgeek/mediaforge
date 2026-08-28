@@ -79,7 +79,7 @@ _scan_claims() {
     }
     function reset() { check(); nc = 0; delete rec; delete calgo; delete curl }
     /^[[:space:]]*$/ { reset(); next }
-    /^[[:space:]]*#/ {
+    $0 ~ CMT {
       l = $0; sub(CMT, "", l)
       # Matched case-folded: RFC 3986 section 3.1 makes scheme names
       # case-insensitive, so "HTTPS://" copy-pasted out of a vendor page is a
@@ -157,7 +157,7 @@ _scan_sigs() {
     # (No apostrophes in this comment: the awk program is inside a
     # single-quoted shell string, and one would end it.)
     NF == 3 && $1 ~ /^(sha256|sha512|sha1|size)$/ { reset(); next }
-    /^[[:space:]]*#/ {
+    $0 ~ CMT {
       l = $0; sub(CMT, "", l); lc = tolower(l)
       if (lc ~ /^pgp[[:space:]]+signature[[:space:]]+verified[[:space:]]+[a-z][a-z0-9+.-]*:\/\//) {
         split(l, w, /[[:space:]]+/)

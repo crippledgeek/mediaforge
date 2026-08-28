@@ -91,10 +91,22 @@ if [ -n "$_libs" ]; then
   # call, an env prefix, a `|| exit 1`, or a loop would have slipped past the
   # guard that exists precisely to catch someone routing around the exclusion.
   # A guard on a hiding place must fail loud, and run.sh has no legitimate
-  # reason to name a library at all -- it runs tests and sources nothing.
+  # reason to RUN a library.
+  #
+  # Comments are stripped first, because run.sh names in-tree test paths in its
+  # explanatory prose throughout -- and the most natural place for someone to
+  # record WHY a library is not listed is a comment in that very file. Matching
+  # it would fail the gate with a message asserting the opposite of the truth.
+  # -F because the path is an exact string, not a pattern: unescaped it is a
+  # BRE, where `.` matches any character.
+  #
+  # This buys defence against accident, not against intent: a loop over
+  # `tests/lib-*.sh` runs the library without ever naming it, and no check at
+  # this layer can see that. The exclusion is a convenience for a file that
+  # cannot make the gate's claim, not a security boundary.
   _smuggled=$(printf '%s\n' "$_libs" | while read -r _lib; do
                 [ -n "$_lib" ] || continue
-                grep -q "$_lib" tests/run.sh && printf '%s\n' "$_lib"
+                sed 's/#.*//' tests/run.sh | grep -qF -- "$_lib" && printf '%s\n' "$_lib"
               done)
   if [ -n "$_smuggled" ]; then
     printf 'FAIL: %s is run by tests/run.sh, so it is a test, not a library\n' "$_smuggled" >&2

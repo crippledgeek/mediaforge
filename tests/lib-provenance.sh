@@ -31,12 +31,21 @@
 #
 # A line matching the first but not the second is a malformed pin: loud, and
 # never counted as a usable one.
+#
 # PROVENANCE_COMMENT_RE strips the comment marker. It is shared for the same
 # reason the two above are: "how much of the line is the marker" is part of the
 # same grammar, and it was the half still written twice after the first
 # convergence. The pattern uses no construct that differs between BRE and ERE,
 # which is what lets one string serve both `sed s///` here and awk's `sub()` in
 # tests/upstream-provenance.sh.
+#
+# It must also contain NO BACKSLASH. The awk consumers receive it through
+# `-v`, which performs escape processing on the assigned value while sed does
+# not: `^\t*#` reaches awk as a literal tab and sed as backslash-t. A widening
+# that used \t, \. or \\ would therefore reach the two kinds of consumer
+# DIFFERENTLY -- the silent divergence this constant exists to prevent, arriving
+# through the mechanism meant to prevent it. Character classes express
+# everything needed here without one.
 PROVENANCE_COMMENT_RE='^[[:space:]]*#[[:space:]]*'
 PROVENANCE_PIN_INTENT_RE='^with[[:space:]]+key[[:space:]]+[0-9a-f]+[[:space:]]*$'
 PROVENANCE_FPR_RE='^[0-9A-F]{40}$'
