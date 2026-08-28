@@ -340,17 +340,17 @@ PREFIX="$_leaf_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VER
 # the symlink with a real file, so require that too.
 _leaf_ok=0
 if [ "$(cat "$_leaf_sentinel" 2>/dev/null)" != "SENTINEL-MUST-SURVIVE" ]; then
-  _bad ca-bundle-symlinked-leaf-replaced \
+  _bad ca-bundle-symlinked-leaf-replaced-not-followed \
     "written THROUGH the leaf — sentinel now: $(cat "$_leaf_sentinel" 2>/dev/null)"
 elif [ -L "$_leaf_dest/etc/ssl/cert.pem" ]; then
-  _bad ca-bundle-symlinked-leaf-replaced \
+  _bad ca-bundle-symlinked-leaf-replaced-not-followed \
     "still a symlink — nothing was installed, so the sentinel proves nothing"
 elif [ ! -f "$_leaf_dest/etc/ssl/cert.pem" ]; then
-  _bad ca-bundle-symlinked-leaf-replaced "no bundle at the leaf destination — nothing was installed"
+  _bad ca-bundle-symlinked-leaf-replaced-not-followed "no bundle at the leaf destination — nothing was installed"
 else
   _leaf_ok=1
 fi
-[ "$_leaf_ok" = 1 ] && _pass ca-bundle-symlinked-leaf-replaced
+[ "$_leaf_ok" = 1 ] && _pass ca-bundle-symlinked-leaf-replaced-not-followed
 rm -rf "$_leaf_stage" "$_leaf_dest" "$_leaf_sentinel"
 
 # ─── the probe, unit-tested against a synthetic root ────────────────────────

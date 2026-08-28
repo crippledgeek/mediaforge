@@ -1,17 +1,21 @@
 #!/bin/sh
 # The shared reporters print exactly what tests/oracle-baseline.sh counts.
 #
-# tests/lib-assert.sh is the one file in the suite that every other test's
-# verdict passes through, and the only one nothing else asserts on: a defect in
-# _pass or _bad does not fail a test, it changes what a passing test PRINTS —
-# and printing is the whole interface. tests/oracle-baseline.sh reads that
+# tests/lib-assert.sh is where every test that uses the shared reporters routes
+# its verdict, and the only file nothing else asserts on: a defect in _pass or
+# _bad does not fail a test, it changes what a passing test PRINTS — and
+# printing is the whole interface. Not the whole suite goes through it: several
+# tests still print PASS/FAIL inline, in spellings oracle-baseline counts
+# identically, and `grep -L lib-assert tests/*.sh` names them rather than a
+# count here that would drift. Converging those is not this file's job; being
+# correct about the ones that DO route through it is. tests/oracle-baseline.sh reads that
 # output with `grep -c '^PASS'` and `grep -c '^FAIL'` to decide whether a newly
 # added file could detect its own change, so the reporters' exact bytes are a
 # gate input, not cosmetics.
 #
 # ONE compound assertion, deliberately. oracle-baseline requires that no
 # assertion in a newly added file passes on the merge base, and five of the six
-# properties below held there already — only the no-detail form's output had a
+# numbered probes below held there already — only the no-detail form's output had a
 # trailing space. Asserting them separately would put five free passes on the
 # base and the gate would correctly reject the file, so the whole contract is
 # asserted together with the one the base gets wrong carrying it. That is also
@@ -36,11 +40,6 @@ _fail=0
 # shellcheck source=tests/lib-assert.sh
 . "$_root/tests/lib-assert.sh"
 
-# Run one reporter call in a fresh shell. $1 is the shell fragment; stdout comes
-# back on this function's stdout and stderr is redirected to $_err, so the two
-# streams stay distinguishable. Command substitution strips trailing NEWLINES
-# and never trailing SPACES, which is what lets the comparisons below see the
-# trailing space the no-detail form used to emit.
 _err=$(mktemp) || exit 1
 trap 'rm -f "$_err"' EXIT INT TERM
 

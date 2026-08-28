@@ -27,11 +27,15 @@
 # A third spelling (`FAIL: <sentence>` on stdout, with no assertion name) was
 # converged over two changes -- #45 took tests/hash-comment-grammar.sh, #46 the
 # last six -- which is why no file outside this one defines the pair any more.
-# `grep -rn '_pass()\|_bad()' tests/` is the check, matching either function
-# unanchored so that an indented redefinition inside a function, or a file that
-# copied only _bad, is caught too. No file census is written here: the
-# enumeration this header used to carry drifted twice in three commits, and the
-# grep does not.
+# `grep -rnE '_pass\(\)|_bad\(\)' tests/` is the check -- ERE, because `\|`
+# alternation is a GNU extension a BSD grep silently matches nothing with, and
+# unanchored, so an indented redefinition inside a function or a file that
+# copied only _bad is caught too. It answers "does anything else DEFINE the
+# pair", which is narrower than this paragraph's subject: a test that inlines
+# `printf 'PASS ...'` at each call site is a copy that no definition-grep can
+# see, and `grep -rnE "printf '(PASS|FAIL)" tests/` is the complement that
+# finds those. No file census is written here: the enumeration this header used
+# to carry drifted twice in three commits, and a grep does not.
 #
 # FAIL goes to stderr and PASS to stdout, so a caller can read the failures
 # alone. oracle-baseline captures both (`sh "$_f" 2>&1`), so the split does not
