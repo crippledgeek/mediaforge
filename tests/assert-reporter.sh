@@ -16,21 +16,27 @@
 #
 # TWO assertions, and the split is deliberate.
 #
-# Probes 1-6 are ONE compound assertion because oracle-baseline requires that no
-# assertion in a newly added file passes on the merge base, and five of the six
-# held there already — only the no-detail form's output had a trailing space.
-# Asserting them separately would put five free passes on the base and the gate
-# would correctly reject the file, so the printed contract is asserted together
-# with the one the base gets wrong carrying it.
+# Probes 1-6 are ONE compound assertion, for a reason that is now HISTORICAL and
+# is written in the past tense on purpose. oracle-baseline requires that no
+# assertion in a newly added file passes on the merge base; when this file was
+# added, against d9c918b, five of its six reporter probes held there already --
+# only the no-detail form's output had a trailing space. Splitting them would
+# have put five free passes on that base and the gate would have rejected the
+# file, so the printed contract was asserted together with the one thing the
+# base got wrong carrying it. Against TODAY's base all six hold (the
+# trailing-space fix is in it) and the gate does not reach this file at all,
+# since it is now modified rather than added -- so the shape is kept for the
+# history, not because today's gate demands it.
 #
 # Probes 7-9 cover _evidence and stand alone, because that argument does not
-# reach them: _evidence does not exist on the base, so each of them fails there
-# and none is a free pass. Folding them in would report a broken helper as
-# `FAIL [reporter-output-contract-holds]` -- a name that does not name the claim
+# reach them under either base: _evidence exists in neither, so each of them
+# fails there and none is a free pass. Folding them in would report a broken
+# helper as `FAIL [reporter-output-contract-holds]` -- a name that does not name
+# the claim
 # being made, which is the rule at tests/lib-assert.sh's head and the defect
 # that got a duplicate row deleted from tests/dry-run-matrix.sh on this branch.
-# _evidence is also not a reporter: it is not part of the printed contract
-# oracle-baseline reads with `grep -c '^PASS'`, which is what probes 1-6 are about.
+# _evidence is also not a reporter: it is not part of the printed contract that
+# oracle-baseline reads with `grep -c '^PASS'`, which probes 1-6 are about.
 #
 # Probes 1-6 each run in their own shell rather than in this one, because _bad
 # sets _fail=1 by design — calling it here would fail this file for doing its
@@ -123,6 +129,10 @@ EOF
 )
 _want 'pass-leaves-fail' "$_got" '0'
 
+# Group handoff. $_wrong is the scratch accumulator _want appends to; each
+# group's result moves into its own variable so _want keeps three parameters.
+# A _want call added BELOW the second handoff would be silently dropped from
+# both reports -- put new probes above the group they belong to.
 _wrong_rep=$_wrong
 _wrong=''
 
@@ -145,7 +155,7 @@ c'
 _got=$(printf 'x\n-L/nope\nlast\n' | _evidence 1 '-L')
 _want 'evidence-accepts-dash-pattern' "$_got" '-L/nope'
 
-_wrong_ev=$_wrong
+_wrong_ev=$_wrong   # last handoff: no _want may follow this line
 
 if [ -z "$_wrong_rep" ]; then
   _pass reporter-output-contract-holds
