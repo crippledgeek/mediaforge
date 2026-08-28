@@ -29,13 +29,14 @@
 # inline without helpers at all; this file is not a census of the tree.) They
 # are not converged here because their call sites pass a whole sentence as the
 # first argument, so each needs a NAME invented for it -- a judgement per site,
-# not a rename. No count is given here on purpose: the
-# enumeration in this header has drifted twice in three commits, and
+# not a rename. No count is given here on purpose: the enumeration in this
+# header has drifted twice in three commits, and
 # `grep -c '^[[:space:]]*_\(pass\|bad\)[[:space:]]' tests/<file>.sh` answers it
 # without rotting.
 #
-# That debt is NOT tracked by an issue yet. Saying so is the point: a comment
-# claiming a record exists elsewhere, with nothing to check it against, is the
-# citation shape this branch is cleaning up.
+# Tracked as #46, which carries the per-file counts and the reason converging
+# them is a judgement per call site rather than a rename. Cited by number
+# because a comment claiming a record exists elsewhere, with nothing to check it
+# against, is the citation shape this file's own branch was cleaning up.
 _pass() { printf 'PASS [%s]\n' "$1"; }
 _bad()  { printf 'FAIL [%s] %s\n' "$1" "$(printf '%s' "${2-}" | tr '\n' ' ')" >&2; _fail=1; }
