@@ -79,8 +79,15 @@ _fx="$_tmp/demo.hash"
 
 # The header line has FOUR fields, which is what makes probe 1 observable: a
 # parser that stops treating it as a comment must report it as malformed.
+#
+# The INDENTED comment pins the grammar's leading-whitespace tolerance, which is
+# load-bearing and was unguarded until a surviving mutant said so: narrowing the
+# constant to `^#` left both probes green, because neither noticed a tolerance
+# no fixture line exercised. An indented comment read as a record is five
+# fields, so a narrowed grammar now fails probe 1.
 cat > "$_fx" <<EOF
 # sha256 from https://example.invalid/SHA256SUMS
+  # indented, and still a comment
 $(printf 'sha256\t%s\tdemo-1.0.tar.gz' "$_dgst")
 $(printf 'size\t123\tdemo-1.0.tar.gz')
 EOF
