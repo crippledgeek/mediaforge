@@ -44,12 +44,7 @@ _compose() { # own user
 }
 
 _t() { # assertion-name  own  user  case-glob  (matched against composed output)
-  _out=$(_compose "$2" "$3")
-  # shellcheck disable=SC2254  # $4 is a glob by design, not a literal
-  case "$_out" in
-    $4) _pass "$1" ;;
-    *)  _bad "$1" "own=[$2] user=[$3] got=[$_out]" ;;
-  esac
+  _glob "$1" "$(_compose "$2" "$3")" "$4" "own=[$2] user=[$3]"
 }
 
 # The FLOOR that keeps the negative assertions honest. A "must not contain -O2"
@@ -61,16 +56,7 @@ _t() { # assertion-name  own  user  case-glob  (matched against composed output)
 # Requiring non-empty output first makes the negative claim conditional on the
 # composer having actually run.
 _t_not() { # assertion-name  own  user  case-glob  (must NOT match)
-  _out=$(_compose "$2" "$3")
-  if [ -z "$_out" ]; then
-    _bad "$1" "composer produced nothing — negative claim would be vacuous"
-    return
-  fi
-  # shellcheck disable=SC2254
-  case "$_out" in
-    $4) _bad "$1" "own=[$2] user=[$3] got=[$_out]" ;;
-    *)  _pass "$1" ;;
-  esac
+  _glob_not "$1" "$(_compose "$2" "$3")" "$4" "own=[$2] user=[$3]"
 }
 
 # --- the user's flags survive, and win -------------------------------------
@@ -126,11 +112,7 @@ _lt() { # assertion-name  own  user  case-glob
   else
     _out=''
   fi
-  # shellcheck disable=SC2254
-  case "$_out" in
-    $4) _pass "$1" ;;
-    *)  _bad "$1" "own=[$2] user=[$3] got=[$_out]" ;;
-  esac
+  _glob "$1" "$_out" "$4" "own=[$2] user=[$3]"
 }
 _lt user-ldflags-preserved '-L/p/lib' '-L/opt/lib' '*-L/opt/lib*'
 _lt user-ldflags-last      '-L/p/lib' '-L/opt/lib' '*-L/opt/lib'

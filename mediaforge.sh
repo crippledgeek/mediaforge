@@ -68,6 +68,8 @@ DISABLE_PKGS=""
 ENABLE_PKGS=""
 USE_MENU=false
 ENABLE_LTO=false
+# Debug build level: "" (off), symbols, balanced or full. See lib/flags.sh.
+MF_DEBUG_LEVEL=""
 FLITE_AUDIO="none"
 SKIP_CHECKSUM=false
 SKIP_CHECKSUM_PKGS=""
@@ -102,6 +104,11 @@ cmd_help() {
   printf '  -m, --enable-small        Minimal build\n'
   printf '      --enable-lto          Enable LTO in recipes that support it (default: off; archives may break on GCC major bumps)\n'
   printf '      --disable-lto         Force LTO off (default)\n'
+  printf '      --debug[=LEVEL]       Build with debug info. LEVEL is one of:\n'
+  printf '                              symbols   -O2 -g3, assertions off, no measurable slowdown\n'
+  printf '                              balanced  -Og -g3, assertions on, ~2x slower\n'
+  printf '                              full      -O0 -g3, assertions on, 4-5x slower (default)\n'
+  printf '                            Forces LTO off. Greatly enlarges the binary.\n'
   printf '  -p, --profile=X.Y         Use version profile\n'
   printf '  -j, --jobs=N              Parallel job count (default: auto)\n'
   printf '  -u, --rebuild-outdated    Rebuild stale dependencies\n'
@@ -224,6 +231,23 @@ _add_skip_checksum() {
 
 # ─── Build ───────────────────────────────────────────────────────────
 
+# Source the requested version profile, if one was named.
+#
+# Three subcommands need it -- build, check-updates and makesum -- and each had
+# its own copy. They had already drifted: two logged which profile was in use and
+# one did so silently, so `check-updates --profile=7.1` gave no indication it was
+# reading 7.1's pins. One definition, and it always says.
+load_profile() {
+  [ -n "$PROFILE_NAME" ] || return 0
+  _profile_file="$SCRIPT_DIR/profiles/ffmpeg-${PROFILE_NAME}.conf"
+  if [ ! -f "$_profile_file" ]; then
+    die "Profile not found: $_profile_file"
+  fi
+  # shellcheck disable=SC1090
+  . "$_profile_file"
+  log "Using profile: ffmpeg-${PROFILE_NAME}"
+}
+
 cmd_build() {
   # Unified option parser — handles both short and long options
   while [ $# -gt 0 ]; do
@@ -249,6 +273,12 @@ cmd_build() {
       --disable-lv2)       DISABLE_PKGS="$DISABLE_PKGS lv2" ;;
       --enable-static)     _enable_static=true ;;
       --enable-small)      _enable_small=true ;;
+      --debug)             MF_DEBUG_LEVEL=full ;;
+      --debug=*)
+        MF_DEBUG_LEVEL="${1#--debug=}"
+        mf_debug_level_valid "$MF_DEBUG_LEVEL" \
+          || die "Unknown --debug level '$MF_DEBUG_LEVEL' (use symbols, balanced or full)"
+        ;;
       --enable-lto)        ENABLE_LTO=true ;;
       --disable-lto)       ENABLE_LTO=false ;;
       --flite-audio=*)     FLITE_AUDIO="${1#--flite-audio=}" ;;
@@ -359,6 +389,69 @@ cmd_build() {
   # See the SCOPE note in lib/flags.sh.
   MF_OWN_CFLAGS="$MF_OWN_CFLAGS -fPIC"
   MF_OWN_CXXFLAGS="$MF_OWN_CXXFLAGS -fPIC"
+
+  # A debug level changes the optimization mediaforge defaults to, and adds the
+  # symbol flags. The optimization goes through MF_DEFAULT_OPT rather than being
+  # appended separately, so it stays in the one place that decides optimization
+  # and the operator's own -O still wins by coming last.
+  # A workspace remembers the level it was built at, and a mismatch is refused.
+  #
+  # stamp_check keys only on "<name>-<version>", so nothing about a build's FLAGS
+  # is captured. Without this guard, `build` followed by `build --debug` rebuilds
+  # nothing but FFmpeg: you get a debug ffmpeg linked against ~110 stripped, -O2,
+  # NDEBUG'd archives -- and it compiles, links and runs, so the only symptom is
+  # stack traces that are quietly wrong in every library. That is the precise
+  # failure this feature exists to prevent, one layer above where it operates.
+  #
+  # Refused rather than warned. lib/resolve.sh warns for the analogous TLS-arm
+  # case, and a warning is right there because the build still does what it says
+  # with the wrong arm. Here the deliverable IS the thing being skipped, so a
+  # warning scrolls past and the operator debugs against symbols that were never
+  # built.
+  _mf_lvlfile="$PREFIX/.debug-level"
+  _mf_prev=""
+  [ -f "$_mf_lvlfile" ] && _mf_prev=$(cat "$_mf_lvlfile" 2>/dev/null)
+  if [ "$_mf_prev" != "$MF_DEBUG_LEVEL" ] && [ -d "$PREFIX/.stamps" ] &&
+     [ -n "$(ls -A "$PREFIX/.stamps" 2>/dev/null)" ]; then
+    warn "This workspace was built at debug level '${_mf_prev:-none}'; you asked for '${MF_DEBUG_LEVEL:-none}'."
+    warn "Build stamps record only name and version, so the already-built recipes"
+    warn "would NOT be rebuilt and the result would mix the two levels silently."
+    warn "Rebuild them with either:"
+    warn "    ./mediaforge.sh clean"
+    warn "    rm -rf $PREFIX/.stamps"
+    die "refusing to produce a mixed-level workspace"
+  fi
+  # Not written on a dry run. A dry run must leave the workspace exactly as it
+  # found it -- the same reason $PREFIX/.mediaforge-choices is skipped there --
+  # and recording a level for a build that never happened would make the next
+  # real build believe the workspace already matches.
+  if [ "${DRY_RUN:-false}" != true ]; then
+    mkdir -p "$PREFIX"
+    printf '%s' "$MF_DEBUG_LEVEL" > "$_mf_lvlfile"
+  fi
+
+  if [ -n "$MF_DEBUG_LEVEL" ]; then
+    # --enable-small wins over the level for FFmpeg ITSELF: its configure picks
+    # optflags in the order small -> optimizations -> noopt, so libav* compiles
+    # at -Os while every dependency honours the level. Said out loud because the
+    # two flags are individually reasonable and the interaction is not visible.
+    if [ "$_enable_small" = true ]; then
+      warn "--enable-small overrides --debug for FFmpeg itself: libav* will build at -Os"
+      warn "(the ~110 dependencies still honour the debug level)"
+    fi
+    MF_DEFAULT_OPT=$(mf_debug_opt "$MF_DEBUG_LEVEL")
+    _mf_dbg_cflags=$(mf_debug_cflags "$MF_DEBUG_LEVEL")
+    MF_OWN_CFLAGS="$MF_OWN_CFLAGS $_mf_dbg_cflags"
+    MF_OWN_CXXFLAGS="$MF_OWN_CXXFLAGS $_mf_dbg_cflags"
+    # LTO discards the per-function debug info that makes stepping work, so the
+    # two together produce a slow build with unreliable symbols. Forced off, and
+    # said out loud rather than honoured silently.
+    if [ "$ENABLE_LTO" = true ]; then
+      warn "--debug forces LTO off: LTO discards the debug info it would emit"
+      ENABLE_LTO=false
+    fi
+  fi
+
   mf_export_flags
   if [ "$_enable_static" = true ]; then
     if [ "$OS_MACOS" = true ]; then
@@ -372,14 +465,7 @@ cmd_build() {
   fi
 
   # Load version profile if specified
-  if [ -n "$PROFILE_NAME" ]; then
-    _profile_file="$SCRIPT_DIR/profiles/ffmpeg-${PROFILE_NAME}.conf"
-    if [ ! -f "$_profile_file" ]; then
-      die "Profile not found: $_profile_file"
-    fi
-    . "$_profile_file"
-    log "Using profile: ffmpeg-${PROFILE_NAME}"
-  fi
+  load_profile
 
   # Setup traps
   setup_traps
@@ -589,13 +675,7 @@ cmd_check_updates() {
     shift
   done
 
-  if [ -n "$PROFILE_NAME" ]; then
-    _profile_file="$SCRIPT_DIR/profiles/ffmpeg-${PROFILE_NAME}.conf"
-    if [ ! -f "$_profile_file" ]; then
-      die "Profile not found: $_profile_file"
-    fi
-    . "$_profile_file"
-  fi
+  load_profile
 
   . "$SCRIPT_DIR/lib/updates.sh"
   check_updates
@@ -697,14 +777,7 @@ cmd_makesum() {
     return
   fi
 
-  if [ -n "$PROFILE_NAME" ]; then
-    _profile_file="$SCRIPT_DIR/profiles/ffmpeg-${PROFILE_NAME}.conf"
-    if [ ! -f "$_profile_file" ]; then
-      die "Profile not found: $_profile_file"
-    fi
-    . "$_profile_file"
-    log "Using profile: ffmpeg-${PROFILE_NAME}"
-  fi
+  load_profile
 
   # Same validation cmd_build's --enable=/--disable= go through, so a typo
   # fails fast with a suggestion instead of silently matching nothing.

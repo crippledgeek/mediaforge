@@ -103,6 +103,8 @@ Build options:
       --enable-lto          Enable LTO in recipes that support it
                             (default: off; archives may break on GCC major bumps)
       --disable-lto         Force LTO off (default)
+      --debug[=LEVEL]       Build with debug info (symbols|balanced|full)
+                            Bare --debug means full. Forces LTO off.
   -p, --profile=X.Y         Use version profile
   -j, --jobs=N              Parallel job count (default: auto)
   -u, --rebuild-outdated    Rebuild stale dependencies
@@ -151,6 +153,55 @@ Install/uninstall options:
   -y, --yes                 Non-interactive mode
 ```
 
+### Debug builds
+
+`--debug[=LEVEL]` builds every dependency and FFmpeg itself with debug
+information. Three levels, with costs measured on this tree (lame, dav1d and
+SVT-AV1 built at each):
+
+| Level | Optimization | Assertions | Runtime cost | Archive size |
+|---|---|---|---|---|
+| `symbols` | `-O2 -g3` | off | none measurable | ~2x |
+| `balanced` | `-Og -g3` | **on** | ~2x slower | ~2x |
+| `full` (bare `--debug`) | `-O0 -g3` | **on** | 4-5x slower | ~3x |
+
+Those figures come from building three packages — lame, dav1d and SVT-AV1 — at
+each level on one machine and timing one fixture each. Treat them as the right
+order of magnitude, not a promise. "Archive size" is the multiple applied to the
+static `.a` files; the final `ffmpeg` binary grows more, since it links all of
+them.
+
+`symbols` is what distributions ship as debuginfo: identical performance, but a
+crash gives a real backtrace with file and line. It is also the only level that
+stays behaviourally identical to a release build — the other two enable
+assertions, which can change behaviour.
+
+All three set `-fno-omit-frame-pointer`, so backtraces are reliable even at
+`symbols`, and `-g3` rather than `-g2`, which keeps macro definitions available
+in the debugger.
+
+The level reaches all four places a build's posture is decided: the composed
+`CFLAGS` for autotools recipes, `CMAKE_BUILD_TYPE` for cmake ones, `buildtype`
+plus `b_ndebug` for meson ones (meson does not tie `NDEBUG` to buildtype the way
+cmake does), and FFmpeg's own `--enable-debug` / `--disable-stripping` — without
+that last one the final binary is stripped whatever the ~110 libraries did.
+
+`--debug` forces LTO off and says so: LTO discards the per-function debug info
+that makes stepping work.
+
+**A workspace remembers the level it was built at.** Build stamps record only a
+recipe's name and version, so nothing about a build's *flags* is captured — a
+release build followed by `--debug` would rebuild nothing but FFmpeg and produce
+a debug binary linked against stripped, optimized archives, which compiles,
+links and runs while every library's stack traces are wrong. mediaforge refuses
+that instead: change the level on a populated workspace and it stops, telling
+you to `./mediaforge.sh clean` (or remove `workspace/.stamps`) first.
+
+**`--enable-small` overrides the level for FFmpeg itself.** FFmpeg's configure
+picks its optimization in the order small → optimizations → none, so `libav*`
+compiles at `-Os` while the ~110 dependencies still honour the debug level.
+mediaforge warns when both are given.
+
 ### Examples
 
 ```sh
@@ -158,6 +209,11 @@ Install/uninstall options:
 ./mediaforge.sh build -Gs                # nonfree + static
 ./mediaforge.sh build -g -j 4            # GPL, 4 jobs
 ./mediaforge.sh build -n                  # dry run
+
+# Debug builds
+./mediaforge.sh build --debug             # -O0 -g3, assertions on (4-5x slower)
+./mediaforge.sh build --debug=symbols     # -O2 -g3, no measurable slowdown
+./mediaforge.sh build --debug=balanced    # -Og -g3, assertions on (~2x slower)
 
 # Version profiles
 ./mediaforge.sh list-profiles

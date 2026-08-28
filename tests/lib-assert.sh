@@ -74,3 +74,38 @@ _bad() {
   fi
   _fail=1
 }
+
+# Glob-match reporters. The pattern "run something, glob-match the result,
+# _pass or _bad with the actual value in the detail" was written five times
+# across tests/compiler-flags.sh and tests/debug-levels.sh, in two polarities.
+# It is the same convergence the reporters themselves went through in #45/#46/
+# #48: the copies agreed only by inspection, and the detail string -- the thing
+# a reader sees when a test fails -- had already drifted between them.
+#
+# $3 is a GLOB by design, so it is deliberately unquoted in the case. The caller
+# passes the actual value in $2 and a describing prefix in $4, so the failure
+# line says what was fed in as well as what came out.
+#
+# NOTE the polarity trap these replaced: a "must NOT match" check is satisfied by
+# the empty string, so on a tree lacking the feature it passes having verified
+# nothing. _glob_not therefore FAILS on empty input rather than passing, and
+# callers that can legitimately produce empty must say so before calling.
+_glob() { # name  actual  glob  detail-prefix
+  # shellcheck disable=SC2254
+  case "$2" in
+    $3) _pass "$1" ;;
+    *)  _bad "$1" "$4 got=[$2]" ;;
+  esac
+}
+
+_glob_not() { # name  actual  glob  detail-prefix
+  if [ -z "$2" ]; then
+    _bad "$1" "$4 produced nothing — a negative claim on empty input is vacuous"
+    return
+  fi
+  # shellcheck disable=SC2254
+  case "$2" in
+    $3) _bad "$1" "$4 got=[$2]" ;;
+    *)  _pass "$1" ;;
+  esac
+}

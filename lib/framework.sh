@@ -25,9 +25,15 @@
 # Every other argument passes through untouched, which is why the differing
 # source-dir spellings (`.`, `-S . -B build`, `../../../source`) all still work.
 mf_cmake() {
-  if [ -n "${PKG_CMAKE_BUILD_TYPE:-}" ]; then
+  # A debug level OVERRIDES the recipe's own build type. That is the whole
+  # reason this helper exists: the ten recipes that name no build type and the
+  # 25 pinned to Release would otherwise stay optimized while the rest of the
+  # tree went debug, and the result still compiles and still links.
+  _mf_bt=$(mf_debug_cmake_type "${MF_DEBUG_LEVEL:-}")
+  [ -n "$_mf_bt" ] || _mf_bt="${PKG_CMAKE_BUILD_TYPE:-}"
+  if [ -n "$_mf_bt" ]; then
     run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-      -DCMAKE_BUILD_TYPE="$PKG_CMAKE_BUILD_TYPE" "$@"
+      -DCMAKE_BUILD_TYPE="$_mf_bt" "$@"
   else
     run cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" "$@"
   fi
@@ -52,9 +58,37 @@ mf_cmake() {
 mf_meson() {
   _mf_builddir="$1"
   shift
-  run meson setup "$_mf_builddir" --prefix="$PREFIX" \
-    --buildtype="${PKG_MESON_BUILDTYPE:-release}" \
-    --default-library=static --libdir="$PREFIX/lib" "$@"
+  # A debug level replaces the buildtype AND names b_ndebug explicitly, because
+  # meson does not tie NDEBUG to buildtype the way cmake does.
+  #
+  # Precisely: the level's arguments land after THIS HELPER's defaults, not after
+  # the recipe's own "$@". No recipe passes buildtype or b_ndebug today (none in
+  # recipes/ does, and tests/meson-single-entry.sh forbids it), so the ordering
+  # is not reachable -- but the guarantee is "the level beats the helper", not
+  # "the level beats everything".
+  #
+  # The unquoted expansion below is deliberate word-splitting, and it is safe
+  # here for a reason the linter cannot see: $_mf_dbg is never operator input.
+  # It is one of exactly three fixed strings from the table in lib/flags.sh,
+  # selected by a level that mediaforge.sh has already validated -- so there is
+  # no value it can hold that contains a glob or an unexpected word.
+  #
+  # The level supplies its OWN --buildtype, so the recipe's is omitted entirely
+  # rather than passed first and overridden. meson does accept the flag twice
+  # and take the last (verified), but relying on that is relying on argparse's
+  # behaviour rather than on anything meson documents -- and a build log showing
+  # `--buildtype=release --buildtype=debug` invites exactly the "which one won?"
+  # question this helper exists to remove.
+  _mf_dbg=$(mf_debug_meson_args "${MF_DEBUG_LEVEL:-}")
+  if [ -n "$_mf_dbg" ]; then
+    # shellcheck disable=SC2086
+    run meson setup "$_mf_builddir" --prefix="$PREFIX" \
+      --default-library=static --libdir="$PREFIX/lib" $_mf_dbg "$@"
+  else
+    run meson setup "$_mf_builddir" --prefix="$PREFIX" \
+      --buildtype="${PKG_MESON_BUILDTYPE:-release}" \
+      --default-library=static --libdir="$PREFIX/lib" "$@"
+  fi
 }
 
 # Default phase functions
@@ -81,6 +115,26 @@ default_install() {
 
 default_noop() {
   :
+}
+
+# Accumulate this recipe's FFmpeg configure flag.
+#
+# Three of run_recipe's exits contribute the flag UNCONDITIONALLY -- already
+# stamped, dry-run, and a completed build -- and each carried its own copy of the
+# same four lines. Missing one configures FFmpeg without a codec whose library is
+# present, and the build still succeeds.
+#
+# The guard-skip path earlier in run_recipe is deliberately NOT this function: it
+# returns before these and accumulates only when the recipe already has a stamp,
+# which is its own rule rather than this one. Converging it here would change
+# that condition, so it is left alone on purpose.
+#
+# tests/dry-run-matrix.sh is what would eventually notice a miss, and only for
+# the dry-run path.
+accumulate_ffmpeg_opt() {
+  if [ -n "$PKG_FFMPEG_OPT" ]; then
+    FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
+  fi
 }
 
 # Reset all PKG_* variables and phase functions between recipes
@@ -324,18 +378,14 @@ run_recipe() {
   # Check stamp (stamp_check returns 1 if already built)
   if ! stamp_check "$PKG_NAME" "$PKG_VERSION"; then
     # Already built — accumulate ffmpeg option and skip
-    if [ -n "$PKG_FFMPEG_OPT" ]; then
-      FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
-    fi
+    accumulate_ffmpeg_opt
     return 0
   fi
 
   # Dry-run short-circuit: print intent, accumulate ffmpeg flag, skip download/build
   if [ "${DRY_RUN:-false}" = true ]; then
     log "Would build $PKG_NAME-$PKG_VERSION"
-    if [ -n "$PKG_FFMPEG_OPT" ]; then
-      FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
-    fi
+    accumulate_ffmpeg_opt
     return 0
   fi
 
@@ -383,10 +433,7 @@ run_recipe() {
   # Mark as done
   stamp_write "$PKG_NAME" "$PKG_VERSION"
 
-  # Accumulate ffmpeg configure option
-  if [ -n "$PKG_FFMPEG_OPT" ]; then
-    FFMPEG_CONFIGURE_OPTS="$FFMPEG_CONFIGURE_OPTS $PKG_FFMPEG_OPT"
-  fi
+  accumulate_ffmpeg_opt
 
   # Restore compiler flags
   CFLAGS="$_saved_cflags"

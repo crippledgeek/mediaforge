@@ -49,6 +49,11 @@ sh tests/meson-single-entry.sh
 # make the recipe unbuildable below -O2 -- so the setting is what keeps dav1d
 # debuggable, not merely smaller.
 sh tests/dav1d-library-only.sh
+# Pins --debug. The risk is not any single level but PARTIAL wiring: a level
+# that reaches three of the four knobs (autotools CFLAGS, cmake build type,
+# meson buildtype+b_ndebug, FFmpeg's own strip/debug flags) yields a tree that
+# still compiles and links, with wrong stack traces in the recipes it missed.
+sh tests/debug-levels.sh
 # Pins .githooks/pre-push, which runs tests/shellcheck.sh -- and only that -- at
 # push time. Asserts it forwards the gate's verdict both ways, demands a real
 # linter rather than sh -n alone, and lets a branch deletion through. A hook that
