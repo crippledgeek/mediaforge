@@ -177,12 +177,18 @@ EOF
 _want 'wired-fails-on-a-miss' "$(cat "$_err")" 'FAIL [name] tests/lib-assert.sh never mentions no-such-needle-anywhere'
 
 # FIXED-string matching, not regex. Real needles in-tree are case labels like
-# `--ccache)` whose parenthesis is a regex metacharacter; under -E that needle
-# would match a line without it and report wiring that is not there.
+# `--ccache)` whose parenthesis is a regex metacharacter.
+#
+# The needle has to be a VALID regex that MATCHES under -E while being absent as
+# a literal, or the probe cannot tell the two apart: the first version used
+# 'a)b', which -E rejects as an unbalanced parenthesis, so grep failed either
+# way and the probe passed against a -qE implementation too -- caught by
+# mutating -qF to -qE and watching this file stay green. '_pass|_bad' is an
+# alternation that -E finds in the library and -F does not.
 _probe >/dev/null <<'EOF'
-_wired name tests/lib-assert.sh 'a)b'
+_wired name tests/lib-assert.sh '_pass|_bad'
 EOF
-_want 'wired-needle-is-literal' "$(cat "$_err")" 'FAIL [name] tests/lib-assert.sh never mentions a)b'
+_want 'wired-needle-is-literal' "$(cat "$_err")" 'FAIL [name] tests/lib-assert.sh never mentions _pass|_bad'
 
 _wrong_wired=$_wrong   # last handoff: no _want may follow this line
 
