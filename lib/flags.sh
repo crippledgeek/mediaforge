@@ -241,10 +241,26 @@ mf_compose_cflags() {
 # `$CC -c $CFLAGS $CPPFLAGS` -- which is how a --debug build produced objects
 # whose producer reads "-g3 -g3 -O0 -O0".
 #
-# Stated once here as what it actually is: the include path. The optimization
-# and symbol flags still reach the compile-time checks through CFLAGS, which is
-# where they belong; only the preprocessor-only checks were ever the problem.
-mf_cppflags() { printf '%s' "-I$PREFIX/include"; }
+# Stated once here as what it actually is: the prefix include path PLUS the
+# operator's own flags -- and that second half is not decoration. The first
+# version emitted the include path alone, which silently narrowed a contract an
+# operator already had: building against a dependency in a non-default prefix
+# means exporting CFLAGS="-I/opt/idn2/include", and under CPPFLAGS="$CFLAGS"
+# that reached gnutls' AC_CHECK_HEADER([idn2.h]). With the prefix path alone it
+# does not, and the check then fails by dropping a feature rather than by
+# erroring -- the same "reads as working" failure this file exists to prevent.
+#
+# MF_USER_CFLAGS is the operator's CFLAGS as captured at startup by
+# mediaforge.sh, before mediaforge composes anything into it, so this
+# carries their -I and -D without reintroducing the -g3 -g3 -O0 -O0 doubling
+# that the composed line produced. mediaforge's own optimization and symbol
+# flags still reach the compile-time checks through CFLAGS, where they belong.
+#
+# Composed through mf_compose_flags rather than by concatenation, so the
+# "mediaforge first, the operator last" ordering has one implementation, an
+# empty operator half collapses instead of leaving a trailing space, and the
+# noglob handling that helper documents covers this line too.
+mf_cppflags() { mf_compose_flags "-I$PREFIX/include" "${MF_USER_CFLAGS-}"; }
 
 mf_export_flags() {
   CFLAGS=$(mf_compose_cflags "$MF_OWN_CFLAGS" "${MF_USER_CFLAGS-}")
@@ -252,10 +268,12 @@ mf_export_flags() {
   # SC2034 is wrong here specifically: LDFLAGS has no reader in THIS file, but
   # recipes are sourced into the same shell and read it as a plain variable --
   # the pkg_configure of recipes/crypto/gnutls.sh and recipes/crypto/nettle.sh
-  # pass it as LDFLAGS="$LDFLAGS", recipes/image/libpng.sh re-exports it, and
-  # recipes/ffmpeg.sh hands it to --extra-ldflags. shellcheck cannot see a
-  # cross-file consumer; lib/framework.sh and lib/platform.sh carry the same
-  # disable in their headers for the same reason.
+  # pass it as LDFLAGS="$LDFLAGS" and recipes/ffmpeg.sh hands it to
+  # --extra-ldflags. shellcheck cannot see a cross-file consumer;
+  # lib/framework.sh and lib/platform.sh carry the same disable in their headers
+  # for the same reason. (This named recipes/image/libpng.sh as a third consumer
+  # that re-exported it until that recipe moved to passing both variables on its
+  # configure line like the other two -- the citation outlived the code.)
   # shellcheck disable=SC2034
   LDFLAGS=$(mf_compose_flags "$MF_OWN_LDFLAGS" "${MF_USER_LDFLAGS-}")
   export CFLAGS CXXFLAGS

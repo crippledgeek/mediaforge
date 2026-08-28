@@ -1,11 +1,13 @@
 #!/bin/sh
-# Pins --debug: the three levels, and that each one reaches ALL FIVE places a
+# Pins --debug: the three levels, and that each one reaches ALL SEVEN places a
 # build's optimization and symbol posture is decided.
 #
 # That last part is the whole risk. A debug mode that turns four of the five
 # knobs produces a tree that still compiles and still links, and whose stack
 # traces are simply wrong in the recipes it missed -- which is the hardest kind
-# of defect to attribute, because nothing fails. The four are:
+# of defect to attribute, because nothing fails. The five build systems that
+# read the environment are below; the sixth (make on an upstream Makefile) and
+# seventh (nvcc) have their own section banners further down. They are:
 #
 #   autotools  the composed CFLAGS (via MF_DEFAULT_OPT and the symbol flags)
 #   cmake      CMAKE_BUILD_TYPE, forced over whatever the recipe declared
@@ -338,9 +340,15 @@ fi
 #
 # So the claim is structural and per-invocation: every make that COMPILES must
 # name a flags macro on the command line, and that macro must be fed by the
-# composed CFLAGS. The recipes below run make but compile nothing (they install
-# headers), so they have nothing to carry.
-_mf_headers_only=' amf.sh vaapi.sh ladspa.sh vapoursynth.sh nv-codec.sh '
+# composed CFLAGS.
+#
+# ONE exemption, and it is real: nv-codec runs make to install ffnvcodec's
+# headers and compiles nothing, so it has no flags to carry. The first version
+# of this list also named amf, vaapi, ladspa and vapoursynth "for the same
+# reason" -- but those four contain no `make` at all, so they never reach the
+# gate below and the exemption never fired for them. Four false citations that
+# taught the next reader those recipes run make; rotted before being committed.
+_mf_headers_only=' nv-codec.sh '
 
 # Fold backslash continuations before matching: gsm, bzip2 and librtmp all put
 # the macro on the line AFTER `run make`, and a line-oriented grep reads those
@@ -358,16 +366,48 @@ _mf_logical() { awk '{ if (sub(/\\$/, "")) { buf = buf $0; next } print buf $0; 
 # to read a helper's body too, and reading two function bodies two ways is how
 # the copies in this file drifted before.
 _mf_fn_body() { # file  function-name
+  # Terminates on a `}` at COLUMN ZERO, not on any line ending in one. The first
+  # version used /\}[[:space:]]*$/, which is not brace matching: an ordinary body
+  # line ending in a close brace ended the extraction and everything below it
+  # became invisible -- a false PASS of exactly the kind this scan exists to
+  # catch:
+  #
+  #     pkg_build() {
+  #       run make CFLAGS="$CFLAGS" libfoo.a
+  #       _v=${SOMEVAR}          <- extraction stopped here
+  #       run make libextra.a    <- bare, compiles, never seen
+  #     }
+  #
+  # `${VAR}` at end of line, a brace group, and an inline awk program all trigger
+  # it. Found in review rather than by this file, which is the part worth
+  # recording: the scan could not police its own reader.
+  #
+  # A phase written on ONE line (quirc) closes where it opens, so it is finished
+  # at the start line rather than left open to swallow the rest of the file.
   _mf_logical "$1" | awk -v fn="$2" '
-    $0 ~ "^[[:space:]]*" fn "\\(\\)" { f = 1 }
+    $0 ~ "^[[:space:]]*" fn "\\(\\)" {
+      f = 1
+      if ($0 ~ /\}[[:space:]]*$/) { print; f = 0; next }
+    }
     f { print }
-    f && /\}[[:space:]]*$/ { f = 0 }'
+    f && /^\}/ { f = 0 }'
 }
 
 _mf_scanned=0
 for _r in $(find recipes -name '*.sh' | sort); do
+  # recipes/ffmpeg.sh is not a recipe in this sense: cmd_build sources it
+  # directly rather than through run_recipe(), so it defines no pkg_* phases and
+  # the "no pkg_build body" rule below does not describe it. Its own flags come
+  # from the ffmpeg column and --extra-cflags, both asserted earlier in this
+  # file. It reaches this loop only because the exclusion below is now anchored.
+  case "$_r" in recipes/ffmpeg.sh) continue ;; esac
   grep -qE 'run make' "$_r" || continue
-  grep -qE './configure|mf_cmake|meson|cargo|./Configure|PKG_CMAKE=true' "$_r" && continue
+  # Anchored on how these are INVOKED, because an unanchored word matches
+  # comments too: a future comment in giflib.sh reading "unlike the meson
+  # recipes" would drop giflib from the scan entirely, and with five candidates
+  # against a floor of four, exactly one recipe can vanish without tripping
+  # make-scan-found-recipes below.
+  grep -qE 'run \./(configure|Configure)|mf_cmake|mf_meson|run cargo|PKG_CMAKE=true|PKG_REQUIRES_MESON=true' "$_r" && continue
   case "$_mf_headers_only" in *" $(basename "$_r") "*) continue ;; esac
   _mf_scanned=$((_mf_scanned + 1))
   _mf_name="make-carries-flags-$(basename "$_r" .sh)"
@@ -478,12 +518,33 @@ fi
 for _r in recipes/crypto/nettle.sh recipes/crypto/gnutls.sh recipes/image/libpng.sh; do
   _wired "uses-cppflags-helper-$(basename "$_r" .sh)" "$_r" 'mf_cppflags'
 done
+# Behavioural, not a restatement of the one-line body. The claim that matters is
+# the OPERATOR'S: flags they exported must still reach the preprocessor-only
+# checks, because that is what CPPFLAGS="$CFLAGS" gave them and what the first
+# version of mf_cppflags silently took away -- an operator with a dependency in
+# a non-default prefix would have watched a configure check start failing with
+# no error to read. Review caught it; these are so the next narrowing does not
+# need a reviewer.
 if _have mf_cppflags; then
-  _glob cppflags-is-the-include-path "$(PREFIX=/p mf_cppflags)" '*-I/p/include*' 'mf_cppflags'
-  _glob_not cppflags-carries-no-opt  "$(PREFIX=/p mf_cppflags)" '*-O*' 'mf_cppflags'
+  _glob cppflags-has-the-prefix-path \
+    "$(PREFIX=/p MF_USER_CFLAGS='' mf_cppflags)" '*-I/p/include*' 'mf_cppflags'
+  _glob cppflags-keeps-operator-include \
+    "$(PREFIX=/p MF_USER_CFLAGS='-I/opt/idn2/include' mf_cppflags)" '*-I/opt/idn2/include*' 'mf_cppflags'
+  _glob cppflags-keeps-operator-define \
+    "$(PREFIX=/p MF_USER_CFLAGS='-DHAVE_BAR' mf_cppflags)" '*-DHAVE_BAR*' 'mf_cppflags'
+  # ...while mediaforge's OWN composed optimization and symbol flags stay out,
+  # which is the doubling this helper exists to stop. Asserted with an empty
+  # operator half: an operator who exports -O2 themselves is entitled to it here.
+  _glob_not cppflags-omits-composed-opt \
+    "$(PREFIX=/p MF_USER_CFLAGS='' mf_cppflags)" '*-O*' 'mf_cppflags'
+  _glob_not cppflags-omits-composed-g \
+    "$(PREFIX=/p MF_USER_CFLAGS='' mf_cppflags)" '*-g3*' 'mf_cppflags'
 else
-  _bad cppflags-is-the-include-path "mf_cppflags absent — claim would be vacuous"
-  _bad cppflags-carries-no-opt      "mf_cppflags absent — claim would be vacuous"
+  for _a in cppflags-has-the-prefix-path cppflags-keeps-operator-include \
+            cppflags-keeps-operator-define cppflags-omits-composed-opt \
+            cppflags-omits-composed-g; do
+    _bad "$_a" "mf_cppflags absent — claim would be vacuous"
+  done
 fi
 
 printf 'DONE: debug-levels\n'
