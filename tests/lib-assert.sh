@@ -1,42 +1,51 @@
 # shellcheck shell=sh
 # The assertion reporters, defined ONCE.
 #
-# Requires $ROOT to be set by the caller, and $_fail to be initialised to 0 --
-# _bad sets it, and the caller exits with it.
+# Sourced by path from the test that uses it, and requires that test to have
+# initialised $_fail to 0 -- _bad sets it, and the caller exits with it.
 #
-# Seven test files carried this pair before this file existed, in TWO spellings:
-# five omitted the `tr '\n' ' '` and two did not. (The eighth file sourcing it,
-# tests/hash-comment-grammar.sh, is new and never carried a copy.) Without the
-# flattening a FAIL whose detail spans lines emits continuation lines of its
-# own. That is not cosmetic here. tests/oracle-baseline.sh measures a newly
-# added test by COUNTING assertion lines, and the BASELINE run is counted with
-# `grep -c '^PASS'` and `grep -c '^FAIL'` separately (the combined
+# Called as `_pass <assertion-name>`, `_bad <assertion-name> "<detail>"`, or
+# `_bad <assertion-name>` where the name is the whole claim and there is no
+# detail to add -- the majority shape in tests/install-manifest-reconcile.sh,
+# whose _pass and _bad said the same sentence before they had names. The name is
+# what the reporter prints, so it should read as the claim being made
+# ("symlinked-leaf-replaced-not-followed"), not as a restatement of the detail.
+#
+# Before this file existed the pair was copy-pasted into every test that wanted
+# it, in three spellings, and the copies drifted. Of the seven that already used
+# this file's `FAIL [<name>] <detail>` shape, five omitted the `tr '\n' ' '`
+# below and two did not. That is not cosmetic. tests/oracle-baseline.sh measures
+# a newly added test by COUNTING assertion lines, and the BASELINE run is
+# counted with `grep -c '^PASS'` and `grep -c '^FAIL'` separately (the combined
 # `^(PASS|FAIL)` pattern counts the current tree, not the base). So a detail
-# line that happens to begin with `PASS` -- an assertion name
-# quoted back inside a failure message, say -- is counted as an assertion that
-# passed on the base, and the gate reports the file as an offender that cannot
-# be detecting its change. Flattening the detail to one line is what makes the
-# count mean what the gate thinks it means.
+# line that happens to begin with `PASS` -- an assertion name quoted back inside
+# a failure message, say -- is counted as an assertion that passed on the base,
+# and the gate reports the file as an offender that cannot be detecting its
+# change. Flattening the detail to one line is what makes the count mean what
+# the gate thinks it means.
+#
+# A third spelling (`FAIL: <sentence>` on stdout, with no assertion name) was
+# converged over two changes -- #45 took tests/hash-comment-grammar.sh, #46 the
+# last six -- which is why no file outside this one defines the pair any more.
+# `grep -rnE '_pass\(\)|_bad\(\)' tests/` is the check -- ERE, because `\|`
+# alternation is a GNU extension a BSD grep silently matches nothing with, and
+# unanchored, so an indented redefinition inside a function or a file that
+# copied only _bad is caught too. It answers "does anything else DEFINE the
+# pair", which is narrower than this paragraph's subject: a test that inlines
+# `printf 'PASS ...'` at each call site is a copy that no definition-grep can
+# see, and `grep -rnE "printf '(PASS|FAIL)" tests/` is the complement that
+# finds those. No file census is written here: the enumeration this header used
+# to carry drifted twice in three commits, and a grep does not.
 #
 # FAIL goes to stderr and PASS to stdout, so a caller can read the failures
 # alone. oracle-baseline captures both (`sh "$_f" 2>&1`), so the split does not
 # hide an assertion from it.
-#
-# Six further test files (install-containment, install-manifest-reconcile,
-# install-privileged-execs, libressl-pin-asm, libressl-trust-store,
-# gitignore-artifacts) carry a third spelling OF THESE TWO FUNCTIONS:
-# `FAIL: <sentence>` on stdout, with no assertion name. (Other tests report
-# inline without helpers at all; this file is not a census of the tree.) They
-# are not converged here because their call sites pass a whole sentence as the
-# first argument, so each needs a NAME invented for it -- a judgement per site,
-# not a rename. No count is given here on purpose: the enumeration in this
-# header has drifted twice in three commits, and
-# `grep -c '^[[:space:]]*_\(pass\|bad\)[[:space:]]' tests/<file>.sh` answers it
-# without rotting.
-#
-# Tracked as #46, which carries the per-file counts and the reason converging
-# them is a judgement per call site rather than a rename. Cited by number
-# because a comment claiming a record exists elsewhere, with nothing to check it
-# against, is the citation shape this file's own branch was cleaning up.
 _pass() { printf 'PASS [%s]\n' "$1"; }
-_bad()  { printf 'FAIL [%s] %s\n' "$1" "$(printf '%s' "${2-}" | tr '\n' ' ')" >&2; _fail=1; }
+_bad() {
+  if [ "$#" -ge 2 ]; then
+    printf 'FAIL [%s] %s\n' "$1" "$(printf '%s' "$2" | tr '\n' ' ')" >&2
+  else
+    printf 'FAIL [%s]\n' "$1" >&2
+  fi
+  _fail=1
+}

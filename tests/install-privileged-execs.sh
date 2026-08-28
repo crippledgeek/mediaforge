@@ -44,8 +44,8 @@ _root=$(CDPATH='' cd -- "$_here/.." && pwd)
 cd "$_root" || exit 1
 
 _fail=0
-_pass() { printf 'PASS: %s\n' "$1"; }
-_bad()  { printf 'FAIL: %s\n' "$1"; _fail=1; }
+# shellcheck source=tests/lib-assert.sh
+. "$_root/tests/lib-assert.sh"
 
 # `exec "$@"` after logging: the shim must be transparent, so the install still
 # happens for real and the assertions can look at the tree afterwards.
@@ -142,13 +142,15 @@ _out=$(_drive "$_d" "$_s" 'lib/a|sudo' 'lib/b|sudo' 'lib/c|sudo') || true
 _n=$(_execs)
 
 if [ "$_n" != 3 ]; then
-  _bad "three files cost $_n privileged execs, want 3 (one each): $(printf '%s' "$_out" | tail -1)"
+  _bad one-privileged-exec-per-file \
+    "three files cost $_n privileged execs, want 3 (one each): $(printf '%s' "$_out" | tail -1)"
 elif [ "$(cat "$_d/lib/a" 2>/dev/null)" != "PAYLOAD-a" ] \
   || [ "$(cat "$_d/lib/b" 2>/dev/null)" != "PAYLOAD-b" ] \
   || [ "$(cat "$_d/lib/c" 2>/dev/null)" != "PAYLOAD-c" ]; then
-  _bad "the one-exec-per-file path did not place all three payloads under $_d/lib"
+  _bad one-privileged-exec-per-file \
+    "the one-exec-per-file path did not place all three payloads under $_d/lib"
 else
-  _pass "each installed file costs exactly one privileged exec, and all still land"
+  _pass one-privileged-exec-per-file
 fi
 rm -rf "$_s" "$_d"
 
@@ -167,15 +169,19 @@ _out=$(_drive "$_d" "$_s" 'lib/a|sudo' "SWAP:lib:$_esc" 'lib/b|sudo') || true
 _n=$(_execs)
 
 if [ -e "$_esc/b" ]; then
-  _bad "a file was written THROUGH the symlink swapped in mid-run, to $_esc"
+  _bad swapped-directory-refused-next-file \
+    "a file was written THROUGH the symlink swapped in mid-run, to $_esc"
 elif ! printf '%s' "$_out" | grep -q 'Refusing a privileged write'; then
-  _bad "the swapped directory was not refused: $(printf '%s' "$_out" | tail -2)"
+  _bad swapped-directory-refused-next-file \
+    "the swapped directory was not refused: $(printf '%s' "$_out" | tail -2)"
 elif [ "$_n" != 2 ]; then
-  _bad "the swap case cost $_n privileged execs, want 2 (one per file)"
+  _bad swapped-directory-refused-next-file \
+    "the swap case cost $_n privileged execs, want 2 (one per file)"
 elif [ "$(cat "$_d/lib.orig/a" 2>/dev/null)" != "PAYLOAD-a" ]; then
-  _bad "the file installed before the swap never landed — the refusal proves nothing"
+  _bad swapped-directory-refused-next-file \
+    "the file installed before the swap never landed — the refusal proves nothing"
 else
-  _pass "a directory swapped after one file is vetted is refused for the next — no verdict is reused"
+  _pass swapped-directory-refused-next-file
 fi
 rm -rf "$_s" "$_d" "$_esc"
 
@@ -196,17 +202,20 @@ _out=$(_drive "$_d" "$_s" 'lib/a|sudo' 'include/sub/b|sudo') || true
 _n=$(_execs)
 
 if [ -e "$_esc/sub" ]; then
-  _bad "mkdir created $_esc/sub THROUGH the symlinked include/ before anything refused it"
+  _bad class-dir-refused-before-mkdir \
+    "mkdir created $_esc/sub THROUGH the symlinked include/ before anything refused it"
 elif [ -e "$_esc/b" ] || [ -e "$_esc/sub/b" ]; then
-  _bad "a file was written THROUGH the symlinked include/ to $_esc"
+  _bad class-dir-refused-before-mkdir "a file was written THROUGH the symlinked include/ to $_esc"
 elif ! printf '%s' "$_out" | grep -q 'Refusing a privileged write'; then
-  _bad "the symlinked include/ was not refused: $(printf '%s' "$_out" | tail -2)"
+  _bad class-dir-refused-before-mkdir \
+    "the symlinked include/ was not refused: $(printf '%s' "$_out" | tail -2)"
 elif [ "$_n" != 2 ]; then
-  _bad "one landing plus one refusal cost $_n privileged execs, want 2"
+  _bad class-dir-refused-before-mkdir \
+    "one landing plus one refusal cost $_n privileged execs, want 2"
 elif [ "$(cat "$_d/lib/a" 2>/dev/null)" != "PAYLOAD-a" ]; then
-  _bad "the refusal also lost the legitimate lib/a under $_d"
+  _bad class-dir-refused-before-mkdir "the refusal also lost the legitimate lib/a under $_d"
 else
-  _pass "a symlinked class directory is refused before mkdir — no file and no directory escapes"
+  _pass class-dir-refused-before-mkdir
 fi
 rm -rf "$_s" "$_d" "$_esc"
 
@@ -222,12 +231,14 @@ _out=$(_drive "$_d" "$_s" 'lib/a|' 'lib/b|sudo') || true
 _n=$(_execs)
 
 if [ "$_n" != 1 ]; then
-  _bad "one unprivileged and one privileged file cost $_n privileged execs, want 1: $(printf '%s' "$_out" | tail -1)"
+  _bad unprivileged-file-spends-no-exec \
+    "cost $_n privileged execs, want 1: $(printf '%s' "$_out" | tail -1)"
 elif [ "$(cat "$_d/lib/a" 2>/dev/null)" != "PAYLOAD-a" ] \
   || [ "$(cat "$_d/lib/b" 2>/dev/null)" != "PAYLOAD-b" ]; then
-  _bad "the mixed-privilege run did not place both payloads under $_d/lib"
+  _bad unprivileged-file-spends-no-exec \
+    "the mixed-privilege run did not place both payloads under $_d/lib"
 else
-  _pass "an unprivileged file spends no privileged exec, a privileged one spends exactly one"
+  _pass unprivileged-file-spends-no-exec
 fi
 rm -rf "$_s" "$_d"
 
@@ -263,13 +274,16 @@ _libcopy=$(_damaged_lib '')
 _out=$(MF_SCRIPT_DIR="$_libcopy" _drive "$_d" "$_s" 'lib/a|sudo') || true
 
 if [ -f "$_d/lib/a" ]; then
-  _bad "an empty helper still placed $_d/lib/a — it cannot have; something else wrote it"
+  _bad empty-helper-caught-at-read \
+    "an empty helper still placed $_d/lib/a — it cannot have; something else wrote it"
 elif [ -f "$_d/.manifest" ] && grep -q 'lib/a' "$_d/.manifest" 2>/dev/null; then
-  _bad "an empty helper produced a manifest entry for a file it never wrote"
+  _bad empty-helper-caught-at-read \
+    "an empty helper produced a manifest entry for a file it never wrote"
 elif ! printf '%s' "$_out" | grep -q 'is empty'; then
-  _bad "an empty helper was not diagnosed at read time: $(printf '%s' "$_out" | tail -2)"
+  _bad empty-helper-caught-at-read \
+    "an empty helper was not diagnosed at read time: $(printf '%s' "$_out" | tail -2)"
 else
-  _pass "an empty install helper is caught when it is read, before anything is installed"
+  _pass empty-helper-caught-at-read
 fi
 rm -rf "$_s" "$_d" "$_libcopy"
 
@@ -285,13 +299,16 @@ _libcopy=$(_damaged_lib '#!/bin/sh
 _out=$(MF_SCRIPT_DIR="$_libcopy" _drive "$_d" "$_s" 'lib/a|sudo') || true
 
 if [ -f "$_d/lib/a" ]; then
-  _bad "a no-op helper still placed $_d/lib/a — it cannot have; something else wrote it"
+  _bad noop-helper-refused-not-believed \
+    "a no-op helper still placed $_d/lib/a — it cannot have; something else wrote it"
 elif [ -f "$_d/.manifest" ] && grep -q 'lib/a' "$_d/.manifest" 2>/dev/null; then
-  _bad "a no-op helper produced a manifest entry for a file it never wrote"
+  _bad noop-helper-refused-not-believed \
+    "a no-op helper produced a manifest entry for a file it never wrote"
 elif ! printf '%s' "$_out" | grep -q 'INSTALLED sentinel'; then
-  _bad "a helper that exited 0 without working was believed: $(printf '%s' "$_out" | tail -2)"
+  _bad noop-helper-refused-not-believed \
+    "a helper that exited 0 without working was believed: $(printf '%s' "$_out" | tail -2)"
 else
-  _pass "a helper that exits 0 without copying is refused — status alone is not success"
+  _pass noop-helper-refused-not-believed
 fi
 rm -rf "$_s" "$_d" "$_libcopy"
 
@@ -315,13 +332,15 @@ case x in
 _out=$(MF_SCRIPT_DIR="$_libcopy" _drive "$_d" "$_s" 'lib/a|sudo') || true
 
 if [ -f "$_d/lib/a" ]; then
-  _bad "a helper that cannot parse still placed $_d/lib/a"
+  _bad damaged-helper-diagnosed-as-damage "a helper that cannot parse still placed $_d/lib/a"
 elif printf '%s' "$_out" | grep -q 'Refusing a privileged write'; then
-  _bad "a damaged helper was reported as a symlink attack — the operator is sent after nothing"
+  _bad damaged-helper-diagnosed-as-damage \
+    "a damaged helper was reported as a symlink attack — the operator is sent after nothing"
 elif ! printf '%s' "$_out" | grep -q 'failed to parse'; then
-  _bad "a helper that cannot parse was not diagnosed: $(printf '%s' "$_out" | tail -2)"
+  _bad damaged-helper-diagnosed-as-damage \
+    "a helper that cannot parse was not diagnosed: $(printf '%s' "$_out" | tail -2)"
 else
-  _pass "a helper damaged mid-construct is diagnosed as damage, not as a symlink attack"
+  _pass damaged-helper-diagnosed-as-damage
 fi
 rm -rf "$_s" "$_d" "$_libcopy"
 
@@ -338,17 +357,22 @@ _stage "$_s"
 _out=$(MF_SUDO_DENY='sh' _drive "$_d" "$_s" 'lib/a|sudo') || true
 
 if [ -f "$_d/lib/a" ]; then
-  _bad "the install proceeded even though sudo refused to run the helper"
+  _bad refused-sudo-names-policy-and-way-out \
+    "the install proceeded even though sudo refused to run the helper"
 elif printf '%s' "$_out" | grep -q 'cannot resolve the install destination'; then
-  _bad "a refused sudo was diagnosed as an unresolvable destination — the wrong fix entirely"
+  _bad refused-sudo-names-policy-and-way-out \
+    "a refused sudo was diagnosed as an unresolvable destination — the wrong fix entirely"
 elif ! printf '%s' "$_out" | grep -q 'could not run the install helper'; then
-  _bad "a refused sudo was not diagnosed: $(printf '%s' "$_out" | tail -3)"
+  _bad refused-sudo-names-policy-and-way-out \
+    "a refused sudo was not diagnosed: $(printf '%s' "$_out" | tail -3)"
 elif ! printf '%s' "$_out" | grep -q 'sudoers'; then
-  _bad "the refusal was reported without naming the sudoers policy that causes it"
+  _bad refused-sudo-names-policy-and-way-out \
+    "the refusal was reported without naming the sudoers policy that causes it"
 elif ! printf '%s' "$_out" | grep -q 'as root'; then
-  _bad "the refusal named the cause but not the way out — installing as root needs no per-file sudo"
+  _bad refused-sudo-names-policy-and-way-out \
+    "the refusal named the cause but not the way out — installing as root needs no per-file sudo"
 else
-  _pass "a sudoers policy that refuses sh is named, along with the root install that avoids it"
+  _pass refused-sudo-names-policy-and-way-out
 fi
 rm -rf "$_s" "$_d"
 

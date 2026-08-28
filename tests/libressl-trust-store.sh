@@ -24,8 +24,8 @@ _recipe="recipes/crypto/libressl.sh"
 _patch="patches/libressl-no-openssldir-install.patch"
 _fail=0
 
-_pass() { printf 'PASS: %s\n' "$1"; }
-_bad()  { printf 'FAIL: %s\n' "$1"; _fail=1; }
+# shellcheck source=tests/lib-assert.sh
+. "$_root/tests/lib-assert.sh"
 
 # ─── #18: the compiled-in trust store ───────────────────────────────────────
 # libtls bakes TLS_DEFAULT_CA_FILE at compile time (tls/Makefile.am:53-55) and
@@ -34,9 +34,10 @@ _bad()  { printf 'FAIL: %s\n' "$1"; _fail=1; }
 # when the caller passes -ca_file (libavformat/tls_libtls.c:105). So the recipe
 # must CHOOSE the path rather than inherit autotools' sysconfdir default.
 if grep -q -- '--with-openssldir=' "$_recipe"; then
-  _pass "libressl chooses its openssldir explicitly"
+  _pass libressl-chooses-openssldir-explicitly
 else
-  _bad "libressl leaves openssldir to autotools' sysconfdir default (#18)"
+  _bad libressl-chooses-openssldir-explicitly \
+    "libressl leaves openssldir to autotools' sysconfdir default (#18)"
 fi
 
 # The openssl arm too. --openssldir is advertised for BOTH arms in the help
@@ -46,9 +47,10 @@ fi
 if grep -q 'resolve_openssldir' recipes/crypto/openssl.sh \
    && grep -q -- '--openssldir=' recipes/crypto/openssl.sh \
    && grep -q 'OPENSSLDIR_RESOLVED' recipes/crypto/openssl.sh; then
-  _pass "openssl arm honours --openssldir"
+  _pass openssl-arm-honours-openssldir
 else
-  _bad "recipes/crypto/openssl.sh ignores --openssldir, which help/README advertise"
+  _bad openssl-arm-honours-openssldir \
+    "recipes/crypto/openssl.sh ignores --openssldir, which help/README advertise"
 fi
 
 # The recipe and the installer each call resolve_openssldir and are handed the
@@ -64,24 +66,26 @@ fi
 # no-overwrite guard is defeated by a `$i`/`$$i` typo that makes it -f-test a
 # directory and always install.
 if [ -f "$_patch" ]; then
-  _pass "install-exec-hook patch is present"
+  _pass install-hook-patch-present
   # Asserted on the DIFF HEADERS, not on the presence of the string anywhere in
   # the file: the patch's own prose header contains "TARGETS Makefile.in, NOT
   # Makefile.am", so a plain grep passes even when the hunks target Makefile.am
   # — the exact regression this is meant to catch.
   if grep -q '^--- a/Makefile\.in$' "$_patch" && grep -q '^+++ b/Makefile\.in$' "$_patch"; then
-    _pass "patch targets Makefile.in (dist tarball ships no regenerated .am)"
+    _pass install-hook-patch-targets-makefile-in
   else
-    _bad "patch hunks do not target Makefile.in — patching .am is inert without autoreconf"
+    _bad install-hook-patch-targets-makefile-in \
+      "patch hunks do not target Makefile.in — patching .am is inert without autoreconf"
   fi
 else
-  _bad "$_patch is missing — a host openssldir would write outside the prefix"
+  _bad install-hook-patch-present \
+    "$_patch is missing — a host openssldir would write outside the prefix"
 fi
 
 if grep -q 'libressl-no-openssldir-install.patch' "$_recipe"; then
-  _pass "recipe applies the install-hook patch"
+  _pass recipe-applies-install-hook-patch
 else
-  _bad "recipe never applies the install-hook patch"
+  _bad recipe-applies-install-hook-patch "recipe never applies the install-hook patch"
 fi
 
 # The fallback trust store must SURVIVE. lib/install.sh copies bin/, lib/*.a,
@@ -134,19 +138,22 @@ PREFIX="$_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=
 # Two independent oracles: the bundle was recorded as installed (read back from
 # the manifest while it existed), and nothing survived the uninstall.
 if [ "$(cat "$_stage/probe" 2>/dev/null)" = "MANIFESTED=1" ]; then
-  _pass "install ships etc/ssl/cert.pem and records it in the manifest"
+  _pass ca-bundle-installed-and-manifested
 else
-  _bad "etc/ssl/cert.pem was not installed (manifest probe: $(cat "$_stage/probe" 2>/dev/null))"
+  _bad ca-bundle-installed-and-manifested \
+    "etc/ssl/cert.pem was not installed (manifest probe: $(cat "$_stage/probe" 2>/dev/null))"
 fi
 
 # Gated on the install having happened: "no residue" is trivially true when
 # nothing was ever written, which is exactly the failure mode above.
 if [ "$(cat "$_stage/probe" 2>/dev/null)" != "MANIFESTED=1" ]; then
-  _bad "residue check skipped — nothing was installed, so it would pass vacuously"
+  _bad ca-bundle-uninstall-leaves-no-residue \
+    "residue check skipped — nothing was installed, so it would pass vacuously"
 elif [ -e "$_dest" ]; then
-  _bad "uninstall left residue at $_dest — etc/ssl is not swept pristinely"
+  _bad ca-bundle-uninstall-leaves-no-residue \
+    "uninstall left residue at $_dest — etc/ssl is not swept pristinely"
 else
-  _pass "install/uninstall round-trip leaves no residue"
+  _pass ca-bundle-uninstall-leaves-no-residue
 fi
 rm -rf "$_stage" "$_dest"
 
@@ -178,13 +185,16 @@ _sym_log=$(
 ) || true
 
 if [ -f "$_sym_out/etc/ssl/cert.pem" ]; then
-  _bad "the CA bundle was written THROUGH a symlink to $_sym_out — privileged write escaped the prefix"
+  _bad symlinked-prefix-refused-before-copy \
+    "the CA bundle was written THROUGH a symlink to $_sym_out — privileged write escaped the prefix"
 elif [ -d "$_sym_out/etc/ssl" ] || [ -d "$_sym_out/etc" ]; then
-  _bad "mkdir -p created directories THROUGH the symlink at $_sym_out before the guard fired"
+  _bad symlinked-prefix-refused-before-copy \
+    "mkdir -p created directories THROUGH the symlink at $_sym_out before the guard fired"
 elif printf '%s' "$_sym_log" | grep -q 'Refusing a privileged write'; then
-  _pass "a symlinked destination is refused before the copy"
+  _pass symlinked-prefix-refused-before-copy
 else
-  _bad "symlinked destination neither refused nor written — unclear outcome: $(printf '%s' "$_sym_log" | tail -2)"
+  _bad symlinked-prefix-refused-before-copy \
+    "neither refused nor written: $(printf '%s' "$_sym_log" | tail -2)"
 fi
 rm -rf "$_sym_stage" "$_sym_dest" "$_sym_out"
 
@@ -207,11 +217,13 @@ _bp_out=$(
   ' _ "$_bp" 2>&1
 ) || true
 if [ "$(cat "$_bp/bin/ffmpeg" 2>/dev/null)" != "FFMPEG-BINARY" ]; then
-  _bad "installing into the build prefix destroyed the build tree (bin/ffmpeg is gone or empty)"
+  _bad install-into-build-prefix-refused \
+    "installing into the build prefix destroyed the build tree (bin/ffmpeg is gone or empty)"
 elif printf '%s' "$_bp_out" | grep -q 'resolves to the build prefix'; then
-  _pass "installing into the build prefix is refused, and the tree survives"
+  _pass install-into-build-prefix-refused
 else
-  _bad "installing into the build prefix was neither refused nor harmful — unclear: $(printf '%s' "$_bp_out" | tail -1)"
+  _bad install-into-build-prefix-refused \
+    "neither refused nor harmful: $(printf '%s' "$_bp_out" | tail -1)"
 fi
 rm -rf "$_bp"
 
@@ -236,11 +248,13 @@ _ap_out=$(
   ' _ "$_ap/alias" 2>&1
 ) || true
 if [ "$(cat "$_ap/real/bin/ffmpeg" 2>/dev/null)" != "FFMPEG-BINARY" ]; then
-  _bad "an aliased --prefix destroyed the build tree through the symlink"
+  _bad aliased-prefix-resolved-and-refused \
+    "an aliased --prefix destroyed the build tree through the symlink"
 elif printf '%s' "$_ap_out" | grep -q 'resolves to the build prefix'; then
-  _pass "an aliased --prefix is resolved, recognised and refused"
+  _pass aliased-prefix-resolved-and-refused
 else
-  _bad "an aliased --prefix was neither refused nor harmful — unclear: $(printf '%s' "$_ap_out" | tail -1)"
+  _bad aliased-prefix-resolved-and-refused \
+    "neither refused nor harmful: $(printf '%s' "$_ap_out" | tail -1)"
 fi
 rm -rf "$_ap"
 
@@ -282,11 +296,13 @@ else
 
   _cf_manifest=$(grep -c 'locked/trust/cert.pem' "$_cf_dest/.mediaforge-manifest" 2>/dev/null || true)
   if [ "${_cf_manifest:-0}" != "0" ]; then
-    _bad "a copy that failed was recorded in the manifest — uninstall would claim to remove it"
+    _bad ca-bundle-failed-copy-aborts-unrecorded \
+      "a copy that failed was recorded in the manifest — uninstall would claim to remove it"
   elif printf '%s' "$_cf_out" | grep -q 'failed to install'; then
-    _pass "a failed copy aborts and is not recorded as installed"
+    _pass ca-bundle-failed-copy-aborts-unrecorded
   else
-    _bad "a failed copy neither aborted nor was recorded — unclear: $(printf '%s' "$_cf_out" | tail -1)"
+    _bad ca-bundle-failed-copy-aborts-unrecorded \
+      "neither aborted nor recorded: $(printf '%s' "$_cf_out" | tail -1)"
   fi
   rm -rf "$_cf_stage" "$_cf_dest"
 fi
@@ -324,15 +340,17 @@ PREFIX="$_leaf_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VER
 # the symlink with a real file, so require that too.
 _leaf_ok=0
 if [ "$(cat "$_leaf_sentinel" 2>/dev/null)" != "SENTINEL-MUST-SURVIVE" ]; then
-  _bad "the CA bundle was written THROUGH a leaf symlink — sentinel now: $(cat "$_leaf_sentinel" 2>/dev/null)"
+  _bad ca-bundle-symlinked-leaf-replaced-not-followed \
+    "written THROUGH the leaf — sentinel now: $(cat "$_leaf_sentinel" 2>/dev/null)"
 elif [ -L "$_leaf_dest/etc/ssl/cert.pem" ]; then
-  _bad "the leaf is still a symlink — the bundle was not installed, so the sentinel surviving proves nothing"
+  _bad ca-bundle-symlinked-leaf-replaced-not-followed \
+    "still a symlink — nothing was installed, so the sentinel proves nothing"
 elif [ ! -f "$_leaf_dest/etc/ssl/cert.pem" ]; then
-  _bad "no bundle at the leaf destination — nothing was installed"
+  _bad ca-bundle-symlinked-leaf-replaced-not-followed "no bundle at the leaf destination — nothing was installed"
 else
   _leaf_ok=1
 fi
-[ "$_leaf_ok" = 1 ] && _pass "a symlinked leaf is replaced, not followed, by the privileged write"
+[ "$_leaf_ok" = 1 ] && _pass ca-bundle-symlinked-leaf-replaced-not-followed
 rm -rf "$_leaf_stage" "$_leaf_dest" "$_leaf_sentinel"
 
 # ─── the probe, unit-tested against a synthetic root ────────────────────────
@@ -346,7 +364,7 @@ rm -rf "$_leaf_stage" "$_leaf_dest" "$_leaf_sentinel"
 . "$_root/lib/resolve.sh"
 
 if ! command -v resolve_openssldir >/dev/null 2>&1; then
-  _bad "resolve_openssldir is not defined — the probe does not exist"
+  _bad resolve-openssldir-defined "resolve_openssldir is not defined — the probe does not exist"
 else
   _tmp=$(mktemp -d) || exit 1
   # Trailing "/nope" is a deliberate miss ahead of the hit, proving the probe
@@ -359,36 +377,40 @@ else
   # stray environment variable.
   resolve_openssldir "" "/fallback/etc/ssl" "$_tmp/nope $_tmp/hit"
   if [ "$OPENSSLDIR_RESOLVED" = "$_tmp/hit" ] && [ "$OPENSSLDIR_FROM" = "host" ]; then
-    _pass "probe selects the first candidate containing cert.pem"
+    _pass probe-selects-first-candidate-with-cert
   else
-    _bad "probe returned '$OPENSSLDIR_RESOLVED' from '$OPENSSLDIR_FROM', expected '$_tmp/hit' from host"
+    _bad probe-selects-first-candidate-with-cert \
+      "got '$OPENSSLDIR_RESOLVED' from '$OPENSSLDIR_FROM', want '$_tmp/hit' from host"
   fi
 
   # No candidate holds a cert.pem: the fallback is the staging prefix, backed by
   # LibreSSL's own shipped bundle.
   resolve_openssldir "" "/fallback/etc/ssl" "$_tmp/nope"
   if [ "$OPENSSLDIR_RESOLVED" = "/fallback/etc/ssl" ] && [ "$OPENSSLDIR_FROM" = "fallback" ]; then
-    _pass "probe falls back when no candidate has cert.pem"
+    _pass probe-falls-back-on-total-miss
   else
-    _bad "probe returned '$OPENSSLDIR_RESOLVED' from '$OPENSSLDIR_FROM' on a total miss"
+    _bad probe-falls-back-on-total-miss \
+      "probe returned '$OPENSSLDIR_RESOLVED' from '$OPENSSLDIR_FROM' on a total miss"
   fi
 
   # A directory that exists but holds no cert.pem must NOT be selected — the
   # boundary between "candidate exists" and "candidate is usable".
   resolve_openssldir "" "/fallback/etc/ssl" "$_tmp"
   if [ "$OPENSSLDIR_RESOLVED" = "/fallback/etc/ssl" ]; then
-    _pass "probe rejects a candidate directory with no cert.pem"
+    _pass probe-rejects-candidate-without-cert
   else
-    _bad "probe selected '$OPENSSLDIR_RESOLVED', a directory with no cert.pem"
+    _bad probe-rejects-candidate-without-cert \
+      "probe selected '$OPENSSLDIR_RESOLVED', a directory with no cert.pem"
   fi
 
   # An explicit value outranks a candidate that would otherwise match, and is
   # reported as such. Passed positionally: the resolver no longer reads a global.
   resolve_openssldir "/explicit/etc/ssl" "/fallback/etc/ssl" "$_tmp/hit"
   if [ "$OPENSSLDIR_RESOLVED" = "/explicit/etc/ssl" ] && [ "$OPENSSLDIR_FROM" = "cli" ]; then
-    _pass "explicit --openssldir outranks the probe"
+    _pass explicit-openssldir-outranks-probe
   else
-    _bad "explicit --openssldir lost to the probe: '$OPENSSLDIR_RESOLVED' from '$OPENSSLDIR_FROM'"
+    _bad explicit-openssldir-outranks-probe \
+      "explicit --openssldir lost to the probe: '$OPENSSLDIR_RESOLVED' from '$OPENSSLDIR_FROM'"
   fi
 
   rm -rf "$_tmp"
@@ -401,12 +423,12 @@ fi
 # content is command execution and a privileged arbitrary write respectively.
 # Each case below is rejected at the boundary rather than defended against later.
 _reject_case() {
-  _desc=$1; _value=$2; _expect=$3
+  _case=$1; _value=$2; _expect=$3
   _o=$(./mediaforge.sh build --openssldir="$_value" --dry-run --yes 2>&1) || true
   if printf '%s' "$_o" | grep -q "$_expect"; then
-    _pass "--openssldir rejects $_desc"
+    _pass "openssldir-rejects-$_case"
   else
-    _bad "--openssldir ACCEPTED $_desc ('$_value')"
+    _bad "openssldir-rejects-$_case" "the value was ACCEPTED ('$_value')"
   fi
 }
 
@@ -421,21 +443,21 @@ _reject_case() {
 # they claim to be.
 _dollar=$(printf '\044')
 _backtick=$(printf '\140')
-_reject_case "a command substitution" "/tmp/x${_dollar}(id)"               'not allowed'
-_reject_case "a backtick"             "/tmp/x${_backtick}id${_backtick}"   'not allowed'
-_reject_case "a semicolon"            '/tmp/x;id'                          'not allowed'
+_reject_case command-substitution "/tmp/x${_dollar}(id)"             'not allowed'
+_reject_case backtick             "/tmp/x${_backtick}id${_backtick}" 'not allowed'
+_reject_case semicolon            '/tmp/x;id'                        'not allowed'
 # Traversal: satisfies `case "$_install_prefix"/*` yet resolves outside it, and
 # the CA-bundle copy runs under sudo for a system prefix.
-_reject_case "a .. segment"           '/usr/local/../../etc/ssl' "'..' segment"
-_reject_case "a trailing .."          '/usr/local/..'            "'..' segment"
+_reject_case dotdot-segment       '/usr/local/../../etc/ssl' "'..' segment"
+_reject_case trailing-dotdot      '/usr/local/..'            "'..' segment"
 
 # A legitimate path with the characters real prefixes use must still pass.
 _o=$(./mediaforge.sh build --openssldir=/opt/my-prefix_1.0/etc/ssl --dry-run --yes 2>&1) || true
 if printf '%s' "$_o" | grep -q 'Choices:.*openssldir=/opt/my-prefix_1.0/etc/ssl' \
    && ! printf '%s' "$_o" | grep -qi 'unknown option'; then
-  _pass "--openssldir accepts a realistic path with . _ - digits"
+  _pass openssldir-accepts-realistic-path
 else
-  _bad "--openssldir rejected a legitimate path"
+  _bad openssldir-accepts-realistic-path "--openssldir rejected a legitimate path"
 fi
 
 # ─── changed openssldir on an existing workspace warns ──────────────────────
@@ -448,17 +470,18 @@ fi
 # comparison is unreachable that way. A real build is far too slow for a gate.
 _w=$(openssldir_warn_if_changed "/previously/etc/ssl" "/now/etc/ssl" 2>&1) || true
 if printf '%s' "$_w" | grep -q -- '--openssldir changed'; then
-  _pass "a changed --openssldir warns that the stamp will skip the rebuild"
+  _pass changed-openssldir-warns-about-stamp
 else
-  _bad "a changed --openssldir produced no warning about the stale stamp"
+  _bad changed-openssldir-warns-about-stamp \
+    "a changed --openssldir produced no warning about the stale stamp"
 fi
 # ...and stays quiet when it has not changed, or when there is nothing to compare.
 _w=$(openssldir_warn_if_changed "/same/etc/ssl" "/same/etc/ssl" 2>&1) || true
 _w2=$(openssldir_warn_if_changed "" "/now/etc/ssl" 2>&1) || true
 if [ -z "$_w" ] && [ -z "$_w2" ]; then
-  _pass "no warning when the openssldir is unchanged or previously unset"
+  _pass unchanged-openssldir-does-not-warn
 else
-  _bad "spurious openssldir-changed warning: '$_w' '$_w2'"
+  _bad unchanged-openssldir-does-not-warn "spurious openssldir-changed warning: '$_w' '$_w2'"
 fi
 
 # ...and the PREVIOUS value actually reaches the comparison. The three
@@ -496,9 +519,10 @@ _wireout=$(
 ) || true
 rm -rf "$_wire"
 if printf '%s' "$_wireout" | grep -q -- "--openssldir changed ('/previously/etc/ssl' -> '/now/etc/ssl')"; then
-  _pass "a stored openssldir reaches the change warning through load_stored_choices"
+  _pass stored-openssldir-reaches-change-warning
 else
-  _bad "load_stored_choices did not populate STORED_OPENSSLDIR — the change warning is dead: [$_wireout]"
+  _bad stored-openssldir-reaches-change-warning \
+    "STORED_OPENSSLDIR unpopulated, so the change warning is dead: [$_wireout]"
 fi
 
 # ─── CLI surface ────────────────────────────────────────────────────────────
@@ -510,9 +534,10 @@ fi
 # including an unrelated parse failure — would satisfy a looser grep.
 _out=$(./mediaforge.sh build --openssldir=relative/etc/ssl --dry-run --yes 2>&1) || true
 if printf '%s' "$_out" | grep -q 'is not an absolute path'; then
-  _pass "--openssldir rejects a relative path"
+  _pass openssldir-rejects-relative-path
 else
-  _bad "--openssldir accepted a relative path (or the option does not exist)"
+  _bad openssldir-rejects-relative-path \
+    "--openssldir accepted a relative path (or the option does not exist)"
 fi
 
 # Acceptance is asserted POSITIVELY — the run must reach the resolved-choice log,
@@ -531,9 +556,10 @@ if [ "$_rc" -eq 0 ] \
    && printf '%s' "$_out" | grep -q 'tls=' \
    && ! printf '%s' "$_out" | grep -qi 'unknown option' \
    && ! printf '%s' "$_out" | grep -q 'is not an absolute path'; then
-  _pass "--openssldir accepts an absolute path"
+  _pass openssldir-accepts-absolute-path
 else
-  _bad "--openssldir=/etc/ssl did not survive option parsing (rc=$_rc)"
+  _bad openssldir-accepts-absolute-path \
+    "--openssldir=/etc/ssl did not survive option parsing (rc=$_rc)"
 fi
 
 # --openssldir LAST, with nothing after it: that is the only position in which
@@ -543,9 +569,9 @@ fi
 # genuine rejection, but not the one this assertion is about.
 _out=$(./mediaforge.sh build --openssldir 2>&1) || true
 if printf '%s' "$_out" | grep -q 'requires an argument'; then
-  _pass "--openssldir with no value is rejected"
+  _pass openssldir-requires-a-value
 else
-  _bad "--openssldir with no value did not error"
+  _bad openssldir-requires-a-value "--openssldir with no value did not error"
 fi
 
 # Completion sentinel, read by tests/oracle-baseline.sh. It proves this file ran

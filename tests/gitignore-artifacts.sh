@@ -54,8 +54,8 @@ _root=$(CDPATH='' cd -- "$_here/.." && pwd)
 cd "$_root" || exit 1
 
 _fail=0
-_pass() { printf 'PASS: %s\n' "$1"; }
-_bad()  { printf 'FAIL: %s\n' "$1"; _fail=1; }
+# shellcheck source=tests/lib-assert.sh
+. "$_root/tests/lib-assert.sh"
 
 if ! command -v git >/dev/null 2>&1; then
   printf 'SKIP: needs git\n'
@@ -97,9 +97,9 @@ $_probes
 EOF
 
 if [ -z "$_uncovered" ]; then
-  _pass "every agent-artifact path is ignored by a rule git actually applies"
+  _pass every-artifact-path-ignored
 else
-  _bad "not ignored:$_uncovered"
+  _bad every-artifact-path-ignored "not ignored:$_uncovered"
 fi
 
 # The complement. check-ignore says a path WOULD be ignored; it says nothing
@@ -112,15 +112,16 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
     | grep -iE 'CLAUDE\.md|AGENTS\.md|GEMINI\.md|^docs/|/docs/|\.superpowers|\.claude(-mem)?/|graphify-out' \
     || true)
   if [ -n "$_tracked" ]; then
-    _bad "tracked agent artifact(s): $(printf '%s' "$_tracked" | tr '\n' ' ')"
+    _bad no-artifact-tracked-or-addable "tracked agent artifact(s): $_tracked"
   elif [ -n "$_uncovered" ]; then
     # Nothing is tracked, but a gap in the patterns means the second half of the
     # claim ("none could be added unnoticed") is not true. Say which half failed
     # — the earlier version printed an empty tracked-list here and read as though
     # it had found something.
-    _bad "nothing tracked, but these could be added unnoticed:$_uncovered"
+    _bad no-artifact-tracked-or-addable \
+      "nothing tracked, but these could be added unnoticed:$_uncovered"
   else
-    _pass "no agent artifact is tracked, and none could be added unnoticed"
+    _pass no-artifact-tracked-or-addable
   fi
 fi
 
