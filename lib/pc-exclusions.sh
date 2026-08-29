@@ -25,6 +25,13 @@
 # stable, rebuildable input rather than a one-shot artifact, which is the
 # invariant GH-60 asks for: a build must leave the workspace in a state from
 # which the next build produces the same result.
+#
+# Sourced here rather than left to the caller, on the same argument lib/install.sh
+# makes about this file: log()/warn()/die() are this module's dependency, and a
+# dependency it does not name is one every caller has to remember. lib/utils.sh
+# is nothing but function definitions, so re-sourcing it is free.
+# shellcheck source=lib/utils.sh
+. "$SCRIPT_DIR/lib/utils.sh"
 
 # Accumulated across the build by pc_exclusions_queue, consumed by
 # pc_exclusions_finalize. Transient: reset at the start of every build.
@@ -44,31 +51,58 @@ pc_exclusions_reset() {
   rm -f "$PREFIX/$PC_SKIP_QUEUE_NAME" 2>/dev/null || :
 }
 
-# pc_exclusions_queue <name>...: queue each bare .pc name (no extension).
+# pc_exclusions_queue <names>: queue a recipe's .pc names, given as one
+# space-separated list of bare names (no extension) — the shape PKG_PC_FILES
+# already has. The split lives here rather than at the call site because the
+# format is this module's, and because an unquoted argument list at the caller
+# is what SC2086 exists to catch.
 pc_exclusions_queue() {
-  for _pcq_name in "$@"; do
+  for _pcq_name in $1; do
     printf '%s.pc\n' "$_pcq_name" >> "$PREFIX/$PC_SKIP_QUEUE_NAME"
   done
 }
 
-# Turn the queue into the durable exclusion list. A no-op when no recipe
-# queued anything, which leaves any previous list untouched for the reason
-# given in pc_exclusions_reset.
+# Turn the queue into the durable exclusion list.
+#
+# The list is the authority do_install trusts, and its failure direction is
+# asymmetric: a MISSING name is installed, which is the shadowing this whole
+# mechanism exists to prevent, while a spurious name merely withholds a .pc.
+# So every way of producing a shorter list than the queue asked for is fatal,
+# and the previous list is left standing rather than replaced by a wrong one.
 pc_exclusions_finalize() {
   _pcf_queue="$PREFIX/$PC_SKIP_QUEUE_NAME"
-  [ -f "$_pcf_queue" ] || return 0
+  if [ ! -f "$_pcf_queue" ]; then
+    # Reached only after a successful FFmpeg build, so "no recipe queued
+    # anything" is a real answer and an empty list would be the honest record
+    # of it. It is not written, because the same state is also what a bug in
+    # the queueing would look like, and between the two readings the previous
+    # build's list is the safe one: withholding a .pc costs a downstream
+    # consumer a pkg-config lookup, installing one shadows a system library.
+    # Said out loud rather than returned silently — nothing else would.
+    warn "No transitive-util .pc files were queued this build; keeping the previous exclusion record"
+    return 0
+  fi
 
   # Written aside and moved into place, so a reader never sees a half-written
   # list: an install racing a build would otherwise under-exclude and ship a
   # shadowing .pc. The name carries the pid because two builds sharing one
   # workspace is a thing a user can do, not a thing we prevent.
   _pcf_tmp="$PREFIX/$PC_EXCLUDE_NAME.$$"
-  : > "$_pcf_tmp" || die "Cannot write the .pc exclusion list at $_pcf_tmp"
+  # printf, not `: >`. `:` is a POSIX SPECIAL built-in, and a redirection error
+  # on one aborts a non-interactive shell outright — so `: > f || die` never
+  # reaches its die, and the operator gets the shell's message instead of ours.
+  # Measured on dash 0.5.12 and bash 5.3 in POSIX mode; plain bash differs,
+  # which is exactly why this cannot be checked by running it under bash.
+  printf '' > "$_pcf_tmp" || die "Cannot write the .pc exclusion list at $_pcf_tmp"
 
   _pcf_count=0
   # sort -u collapses the duplicates that two recipes declaring the same .pc
   # produce — freetype2.sh and freetype2-harfbuzz.sh both own freetype2.pc.
-  sort -u "$_pcf_queue" > "$_pcf_tmp.in"
+  # Checked, because a redirection creates the target before the command runs:
+  # an unchecked failure here yields an EMPTY input, a zero-entry list, and an
+  # install that shadows every system library this mechanism protects.
+  sort -u "$_pcf_queue" > "$_pcf_tmp.in" ||
+    die "Cannot read the .pc exclusion queue at $_pcf_queue"
   while IFS= read -r _pcf_name; do
     [ -z "$_pcf_name" ] && continue
     # Path-traversal guard. Entries are recipe-supplied constants, but a typo
@@ -82,6 +116,14 @@ pc_exclusions_finalize() {
     _pcf_count=$((_pcf_count + 1))
   done < "$_pcf_tmp.in"
   rm -f "$_pcf_tmp.in"
+
+  # A queue with entries that yields no list is the failure this function must
+  # not commit: it would replace a good record with an empty one and turn every
+  # later install into a shadowing install, reporting success as it went.
+  if [ "$_pcf_count" -eq 0 ]; then
+    rm -f "$_pcf_tmp"
+    die "Every entry in $_pcf_queue was rejected; refusing to replace the .pc exclusion record with an empty one"
+  fi
 
   mv "$_pcf_tmp" "$PREFIX/$PC_EXCLUDE_NAME" ||
     die "Cannot install the .pc exclusion list at $PREFIX/$PC_EXCLUDE_NAME"

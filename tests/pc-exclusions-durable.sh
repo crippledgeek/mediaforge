@@ -38,6 +38,8 @@ cd "$_root" || exit 1
 _fail=0
 # shellcheck source=tests/lib-assert.sh
 . "$_root/tests/lib-assert.sh"
+# shellcheck source=tests/lib-install-driver.sh
+. "$_root/tests/lib-install-driver.sh"
 
 _tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$_tmp"' EXIT INT TERM
@@ -62,10 +64,7 @@ _stage() { # dir
 # file is that its absence is visible in the install, not in an abort here.
 _finalize_and_install() { # workspace  dest
   PREFIX="$1" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-  sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    . "$SCRIPT_DIR/lib/resolve.sh"
-    . "$SCRIPT_DIR/lib/install.sh"
+  sh -c "$_MF_INSTALL_SOURCES"'
     if command -v pc_exclusions_finalize >/dev/null 2>&1; then
       pc_exclusions_finalize
     fi
@@ -102,16 +101,55 @@ else
 fi
 
 # ─── a second build sees the workspace the first one left ───────────────────
-# The invariant in its own words. The first install consumed the record; the
-# second build re-queues the same name (lib/framework.sh does that before the
-# stamp check, so an already-built recipe still queues), and must find the file
-# it links against still there.
+# The invariant in its own words, along the two paths a second build can take.
+#
+# The re-queue path first: lib/framework.sh queues before the stamp check, so an
+# already-built transitive-util recipe still queues its name, and finalize
+# rewrites the record from that. The file it links against must still be there.
+printf 'freetype2.pc\n' > "$_ws/.pc-skip-queue"
 _finalize_and_install "$_ws" "$_dest" >/dev/null
 if [ -f "$_ws/lib/pkgconfig/freetype2.pc" ] && [ ! -e "$_dest/lib/pkgconfig/freetype2.pc" ]; then
-  _pass second-install-over-the-same-workspace-agrees-with-the-first
+  _pass requeued-second-install-agrees-with-the-first
 else
-  _bad second-install-over-the-same-workspace-agrees-with-the-first \
+  _bad requeued-second-install-agrees-with-the-first \
     "workspace copy $([ -f "$_ws/lib/pkgconfig/freetype2.pc" ] && echo kept || echo GONE), installed copy $([ -e "$_dest/lib/pkgconfig/freetype2.pc" ] && echo PRESENT || echo absent)"
+fi
+
+# Then the no-op path, which is different code: finalize consumed the queue
+# above, so this run returns early and the install is filtered by the record
+# that SURVIVED. That survival is the whole durability claim, and it is the one
+# thing about pc_exclusions_reset's deliberate refusal to clear the record that
+# nothing else pins -- adding `rm -f "$PREFIX/.pc-exclude"` to it leaves every
+# other assertion in this file green.
+rm -f "$_dest/lib/pkgconfig/freetype2.pc"
+_finalize_and_install "$_ws" "$_dest" >/dev/null
+if [ -f "$_ws/.pc-exclude" ] && [ ! -e "$_dest/lib/pkgconfig/freetype2.pc" ]; then
+  _pass the-record-survives-a-build-that-queues-nothing
+else
+  _bad the-record-survives-a-build-that-queues-nothing \
+    "record $([ -f "$_ws/.pc-exclude" ] && echo kept || echo GONE), installed copy $([ -e "$_dest/lib/pkgconfig/freetype2.pc" ] && echo PRESENT || echo absent)"
+fi
+
+# ─── the record, and only the record, decides ───────────────────────────────
+# pc_is_excluded's documented fallback: a workspace no build has finished has no
+# record, and excludes nothing.
+#
+# Asserted against the recorded workspace in the SAME breath, because on its own
+# this is vacuous -- a tree with no exclusion mechanism at all installs
+# freetype2.pc too, and the merge base is exactly that tree. What the base
+# cannot do is tell the two workspaces apart.
+_ws3="$_tmp/norecord/workspace"
+_dest3="$_tmp/norecord/dest"
+mkdir -p "$_dest3" || exit 1
+_stage "$_ws3"
+_finalize_and_install "$_ws3" "$_dest3" >/dev/null
+if [ -f "$_dest3/lib/pkgconfig/freetype2.pc" ] &&
+   [ -f "$_dest3/lib/pkgconfig/libavcodec.pc" ] &&
+   [ ! -e "$_dest/lib/pkgconfig/freetype2.pc" ]; then
+  _pass a-workspace-without-a-record-excludes-nothing-one-with-a-record-excludes
+else
+  _bad a-workspace-without-a-record-excludes-nothing-one-with-a-record-excludes \
+    "unrecorded install: $(find "$_dest3/lib/pkgconfig" -name '*.pc' 2>/dev/null | tr '\n' ' ')/ recorded install still has freetype2.pc: $([ -e "$_dest/lib/pkgconfig/freetype2.pc" ] && echo yes || echo no)"
 fi
 
 # ─── the traversal guard survived the move out of recipes/ffmpeg.sh ─────────
@@ -127,34 +165,52 @@ fi
 _ws2="$_tmp/guard/workspace"
 _stage "$_ws2"
 printf '../evil.pc\n.hidden.pc\nfreetype2.pc\n' > "$_ws2/.pc-skip-queue"
-PREFIX="$_ws2" SCRIPT_DIR="$_root" VERBOSE=0 sh -c '
-  . "$SCRIPT_DIR/lib/utils.sh"
-  . "$SCRIPT_DIR/lib/install.sh"
+# stderr is KEPT. The module says the rejection is loud, and a silent `continue`
+# satisfies every claim about the recorded list while leaving an operator with a
+# mis-declared PKG_PC_FILES and nothing to read.
+_guard_log=$(PREFIX="$_ws2" SCRIPT_DIR="$_root" VERBOSE=0 sh -c "$_MF_INSTALL_SOURCES
   if command -v pc_exclusions_finalize >/dev/null 2>&1; then
     pc_exclusions_finalize
   fi
-' >/dev/null 2>&1
-_recorded=$(cat "$_ws2/.pc-exclude" 2>/dev/null | tr '\n' ' ')
-if [ "$_recorded" = "freetype2.pc " ]; then
-  _pass finalize-records-the-declared-name-and-refuses-a-traversing-one
+" 2>&1) || true
+_recorded=$(tr '\n' ' ' < "$_ws2/.pc-exclude" 2>/dev/null)
+if [ "$_recorded" = "freetype2.pc " ] &&
+   printf '%s\n' "$_guard_log" | grep -q '\.\./evil\.pc' &&
+   printf '%s\n' "$_guard_log" | grep -q '\.hidden\.pc'; then
+  _pass finalize-records-the-declared-name-and-refuses-a-traversing-one-loudly
 else
-  _bad finalize-records-the-declared-name-and-refuses-a-traversing-one \
-    "recorded: [$_recorded]"
+  _bad finalize-records-the-declared-name-and-refuses-a-traversing-one-loudly \
+    "recorded: [$_recorded]; said: $(printf '%s' "$_guard_log" | tr '\n' ' ')"
 fi
 
 # ─── nothing deletes from the workspace pkgconfig dir ───────────────────────
 # Derived, not listed. The defect was one line in one recipe; the guard has to
 # be against the line coming back ANYWHERE, including in a recipe written later
-# that decides to tidy the dir on its own account. Comments are stripped so the
-# prose above — and in lib/pc-exclusions.sh, which explains the deletion at
-# length — is not read as the deletion.
+# that decides to tidy the dir on its own account.
+#
+# Two questions of every production file: does a logical line NAME the workspace
+# pkgconfig dir, and does that same line delete or `cd`? The verb list covers
+# the rewrites of the original that a reviewer would otherwise have to think of
+# — `find … -delete`, `-exec rm`, `unlink`, and the `cd` that makes a relative
+# `rm` reach the dir without naming it again.
+#
+# Continuations are folded through tests/lib-assert.sh's _logical_lines, which
+# was written for exactly this and had no second user: `rm -f \` on one line
+# with the path on the next is invisible to a raw-line grep, and that is the
+# shape a reformatting of the original defect would most naturally take.
+#
+# RESIDUAL, stated rather than papered over: a path held in a variable
+# (`_d=$PREFIX/lib/pkgconfig; rm -f "$_d"/*.pc`) splits the two halves across
+# lines and is not caught, and `sed 's/#.*//'` truncates a line carrying a `#`
+# inside quotes or a `${VAR#…}` expansion. Catching either needs dataflow, not
+# grep. What this does catch is the defect that occurred and every one-line
+# rewrite of it.
 _deleters=''
 for _f in mediaforge.sh lib/*.sh recipes/*.sh recipes/*/*.sh; do
   [ -f "$_f" ] || continue
-  # [$] rather than a backslash-escaped dollar: the same one character to the
-  # ERE, and it keeps the pattern out of shellcheck's "expressions don't expand
-  # in single quotes" heuristic without a suppression comment.
-  if sed 's/#.*//' "$_f" | grep -qE 'rm[[:space:]]+[^|;&]*[$](PREFIX|[{]PREFIX[}])/lib/pkgconfig'; then
+  if _logical_lines "$_f" | sed 's/#.*//' |
+     grep -E '[$](PREFIX|[{]PREFIX[}])/lib/pkgconfig' |
+     grep -qE '(^|[[:space:];&|(])(rm|rmdir|unlink|shred|cd)[[:space:]]|-delete|-exec[[:space:]]+rm'; then
     _deleters="$_deleters $_f"
   fi
 done

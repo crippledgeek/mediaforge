@@ -877,10 +877,11 @@ cmd_check_shadowers() {
         printf 'Usage: %s check-shadowers [--strict]\n\n' "$PROGNAME"
         printf 'Audit workspace .pc files against the system pkgconfig path.\n'
         printf 'Reports each system overlap as either:\n'
-        printf '  [expected]   — recipe declared PKG_TRANSITIVE_UTIL=true; .pc kept in the\n'
-        printf '                 workspace but not installed\n'
-        printf '  [NEW SHADOW] — would be installed AND system has it; review whether the recipe\n'
-        printf '                 should set PKG_TRANSITIVE_UTIL=true\n\n'
+        printf '  [expected dropped]   — recipe declared PKG_TRANSITIVE_UTIL=true and the\n'
+        printf '                         system provides it; .pc kept in the workspace, not installed\n'
+        printf '  [expected NO SYSTEM] — recipe drops it but the system has no replacement\n'
+        printf '  [NEW SHADOW]         — would be installed AND system has it; review whether the\n'
+        printf '                         recipe should set PKG_TRANSITIVE_UTIL=true\n\n'
         printf '  --strict   exit 1 when new shadowers are found (default: warn only)\n'
         exit 0 ;;
       *) die "Unknown option for check-shadowers: $1" ;;
@@ -900,6 +901,12 @@ cmd_check_shadowers() {
   # Collect the .pc files that recipes have declared as transitive utils.
   # Each line of _order.conf is a recipe path. Source each in a subshell to
   # extract PKG_TRANSITIVE_UTIL and PKG_PC_FILES without polluting our scope.
+  #
+  # Derived here rather than read from $PREFIX/.pc-exclude, which lib/framework.sh
+  # queues and recipes/ffmpeg.sh finalizes from the same two variables. The two
+  # answer different questions and only one of them is available: this command
+  # audits what the RECIPES declare, and has to work on a tree no build has
+  # finished, where the record does not exist yet.
   _expected_set=""
   while IFS= read -r _recipe_line; do
     [ -z "$_recipe_line" ] && continue

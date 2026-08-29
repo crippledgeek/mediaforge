@@ -10,10 +10,12 @@
 # it — no central distro-flavored stop-list — and the workspace keeps the
 # files, so it can be built from again (GH-60). See lib/pc-exclusions.sh.
 
-# Sourced here rather than left to the caller, unlike lib/utils.sh: the
-# exclusion record is an implementation detail of the pkgconfig loop below, and
-# five callers already source this file by hand (mediaforge.sh plus four test
-# drivers). A dependency none of them names is one none of them can forget.
+# Sourced here rather than left to the caller: the exclusion record is an
+# implementation detail of the pkgconfig loop below, and mediaforge.sh and every
+# install test driver source this file by hand. A dependency none of them names
+# is one none of them can forget. No count is written down — this file gained a
+# sourcer on the very commit that introduced this comment, and tests/lib-assert.sh
+# records the same census drifting twice in three commits.
 # shellcheck source=lib/pc-exclusions.sh
 . "$SCRIPT_DIR/lib/pc-exclusions.sh"
 

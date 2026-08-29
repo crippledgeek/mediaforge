@@ -330,12 +330,7 @@ run_recipe() {
   # that recompiled. Default PKG_PC_FILES to "$PKG_NAME" when the recipe
   # didn't override. See lib/pc-exclusions.sh.
   if [ "$PKG_TRANSITIVE_UTIL" = true ]; then
-    # PKG_PC_FILES is a space-separated list of names, so the split is the
-    # point; the loop rather than an unquoted argument list keeps that legible
-    # and keeps shellcheck's word-splitting check armed at the call site.
-    for _pc in ${PKG_PC_FILES:-$PKG_NAME}; do
-      pc_exclusions_queue "$_pc"
-    done
+    pc_exclusions_queue "${PKG_PC_FILES:-$PKG_NAME}"
   fi
 
   # Check guards
