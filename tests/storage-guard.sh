@@ -340,12 +340,31 @@ case "$(mf_fs_type "$_MF_SCRATCH")" in
     # stubs that fake tmpfs for the unit cases must not be in scope.
     mkdir -p "$_tmp/nonet"
     printf '#!/bin/sh\nexit 1\n' > "$_tmp/nonet/curl"; chmod +x "$_tmp/nonet/curl"
+
+    # A FRESH TOPDIR, because the defect is about a directory that does not
+    # exist yet. The dry run above creates packages/ in the scratch on its way
+    # past (tests/lib-scratch.sh says so), and against that the mutation this
+    # assertion exists to catch -- guarding $DISTDIR instead of $TOPDIR --
+    # SURVIVES: $DISTDIR is there by then, so the probes answer and the guard
+    # fires for the wrong reason. Measured; it passed green until the re-init.
+    _scratch_cleanup
+    _scratch_init "$ROOT"
     #
     # No --allow-tmpfs twin: the allowed path would proceed to fetch ~110
     # tarballs, so makesum's parser arm is pinned by counting case arms instead.
     _ms_rc=0
-    _ms=$( PATH="$_tmp/nonet:$_path0" _mf makesum 2>&1 ) || _ms_rc=$?
-    case "$_ms" in
+    # The precondition, asserted rather than assumed: if something later
+    # pre-creates packages/ in a fresh scratch, this assertion quietly stops
+    # measuring the fail-open path and nothing else would say so.
+    if [ -e "$_MF_SCRATCH/packages" ]; then
+      _bad makesum-refuses-ram-disk "packages/ already exists in a fresh scratch TOPDIR, so the missing-directory case was not measured"
+      _ms=''
+      _ms_skip=true
+    else
+      _ms_skip=false
+      _ms=$( PATH="$_tmp/nonet:$_path0" _mf makesum 2>&1 ) || _ms_rc=$?
+    fi
+    [ "$_ms_skip" = true ] || case "$_ms" in
       *RAM-backed*) _pass makesum-refuses-ram-disk ;;
       *) _bad makesum-refuses-ram-disk "makesum ran from a RAM-backed TOPDIR without refusing (rc=$_ms_rc): $(printf '%s' "$_ms" | tr '\n' ' ' | cut -c1-200)" ;;
     esac
