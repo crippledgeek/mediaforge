@@ -49,6 +49,8 @@ Codec / backend selectors (mutually exclusive within each group):
   --h264=IMPL               H.264 encoder: x264|openh264 (default: x264)
   --h265=IMPL               H.265 encoder: x265|kvazaar (default: x265)
   --av1-enc=IMPL            AV1 encoder: svtav1|rav1e|av1 (default: svtav1)
+  --spirv=IMPL              SPIR-V compiler: glslang|shaderc
+                            (default: glslang)
   --flite-audio=BACKEND     flite audio output: none|alsa|pulseaudio|oss|sun
                             (default: none; FFmpeg filter does not invoke it)
   --openssldir=PATH         Compiled-in trust store for the openssl/libressl
@@ -170,6 +172,26 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 # Clean
 ./mediaforge.sh clean
 ```
+
+## Compiler cache
+
+`--ccache` compiles through ccache when it is installed; `--no-ccache` is the
+default and the explicit spelling of it. Asking for a cache that is not
+installed is an error, not a silent no-op:
+
+    ./mediaforge.sh build --debug=full --ccache
+
+It works by putting a directory of compiler-named symlinks ahead of PATH, so a
+recipe that sets its own CC still gets the cache. Two things are worth knowing
+before relying on it:
+
+  * meson recipes find ccache by themselves whether or not this flag is
+    passed. The flag makes the rest of the tree consistent with them rather
+    than introducing the cache.
+  * ccache hashes the compiler flags, so a debug build shares nothing with a
+    non-debug one. The first build at a given level populates the cache and
+    the second is fast. A full -O0 -g3 tree is large; raise the cache ceiling
+    (ccache -M) first or it will evict everything else in it.
 
 ## Version Profiles
 
