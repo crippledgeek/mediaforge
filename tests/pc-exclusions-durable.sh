@@ -245,6 +245,25 @@ else
     "rc=$_refuse_rc, record now [$(cat "$_ws4/.pc-exclude" 2>/dev/null | tr '\n' ' ')], said: $(printf '%s' "$_refuse_log" | tr '\n' ' ')"
 fi
 
+# A queue file that exists and is empty. Distinct from the missing-queue early
+# return above and from the all-rejected case below: nothing was rejected and
+# nothing is there, so neither of those diagnoses fits, and recording zero from
+# it would be the same silent shadowing install.
+#
+# This is also the half of the truncated-read guard that can be induced. The
+# other half -- a read that ends early because of an I/O fault partway through
+# a file sort has just written -- needs fault injection to reach, so the guard
+# is asserted where it can be and named where it cannot.
+: > "$_ws4/.pc-skip-queue"
+_empty_log=$(_pc_step "$_ws4" pc_exclusions_finalize)
+_empty_rc=$?
+if [ "$_empty_rc" -ne 0 ] && [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ]; then
+  _pass an-empty-queue-refuses-and-keeps-the-previous-record
+else
+  _bad an-empty-queue-refuses-and-keeps-the-previous-record \
+    "rc=$_empty_rc, record now [$(tr '\n' ' ' < "$_ws4/.pc-exclude" 2>/dev/null)], said: $(printf '%s' "$_empty_log" | tr '\n' ' ')"
+fi
+
 # An unreadable queue, which is the real shape of the unchecked-`sort` defect:
 # a redirection creates its target before the command runs, so a failure that
 # is not checked yields an EMPTY input and a zero-entry record from a queue

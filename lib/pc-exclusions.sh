@@ -97,6 +97,7 @@ pc_exclusions_finalize() {
   printf '' > "$_pcf_tmp" || die "Cannot write the .pc exclusion list at $_pcf_tmp"
 
   _pcf_count=0
+  _pcf_seen=0
   # sort -u collapses the duplicates that two recipes declaring the same .pc
   # produce — freetype2.sh and freetype2-harfbuzz.sh both own freetype2.pc.
   # Checked, because a redirection creates the target before the command runs:
@@ -107,6 +108,7 @@ pc_exclusions_finalize() {
     die "Cannot read the .pc exclusion queue at $_pcf_queue"
   }
   while IFS= read -r _pcf_name; do
+    _pcf_seen=$((_pcf_seen + 1))
     [ -z "$_pcf_name" ] && continue
     # Path-traversal guard. Entries are recipe-supplied constants, but a typo
     # like PKG_PC_FILES="../../something" would reach do_install as a name to
@@ -118,7 +120,28 @@ pc_exclusions_finalize() {
     printf '%s\n' "$_pcf_name" >> "$_pcf_tmp"
     _pcf_count=$((_pcf_count + 1))
   done < "$_pcf_tmp.in"
+
+  # `read` reports EOF and a read ERROR the same way, by returning non-zero, so
+  # a loop that ended early looks exactly like one that finished. Counting what
+  # went in against what came out is what tells them apart, and it closes the
+  # class rather than the empty case: a truncation that happens to leave one
+  # entry standing passes a survivor count and is the same shadowing install.
+  #
+  # sort terminates its output with a newline, so wc -l and the loop count the
+  # same things and a well-formed queue cannot trip this.
+  _pcf_in=$(wc -l < "$_pcf_tmp.in" | tr -d ' ') || {
+    rm -f "$_pcf_tmp" "$_pcf_tmp.in"
+    die "Cannot measure the .pc exclusion queue at $_pcf_queue"
+  }
   rm -f "$_pcf_tmp.in"
+  if [ "$_pcf_in" -eq 0 ]; then
+    rm -f "$_pcf_tmp"
+    die "The .pc exclusion queue at $_pcf_queue exists but is empty; refusing to record an empty exclusion list"
+  fi
+  if [ "$_pcf_seen" -ne "$_pcf_in" ]; then
+    rm -f "$_pcf_tmp"
+    die "Read $_pcf_seen of $_pcf_in queued .pc name(s); refusing to record a truncated exclusion list"
+  fi
 
   # A queue with entries that yields no list is the failure this function must
   # not commit: it would replace a good record with an empty one and turn every
