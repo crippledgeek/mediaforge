@@ -218,119 +218,97 @@ else
 fi
 
 # ─── a record is never replaced by a shorter one ────────────────────────────
-# The two refusals the record's whole value rests on. It is the authority
-# do_install trusts, and its failure direction is asymmetric -- a missing name
-# is INSTALLED, and shadowing a system library is the outcome this mechanism
-# exists to prevent, while a spurious name merely withholds a .pc. So a
-# finalize that cannot produce the list the queue asked for has to fail loudly
-# and leave the previous list standing, not commit a shorter one and exit 0.
-#
-# Both are compound with "the record still says what it said", because a
-# non-zero exit alone is satisfiable by dying anywhere, including after the mv.
+# The refusals the record's whole value rests on. It is the authority do_install
+# trusts, and its failure direction is asymmetric -- a missing name is
+# INSTALLED, and shadowing a system library is the outcome this mechanism exists
+# to prevent, while a spurious name merely withholds a .pc. So a finalize that
+# cannot produce the list the queue asked for has to fail loudly and leave the
+# previous list standing, not commit a shorter one and exit 0.
 _ws4="$_tmp/refuse/workspace"
 _stage "$_ws4"
 printf 'freetype2.pc\n' > "$_ws4/.pc-skip-queue"
 _pc_step "$_ws4" pc_exclusions_finalize >/dev/null
 _good_record=$(cat "$_ws4/.pc-exclude" 2>/dev/null)
 
+# _refuses <assertion-name> <message-fragment>: finalize must refuse, keep the
+# record, and say WHICH guard refused.
+#
+# All three parts are the assertion. Every guard here produces the same
+# observable pair -- non-zero exit, record unchanged -- so a check that stops
+# there passes with the guard it names deleted, and three of these four did
+# exactly that until a reviewer mutation-tested them. The message fragment is
+# what makes each one about its own branch.
+#
+# A function rather than four copies, and NOT a subshell: _bad sets $_fail in
+# the caller, and a subshell would drop every failure this file reports.
+_refuses() { # assertion-name  message-fragment
+  _rf_log=$(_pc_step "$_ws4" pc_exclusions_finalize)
+  _rf_rc=$?
+  if [ "$_rf_rc" -ne 0 ] &&
+     [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ] &&
+     printf '%s\n' "$_rf_log" | grep -q "$2"; then
+    _pass "$1"
+  else
+    _bad "$1" \
+      "rc=$_rf_rc, record now [$(tr '\n' ' ' < "$_ws4/.pc-exclude" 2>/dev/null)], said: $(printf '%s' "$_rf_log" | tr '\n' ' ')"
+  fi
+}
+
 # Every entry rejected: the queue is not empty, so "nothing to exclude" is not
 # what it means -- it means the recipe declarations are wrong, and recording
 # zero would silently install every transitive utility from here on.
 printf '../evil.pc\n' > "$_ws4/.pc-skip-queue"
-_refuse_log=$(_pc_step "$_ws4" pc_exclusions_finalize)
-_refuse_rc=$?
-if [ "$_refuse_rc" -ne 0 ] &&
-   [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ] &&
-   printf '%s\n' "$_refuse_log" | grep -q 'was rejected'; then
-  _pass an-all-rejected-queue-refuses-and-keeps-the-previous-record
-else
-  _bad an-all-rejected-queue-refuses-and-keeps-the-previous-record \
-    "rc=$_refuse_rc, record now [$(cat "$_ws4/.pc-exclude" 2>/dev/null | tr '\n' ' ')], said: $(printf '%s' "$_refuse_log" | tr '\n' ' ')"
-fi
+_refuses an-all-rejected-queue-refuses-and-keeps-the-previous-record 'was rejected'
 
 # A queue file that exists and is empty. Distinct from the missing-queue early
-# return above and from the all-rejected case below: nothing was rejected and
-# nothing is there, so neither of those diagnoses fits, and recording zero from
-# it would be the same silent shadowing install.
-#
-# This is also the half of the truncated-read guard that can be induced. The
-# other half -- a read that ends early because of an I/O fault partway through
-# a file sort has just written -- needs fault injection to reach, so the guard
-# is asserted where it can be and named where it cannot.
+# return above and from the all-rejected case: nothing was rejected and nothing
+# is there, so neither diagnosis fits, and recording zero from it would be the
+# same silent shadowing install. An empty queue reaches the all-rejected check
+# too -- the read loop appends nothing either way -- which is precisely why the
+# message is asserted.
 : > "$_ws4/.pc-skip-queue"
-_empty_log=$(_pc_step "$_ws4" pc_exclusions_finalize)
-_empty_rc=$?
-# The message is asserted, not just the non-zero exit. An empty queue also
-# reaches the older all-rejected check further down -- the read loop appends
-# nothing, so the survivor count is zero either way -- and a test that asks only
-# "did something die" passes with both new guards deleted. Measured: a reviewer
-# removed them and all eleven assertions stayed green.
-if [ "$_empty_rc" -ne 0 ] &&
-   [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ] &&
-   printf '%s\n' "$_empty_log" | grep -q 'exists but is empty'; then
-  _pass an-empty-queue-refuses-and-keeps-the-previous-record
-else
-  _bad an-empty-queue-refuses-and-keeps-the-previous-record \
-    "rc=$_empty_rc, record now [$(tr '\n' ' ' < "$_ws4/.pc-exclude" 2>/dev/null)], said: $(printf '%s' "$_empty_log" | tr '\n' ' ')"
-fi
+_refuses an-empty-queue-refuses-and-keeps-the-previous-record 'exists but is empty'
 
 # The mismatch branch itself, reached by making the measurement disagree with
 # the loop. A genuine mid-read I/O fault cannot be induced from a test, but the
-# guard's input can: a `wc` on PATH that reports a count the loop cannot have
-# read is the same disagreement the fault produces, and it is the only thing
-# this branch ever looks at. The suite already shims `sudo` this way in
+# guard's input can: a `wc` on PATH reporting a count the loop cannot have read
+# is the same disagreement the fault produces, and it is the only thing this
+# branch ever looks at. The suite already shims `sudo` this way in
 # tests/install-manifest-reconcile.sh.
 #
-# The shim lives inside the command substitution's subshell, so PATH is not
-# exported into the rest of this file -- an assignment prefixing a FUNCTION call
-# persists in the caller's shell, unlike one prefixing a command.
+# PATH is set and restored around the call rather than exported into a subshell,
+# because _refuses reports through _bad and a subshell would swallow the result.
+# The shim directory holds nothing but `wc`, and nothing else on this path calls
+# it -- lib/install.sh's two uses are inside do_install, which _pc_step does not
+# run.
 _wcshim="$_tmp/wcshim"
 mkdir -p "$_wcshim" || exit 1
 cat > "$_wcshim/wc" <<'SHIM'
 #!/bin/sh
 # More lines than any queue this test writes, so the counts cannot agree.
-printf '%s
-' 99
+printf '%s\n' 99
 SHIM
 chmod +x "$_wcshim/wc"
 printf 'freetype2.pc\n' > "$_ws4/.pc-skip-queue"
-_trunc_log=$(
-  PATH="$_wcshim:$PATH"
-  export PATH
-  _pc_step "$_ws4" pc_exclusions_finalize
-)
-_trunc_rc=$?
-if [ "$_trunc_rc" -ne 0 ] &&
-   [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ] &&
-   printf '%s\n' "$_trunc_log" | grep -q 'truncated'; then
-  _pass a-short-read-refuses-and-keeps-the-previous-record
-else
-  _bad a-short-read-refuses-and-keeps-the-previous-record \
-    "rc=$_trunc_rc, record now [$(tr '\n' ' ' < "$_ws4/.pc-exclude" 2>/dev/null)], said: $(printf '%s' "$_trunc_log" | tr '\n' ' ')"
-fi
+_oldpath=$PATH
+PATH="$_wcshim:$PATH"
+_refuses a-short-read-refuses-and-keeps-the-previous-record 'truncated'
+PATH=$_oldpath
 
 # An unreadable queue, which is the real shape of the unchecked-`sort` defect:
-# a redirection creates its target before the command runs, so a failure that
-# is not checked yields an EMPTY input and a zero-entry record from a queue
-# that asked for one.
+# a redirection creates its target before the command runs, so a failure that is
+# not checked yields an EMPTY input and a zero-entry record from a queue that
+# asked for one.
 printf 'freetype2.pc\n' > "$_ws4/.pc-skip-queue"
 chmod 000 "$_ws4/.pc-skip-queue"
 if [ "$(id -u)" = "0" ]; then
   # Root reads a 0000 file, so the fixture cannot bite. Reported rather than
-  # silently skipped: a SKIP prints neither PASS nor FAIL, so it stays
-  # consistent between this tree and the baseline run.
+  # silently skipped: a SKIP prints neither PASS nor FAIL, so the assertion
+  # count stays consistent between this tree and the baseline run.
   printf 'SKIP: unreadable-queue refusal (root ignores mode 000)\n'
 else
-  _unreadable_log=$(_pc_step "$_ws4" pc_exclusions_finalize)
-  _unreadable_rc=$?
-  if [ "$_unreadable_rc" -ne 0 ] &&
-     [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ] &&
-     printf '%s\n' "$_unreadable_log" | grep -q 'Cannot read the .pc exclusion queue'; then
-    _pass an-unreadable-queue-refuses-and-keeps-the-previous-record
-  else
-    _bad an-unreadable-queue-refuses-and-keeps-the-previous-record \
-      "rc=$_unreadable_rc, record now [$(cat "$_ws4/.pc-exclude" 2>/dev/null | tr '\n' ' ')], said: $(printf '%s' "$_unreadable_log" | tr '\n' ' ')"
-  fi
+  _refuses an-unreadable-queue-refuses-and-keeps-the-previous-record \
+    'Cannot read the .pc exclusion queue'
 fi
 chmod 600 "$_ws4/.pc-skip-queue" 2>/dev/null
 
