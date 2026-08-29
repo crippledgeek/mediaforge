@@ -18,6 +18,7 @@ PREFIX="$TOPDIR/workspace"
 . "$SCRIPT_DIR/lib/flags.sh"
 . "$SCRIPT_DIR/lib/registry.sh"
 . "$SCRIPT_DIR/lib/platform.sh"
+. "$SCRIPT_DIR/lib/storage.sh"
 . "$SCRIPT_DIR/lib/ccache.sh"
 . "$SCRIPT_DIR/lib/download.sh"
 . "$SCRIPT_DIR/lib/makesum.sh"
@@ -71,6 +72,7 @@ ENABLE_PKGS=""
 USE_MENU=false
 ENABLE_LTO=false
 MF_CCACHE=auto
+MF_ALLOW_TMPFS=false
 # Debug build level: "" (off), symbols, balanced or full. See lib/flags.sh.
 MF_DEBUG_LEVEL=""
 FLITE_AUDIO="none"
@@ -107,6 +109,8 @@ cmd_help() {
   printf '  -m, --enable-small        Minimal build\n'
   printf '      --enable-lto          Enable LTO in recipes that support it (default: off; archives may break on GCC major bumps)\n'
   printf '      --disable-lto         Force LTO off (default)\n'
+  printf '      --allow-tmpfs         Build even when the working directory is on a RAM-backed\n'
+  printf '                            filesystem (refused by default — a full tree is ~34GB)\n'
   printf '      --ccache              Compile through ccache; fail if it is not installed\n'
   printf '                            (default: used when installed, unless CCACHE_DISABLE is set)\n'
   printf '      --no-ccache           Do not use ccache, meson recipes included\n'
@@ -143,6 +147,8 @@ cmd_help() {
   printf '\nMakesum options (used by the makesum subcommand):\n'
   printf '      --profile=X.Y         Record digests against a specific version profile\n'
   printf '      --update              Overwrite an existing digest that no longer matches\n'
+  printf '      --allow-tmpfs         Fetch even when the working directory is on a\n'
+  printf '                            RAM-backed filesystem (refused by default)\n'
   printf '      --build               Run a real build with recording enabled, to reach\n'
   printf '                            sub-build downloads (forwards remaining args to build;\n'
   printf '                            no package filter)\n'
@@ -287,6 +293,7 @@ cmd_build() {
         ;;
       --enable-lto)        ENABLE_LTO=true ;;
       --disable-lto)       ENABLE_LTO=false ;;
+      --allow-tmpfs)       MF_ALLOW_TMPFS=true ;;
       --ccache)            MF_CCACHE=true ;;
       --no-ccache)         MF_CCACHE=false ;;
       --flite-audio=*)     FLITE_AUDIO="${1#--flite-audio=}" ;;
@@ -341,10 +348,34 @@ cmd_build() {
   validate_pkg_names "$DISABLE_PKGS $ENABLE_PKGS"
   validate_pkg_names "$SKIP_CHECKSUM_PKGS" ffmpeg
 
+  # Hoisted out of the menu block below so that a contradiction in the ARGUMENTS
+  # is reported before anything about the environment. A user who typed two
+  # flags that cannot combine should be told which two, not told about their
+  # filesystem -- and the storage guard sits between the two for exactly that
+  # reason.
+  if [ "$USE_MENU" = true ] && [ "$AUTOINSTALL" = "yes" ]; then
+    die "--menu and --yes are mutually exclusive"
+  fi
+
+  # Storage before anything is created or written, which means HERE rather than
+  # beside the tool pre-flight further down: save_stored_choices and the
+  # .debug-level write both mkdir $PREFIX first, so a guard placed with the
+  # other checks refuses a /tmp build only after having created a directory in
+  # tmpfs -- and after run_menu has taken the operator through a full selection
+  # to tell them no. The option loop above is all this needs: $TOPDIR is fixed
+  # at startup and $MF_ALLOW_TMPFS is settled by the parse.
+  #
+  # A dry run is exempt because it writes nothing -- it prints the plan and
+  # stops. Guarding it would refuse an operation that cannot cause the problem,
+  # and would refuse it in the ordinary case rather than an exotic one: every
+  # test that exercises the parser runs mediaforge from a mktemp -d scratch
+  # TOPDIR (tests/lib-scratch.sh), and mktemp answers under /tmp, which is
+  # tmpfs on Linux.
+  if [ "${DRY_RUN:-false}" != true ]; then
+    mf_storage_guard "$TOPDIR" "$MF_ALLOW_TMPFS"
+  fi
+
   if [ "$USE_MENU" = true ]; then
-    if [ "$AUTOINSTALL" = "yes" ]; then
-      die "--menu and --yes are mutually exclusive"
-    fi
     run_menu
   fi
 
@@ -726,6 +757,7 @@ cmd_makesum() {
     shift
     _mk_argc=$((_mk_argc - 1))
     case "$_mk_arg" in
+      --allow-tmpfs) MF_ALLOW_TMPFS=true ;;
       --profile=*) PROFILE_NAME="${_mk_arg#--profile=}" ;;
       --profile)
         _need_arg "$_mk_argc" --profile
@@ -797,6 +829,35 @@ cmd_makesum() {
   # Same validation cmd_build's --enable=/--disable= go through, so a typo
   # fails fast with a suggestion instead of silently matching nothing.
   validate_pkg_names "$_mk_pkgs"
+
+  # The fetch-only path downloads every tarball in _order.conf into $DISTDIR --
+  # the same directory, the same filesystem and the same failure a build has, so
+  # it gets the same guard. The --build path above does not need one here:
+  # cmd_build applies it before writing anything. install writes to the chosen
+  # prefix rather than $TOPDIR, and check-updates only talks to the network, so
+  # neither is in scope.
+  #
+  # After the name validation, not before it, for the reason cmd_build hoists
+  # its mutex check: a typo in an argument is the operator's to fix and must be
+  # reported as itself, rather than masked by a complaint about the filesystem.
+  # tests/checksum-verification.sh pins that both subcommands answer a bad name
+  # identically, which is what caught the first ordering.
+  #
+  # $TOPDIR, not $DISTDIR: packages/ does not exist until the first fetch
+  # creates it, and both probes fail open on a path that is not there -- so
+  # guarding $DISTDIR returned 0 on precisely the fresh tree it was added to
+  # protect, and makesum went on to download. $TOPDIR always exists and is the
+  # same filesystem, which the condition below has just established.
+  #
+  # That condition is a HARNESS carve-out, not an operator one. There is no
+  # --distdir flag and no environment override -- line 13 assigns
+  # DISTDIR="$TOPDIR/packages" unconditionally -- so the only thing that can
+  # take the false branch is an in-process caller that set DISTDIR before
+  # calling cmd_makesum, which is what tests/checksum-verification.sh does with
+  # its own small fixture directories.
+  if [ "$DISTDIR" = "$TOPDIR/packages" ]; then
+    mf_storage_guard "$TOPDIR" "$MF_ALLOW_TMPFS"
+  fi
 
   while IFS= read -r _recipe || [ -n "$_recipe" ]; do
     case "$_recipe" in
