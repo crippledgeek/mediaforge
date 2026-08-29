@@ -20,6 +20,7 @@ _fail=0
 . "$_root/tests/lib-scratch.sh"
 _scratch_init "$_root"
 trap '_scratch_cleanup' EXIT
+_cleanup_on_signal
 
 # 1) No source emits the invalid FFmpeg flag.
 if grep -rn -- '--enable-libflac' recipes/ lib/ mediaforge.sh >/dev/null 2>&1; then

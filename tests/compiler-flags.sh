@@ -230,7 +230,8 @@ _d='$'
 # matters, and a check that reads prose as code reports the explanation as the
 # offence -- which is exactly what happened on the first run of this assertion.
 _tmp_clobber=$(mktemp) || exit 1
-trap 'rm -f "$_tmp_clobber"' EXIT INT TERM
+trap 'rm -f "$_tmp_clobber"' EXIT
+_cleanup_on_signal
 _clobber=$(grep -rnE '(^|[^_[:alnum:]])(export +)?CFLAGS=' recipes/ 2>/dev/null \
            | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' \
            | grep -vF "CFLAGS=\"${_d}CFLAGS" \

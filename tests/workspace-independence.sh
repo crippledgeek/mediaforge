@@ -118,6 +118,7 @@ _farm() { # dir
 _tree=$(mktemp -d) || exit 1
 _clean=$(mktemp -d) || exit 1
 trap 'rm -rf "$_tree" "$_clean"' EXIT
+_cleanup_on_signal
 _farm "$_tree"
 _farm "$_clean"
 

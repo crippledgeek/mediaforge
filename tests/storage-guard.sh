@@ -95,12 +95,7 @@ _path0=$PATH
 
 _tmp=$(mktemp -d) || { printf 'FAIL [tmpdir]\n' >&2; exit 1; }
 trap 'rm -rf "$_tmp"; _scratch_cleanup' EXIT
-# The explicit form because this branch is cut from develop, where
-# _cleanup_on_signal does not exist yet -- it arrives with GH-64/PR#65, whose
-# static assertion then requires the call. Whichever of the two lands second
-# converges this to `_cleanup_on_signal`; the semantic is identical either way.
-trap 'exit 130' INT
-trap 'exit 143' TERM
+_cleanup_on_signal
 mkdir -p "$_tmp/bin"
 
 # The floor, read from the source rather than restated here. A second copy of

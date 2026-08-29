@@ -165,8 +165,7 @@ _key_expiry() {
 _gpghome=''
 _fx=''
 trap 'rm -rf ${_gpghome:+"$_gpghome"} ${_fx:+"$_fx"}' EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+_cleanup_on_signal
 
 # Probes the CAPABILITY, not just the binary. --show-keys arrived in GnuPG
 # 2.1.23; against an older gpg the helpers return empty and the assertions fail

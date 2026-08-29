@@ -40,6 +40,7 @@ _fail=0
 . "$ROOT/tests/lib-scratch.sh"
 _scratch_init "$ROOT"
 trap '_scratch_cleanup' EXIT
+_cleanup_on_signal
 
 # Guard for an assertion whose subject may not exist on the pre-fix tree, where
 # an undefined function exits 127 and a bare "did it fail?" check would read

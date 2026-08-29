@@ -65,6 +65,38 @@ _evidence() {
   printf '%s' "$_ev_hit"
 }
 
+# Cleanup that also runs when the RUN IS INTERRUPTED, not only when it ends.
+#
+# A file that registers `trap ... EXIT` alone has cleanup that depends on the
+# interpreter. Measured 2026-08-29 against a script holding a mktemp -d, sent
+# SIGTERM:
+#
+#     dash   the directory SURVIVED -- the EXIT trap never ran
+#     bash   the directory was removed -- the EXIT trap ran
+#
+# mediaforge is POSIX sh so that it runs where /bin/sh is dash, which is where
+# the leak is real; a host whose /bin/sh is bash cannot see it. Eight files were
+# written that way (GH-64). What leaks is whatever the file put in TMPDIR, and
+# TMPDIR is tmpfs on many systems, so the cost is RAM rather than disk.
+#
+# This registers the SIGNAL half only, and every caller keeps its own EXIT
+# handler: POSIX `trap` has no append form, so a shared EXIT registration here
+# would silently replace the caller's -- the same reason tests/lib-scratch.sh
+# gives for registering none.
+#
+# Exiting from the handler, rather than cleaning up in it, is what makes one
+# handler enough: the exit runs the caller's EXIT trap, whatever that file has
+# to remove. 130 and 143 are the conventional 128+signum statuses, and the form
+# is the one tests/hash-comment-grammar.sh and tests/signing-keys.sh already
+# use -- this converges on the idiom rather than adding a ninth.
+#
+# NOT for a SIGKILL, which no shell can trap. A run killed by the OOM killer
+# leaves its temporary tree behind no matter what is registered here.
+_cleanup_on_signal() {
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
+
 _pass() { printf 'PASS [%s]\n' "$1"; }
 _bad() {
   if [ "$#" -ge 2 ]; then

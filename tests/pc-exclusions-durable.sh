@@ -42,7 +42,8 @@ _fail=0
 . "$_root/tests/lib-install-driver.sh"
 
 _tmp=$(mktemp -d) || exit 1
-trap 'rm -rf "$_tmp"' EXIT INT TERM
+trap 'rm -rf "$_tmp"' EXIT
+_cleanup_on_signal
 
 # A workspace as recipes/ffmpeg.sh leaves one: an FFmpeg .pc that must be
 # installed, a transitive-util .pc that must not be, and the queue the

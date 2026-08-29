@@ -112,8 +112,7 @@ _fail=0
 
 _tmp=''
 trap 'rm -rf ${_tmp:+"$_tmp"}' EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+_cleanup_on_signal
 _tmp=$(mktemp -d) || exit 1
 
 # A digest of the right shape and length; its value is never compared against a

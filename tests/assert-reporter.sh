@@ -58,7 +58,8 @@ _fail=0
 . "$_root/tests/lib-assert.sh"
 
 _err=$(mktemp) || exit 1
-trap 'rm -f "$_err"' EXIT INT TERM
+trap 'rm -f "$_err"' EXIT
+_cleanup_on_signal
 
 # Run one reporter call in a fresh shell. The fragment arrives on stdin from a
 # QUOTED here-doc, so it reaches the inner shell verbatim; the preamble is
