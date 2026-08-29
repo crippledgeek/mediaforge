@@ -457,21 +457,30 @@ run_recipe() {
   pkg_install
   # Merge BEFORE pkg_post_install, which is the load-bearing ordering here.
   # Thirteen recipes' post_install reads back or deletes a file pkg_install put
-  # in the live prefix -- eight rewrite an installed .pc (chromaprint, srt,
-  # vmaf, openh264, vvenc, x265, xevd, xeve), shaderc renames one, four delete
-  # shared libraries make install produced (brotli, xvidcore, xevd, xeve), and
-  # libressl asserts libtls.pc exists. Every one of them would read a path still
-  # sitting in the stage if this merge waited for the stamp.
-  mf_stage_commit
+  # in the live prefix: nine rewrite or rename an installed .pc (chromaprint,
+  # srt, vmaf, openh264, vvenc, x265, xevd, xeve, and shaderc which renames
+  # one), brotli and xvidcore delete shared libraries make install produced,
+  # lcevc reads its own archives back, and libressl asserts libtls.pc exists.
+  # Every one of them would read a path still sitting in the stage if this merge
+  # waited for the stamp.
+  #
+  # CLAIM rather than merely commit: this recipe's own files must be out of
+  # reach before any nested stamp_write can drain them. libcdio builds
+  # libcdio-paranoia in its pkg_post_install and stamps it, which would
+  # otherwise take all ~100 of libcdio's files into the paranoia stamp and leave
+  # libcdio's own stamp empty. See mf_stage_claim.
+  mf_stage_claim
   pkg_post_install
   # Catches the two recipes that INSTALL from post_install: x264's
   # `make install-lib-static` and libcdio's second `make install`. Both honour
-  # DESTDIR, so both stage; without this commit their files would reach the
-  # prefix but never the manifest.
-  mf_stage_commit
+  # DESTDIR, so both stage; without this their files would reach the prefix but
+  # never a manifest. libcdio's paranoia build has already taken its own share
+  # through its own stamp_write, so what this claims is whatever is left.
+  mf_stage_claim
   mf_stage_end
 
-  # Mark as done, draining the accumulator into the stamp.
+  # Mark as done, draining this recipe's claimed files into the stamp.
+  mf_stage_restore
   stamp_write "$PKG_NAME" "$PKG_VERSION"
 
   accumulate_ffmpeg_opt

@@ -584,7 +584,21 @@ cmd_build() {
   # cannot work and whose failure points somewhere else. Nothing the operator
   # authored is touched -- a stamp is mediaforge's own bookkeeping. The
   # reconcile subcommand is the read-only view of the same check.
-  mf_build_preflight_stamps
+  #
+  # A DRY RUN reports and drops nothing. Its contract is "show what would
+  # build", and deleting files is not something a flag that promises to touch
+  # nothing may do -- the per-recipe dry-run short-circuit is in run_recipe,
+  # far below this point, so without this branch `build --dry-run` would prune.
+  if [ "${DRY_RUN:-false}" = true ]; then
+    _rc_quiet=true
+    _reconcile_stamps
+    if [ "$_rc_drifted" -gt 0 ]; then
+      warn "$_rc_drifted build stamp(s) vouch for artifacts that are gone."
+      warn "  A real build would drop them and rebuild those recipes."
+    fi
+  else
+    mf_build_preflight_stamps
+  fi
 
   # Reset the pc-skip queue at the start of every build. Recipes with
   # PKG_TRANSITIVE_UTIL=true append their .pc filenames; recipes/ffmpeg.sh
@@ -1101,18 +1115,21 @@ _reconcile_stamps() {
       continue
     fi
 
-    _rc_missing=""
-    while IFS= read -r _rc_path; do
-      [ -n "$_rc_path" ] || continue
-      [ -e "$PREFIX/$_rc_path" ] || _rc_missing="$_rc_missing $_rc_path"
-    done < "$_rc_stamp"
+    # Newline-separated, and filtered by the same helper lib/stage.sh uses to
+    # keep a manifest sound -- one definition of "is this recorded path still
+    # there", asked here in the opposite polarity. Space-separated with `for`
+    # would word-split a path containing a space into two bogus report lines and
+    # glob one containing `*` against the cwd; the drift DECISION would still be
+    # right, but the report is what the operator acts on.
+    _rc_missing=$(mf_stage_filter_paths missing < "$_rc_stamp")
 
     if [ -n "$_rc_missing" ]; then
       _rc_drifted=$((_rc_drifted + 1))
       _rc_drifted_list="$_rc_drifted_list$_rc_stamp
 "
       warn "  [DRIFTED]      $_rc_name — the stamp vouches for files that are gone:"
-      for _rc_m in $_rc_missing; do
+      printf '%s\n' "$_rc_missing" | while IFS= read -r _rc_m; do
+        [ -n "$_rc_m" ] || continue
         warn "                   $_rc_m"
       done
     else
@@ -1202,7 +1219,7 @@ cmd_reconcile() {
         printf '                  plain cp and so stages nothing)\n\n'
         printf '  --prune    delete the drifted stamps, so the next build redoes\n'
         printf '             exactly those recipes\n'
-        printf '  --quiet    report only problems\n'
+        printf '  --quiet    report only problems (no header, no summary)\n'
         exit 0 ;;
       *) die "Unknown option for reconcile: $1" ;;
     esac
@@ -1211,12 +1228,20 @@ cmd_reconcile() {
 
   [ -d "$PREFIX/.stamps" ] || die "No stamps at $PREFIX/.stamps — run '$PROGNAME build' first"
 
-  log "Reconciling $PREFIX/.stamps against the workspace..."
-  log ""
+  # --quiet means only problems, and that has to include the framing. A mode
+  # documented as "report only problems" that still prints a header, two blank
+  # lines and a summary on a clean workspace is not quiet, and the help text
+  # would be the false half of the pair.
+  if [ "$_rc_quiet" != true ]; then
+    log "Reconciling $PREFIX/.stamps against the workspace..."
+    log ""
+  fi
   _reconcile_stamps
   _reconcile_orphan_artifacts
-  log ""
-  log "verified: $_rc_verified   drifted: $_rc_drifted   unverifiable: $_rc_unverifiable   lost stamps: $_rc_orphans"
+  if [ "$_rc_quiet" != true ]; then
+    log ""
+    log "verified: $_rc_verified   drifted: $_rc_drifted   unverifiable: $_rc_unverifiable   lost stamps: $_rc_orphans"
+  fi
 
   if [ "$_rc_drifted" -gt 0 ]; then
     if [ "$_rc_prune" = true ]; then

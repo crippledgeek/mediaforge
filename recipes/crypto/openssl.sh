@@ -48,11 +48,15 @@ pkg_install() {
   # install_sw installs only the software, never the ssl dirs.
   #
   # Since GH-59 the install phases DO run under a DESTDIR (lib/stage.sh), which
-  # would now redirect install_ssldirs into the stage rather than onto the host —
-  # so DESTDIR is no longer the reason to avoid it. install_sw stays anyway: the
-  # staged ssl dirs would land outside $PREFIX, be reported by
-  # mf_stage_warn_stray and then discarded, which is a confusing way to achieve
-  # what not installing them achieves directly. Relying on the stage would also
-  # put the host's trust store one unset variable away from being written.
+  # would redirect install_ssldirs into the stage rather than onto the host — so
+  # DESTDIR is no longer the reason to avoid it. install_sw stays anyway, and
+  # where the staged ssl dirs would land depends on which OPENSSLDIR the probe
+  # in pkg_configure resolved: outside $PREFIX for a host trust store, where
+  # mf_stage_warn_stray reports them and the merge discards them; INSIDE it on
+  # the $PREFIX fallback (Debian/Ubuntu, per the candidate list above), where
+  # they merge into the workspace and enter the manifest as pollution nothing
+  # asked for. Neither is worth having. The reason that survives on both paths
+  # is the last one: relying on the stage would put the host's trust store one
+  # unset variable away from being written.
   run make install_sw
 }

@@ -208,9 +208,13 @@ and `--prune` performs the drop on its own.
 
 `unverifiable` is not a problem. It means the stamp has no manifest to check —
 either it was written before GH-59, or it belongs to one of the recipes that
-installs with a plain `cp` (`gsm`, `ladspa`, `amf`, ...), which stages nothing
-because `DESTDIR` only redirects installs performed by make, ninja and cmake. Those
-recipes behave exactly as they always have; they simply cannot be verified this way.
+installs with a plain `cp` (`gsm`, `ladspa`, `amf`, `bzip2`, `quirc`, `meson`),
+which stages nothing because `DESTDIR` only redirects installs performed by make,
+ninja and cmake. Those recipes behave exactly as they always have; they simply
+cannot be verified this way.
+
+`build --dry-run` reports drift and drops nothing, since its contract is to show
+what would build without touching anything.
 
 The reverse direction — a `.pc` sitting in the workspace with no stamp — is reported
 as `lost stamp` and does not affect the exit status. It costs a needless rebuild,

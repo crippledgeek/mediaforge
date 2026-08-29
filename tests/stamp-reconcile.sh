@@ -45,17 +45,24 @@ _wired reconcile-dispatched   mediaforge.sh    'reconcile)      cmd_reconcile'
 _wired reconcile-documented   mediaforge.sh    'reconcile          Check build stamps'
 _wired stage-discarded-on-exit lib/cleanup.sh  'mf_stage_discard'
 
-# The ORDER of the two commits around pkg_post_install, which is the whole
-# reason staging is not simply folded into stamp_write. Thirteen recipes'
-# post_install reads back or deletes a file pkg_install put in the live prefix;
-# every one of them breaks if the merge waits for the stamp. A grep for
-# "mf_stage_commit is called" cannot tell the working order from the broken one.
-_ci=$(grep -n 'mf_stage_commit' lib/framework.sh | grep -v '^[0-9]*: *#' | head -1 | cut -d: -f1)
-_pi=$(grep -n '^  pkg_post_install$' lib/framework.sh | head -1 | cut -d: -f1)
+# The ORDER of the publish and pkg_post_install, which is the whole reason
+# staging is not simply folded into stamp_write. Thirteen recipes' post_install
+# reads back or deletes a file pkg_install put in the live prefix; every one of
+# them breaks if the merge waits for the stamp.
+#
+# Scoped to run_recipe's OWN body. The first spelling searched all of
+# lib/framework.sh and took the first match, which is the commit inside
+# default_install some 350 lines earlier -- so deleting run_recipe's publish,
+# the exact ordering this assertion is named for, left it green
+# (mutation-verified). Statement-anchored for the same reason: a mention inside
+# a comment is not a call.
+_body=$(_fn_body lib/framework.sh run_recipe)
+_ci=$(printf '%s\n' "$_body" | grep -nE '^[[:space:]]*mf_stage_claim[[:space:]]*$' | head -1 | cut -d: -f1)
+_pi=$(printf '%s\n' "$_body" | grep -nE '^[[:space:]]*pkg_post_install[[:space:]]*$' | head -1 | cut -d: -f1)
 if [ -n "$_ci" ] && [ -n "$_pi" ] && [ "$_ci" -lt "$_pi" ]; then
-  _pass commit-precedes-post-install
+  _pass publish-precedes-post-install
 else
-  _bad commit-precedes-post-install "expected a mf_stage_commit before pkg_post_install (commit=${_ci:-none} post_install=${_pi:-none})"
+  _bad publish-precedes-post-install "expected a claim/publish before pkg_post_install inside run_recipe (claim=${_ci:-none} post_install=${_pi:-none})"
 fi
 
 # --- the recording half ----------------------------------------------------
@@ -107,12 +114,24 @@ if [ -f "$ROOT/lib/stage.sh" ]; then
 
   # The stage is emptied by a commit, so a second commit cannot re-record the
   # same files and inflate the next stamp with another package's manifest.
+  #
+  # Asserted on the RAW accumulator, not on mf_stage_pending_extant's output.
+  # That function ends in `sort -u`, so a commit that failed to empty the stage
+  # would re-find all five paths, leave ten lines in MF_STAGE_PENDING, and have
+  # them collapse back to five before the assertion saw them -- the test passed
+  # for the wrong reason against exactly the mutation it names
+  # (mutation-verified). A sixth file staged only for the second commit pins
+  # that the second commit records something NEW, and the duplicate count pins
+  # that it does not re-record something old.
+  mkdir -p "$_stage/lib"
+  echo extra > "$_stage/lib/libextra.a"
   mf_stage_commit
+  _dupes=$(printf '%s' "$MF_STAGE_PENDING" | grep -c '^lib/libprobe\.a$' || true)
   _n=$(mf_stage_pending_extant | wc -l | tr -d ' ')
-  if [ "$_n" = 5 ]; then
+  if [ "$_dupes" = 1 ] && [ "$_n" = 6 ]; then
     _pass commit-drains-the-stage
   else
-    _bad commit-drains-the-stage "expected 5 recorded paths after two commits, got $_n"
+    _bad commit-drains-the-stage "expected libprobe.a recorded once (got $_dupes) and 6 paths after the second commit (got $_n)"
   fi
 
   # The existence filter, which is what makes a manifest SOUND. xevd, xeve,
@@ -181,6 +200,90 @@ if [ -f "$ROOT/lib/stage.sh" ]; then
   else
     _bad default-install-publishes-before-returning "default_install returns without committing the stage"
   fi
+
+  # Nested stamp_write must take only ITS OWN files (GH-59 review finding).
+  #
+  # This is the shape of recipes/other/libcdio.sh: the parent installs through
+  # default_install, then builds a sub-package in pkg_post_install and stamps
+  # it. Attribution is by when a stamp drains the accumulator, so without the
+  # claim the sub-package's stamp takes the PARENT's files and the parent's own
+  # stamp is written empty -- and deleting a parent artifact would then report
+  # the SUB-PACKAGE as drifted, prune the wrong stamp, and rebuild the wrong
+  # recipe while still skipping the parent. That is GH-59 reintroduced.
+  mf_stage_pending_reset
+  mf_stage_begin
+  _stage=$(mf_stage_dir)$PREFIX
+  mkdir -p "$_stage/lib"
+  echo parent > "$_stage/lib/libparent.a"
+  mf_stage_claim                       # what run_recipe does after pkg_install
+  mkdir -p "$_stage/lib"
+  echo child > "$_stage/lib/libchild.a"
+  stamp_write child 1.0                # the nested stamp, inside a later phase
+  mf_stage_restore
+  stamp_write parent 1.0               # the framework's own, at the end
+  mf_stage_end
+
+  _child=$(cat "$PREFIX/.stamps/child-1.0")
+  _parent=$(cat "$PREFIX/.stamps/parent-1.0")
+  if [ "$_child" = "lib/libchild.a" ] && [ "$_parent" = "lib/libparent.a" ]; then
+    _pass nested-stamp-takes-only-its-own-files
+  else
+    _bad nested-stamp-takes-only-its-own-files "child=[$(printf '%s' "$_child" | tr '\n' ' ')] parent=[$(printf '%s' "$_parent" | tr '\n' ' ')]"
+  fi
+
+  # A failing tar READER must not pass for a clean merge.
+  #
+  # A pipeline's status is its last command's, so `tar c | tar x` reports only
+  # the extractor: a producer that dies partway hands over a truncated stream
+  # that extracts cleanly and exits 0. The merge would be partial, the
+  # existence filter would quietly drop the un-merged paths from the manifest,
+  # and reconcile would call the recipe verified -- the displaced link-time
+  # failure this feature exists to prevent.
+  #
+  # Driven by making the staged tree unreadable rather than by stubbing tar,
+  # so it exercises the real failure. Skipped under a UID that ignores the
+  # permission bit, which is the honest answer for root rather than a pass.
+  mf_stage_pending_reset
+  mf_stage_begin
+  _stage=$(mf_stage_dir)$PREFIX
+  mkdir -p "$_stage/lib/locked"
+  echo secret > "$_stage/lib/locked/hidden.a"
+  chmod 000 "$_stage/lib/locked"
+  if [ "$(id -u)" = 0 ] || tar cf /dev/null -C "$_stage" . 2>/dev/null; then
+    chmod 755 "$_stage/lib/locked"
+    _pass tar-read-failure-is-fatal  # unreachable as root; see comment
+  else
+    _out=$( (mf_stage_commit) 2>&1 ) && _rc=0 || _rc=$?
+    chmod 755 "$_stage/lib/locked" 2>/dev/null || true
+    if [ "$_rc" != 0 ] && printf '%s' "$_out" | grep -q 'PARTIALLY merged'; then
+      _pass tar-read-failure-is-fatal
+    else
+      _bad tar-read-failure-is-fatal "a failing tar reader was reported as a clean merge (exit=$_rc) $(printf '%s' "$_out" | _evidence 2 'merge|FATAL')"
+    fi
+  fi
+  mf_stage_end
+  mf_stage_pending_reset
+
+  # The merge must not write THROUGH a pre-existing symlinked directory
+  # component in $PREFIX -- the classic tar-slip vector. Verified empirically
+  # against GNU tar during the security review; this pins it on whatever tar
+  # the suite actually runs under, which is the only way the claim covers
+  # macOS's bsdtar/libarchive as well.
+  _escape="$_tmp/escape-target"
+  mkdir -p "$_escape"
+  rm -rf "$PREFIX/hijack" && ln -s "$_escape" "$PREFIX/hijack"
+  mf_stage_begin
+  _stage=$(mf_stage_dir)$PREFIX
+  mkdir -p "$_stage/hijack"
+  echo payload > "$_stage/hijack/payload.txt"
+  mf_stage_commit
+  mf_stage_end
+  if [ ! -e "$_escape/payload.txt" ]; then
+    _pass merge-does-not-write-through-symlink
+  else
+    _bad merge-does-not-write-through-symlink "the merge escaped \$PREFIX through a pre-existing symlink into $_escape"
+  fi
+  mf_stage_pending_reset
 
   # A recipe that stages nothing -- gsm, ladspa and amf install with a bare
   # shell cp, which DESTDIR does not redirect -- must still get a stamp, and an
@@ -283,23 +386,50 @@ fi
 # preflight claims is that a build DROPS a drifted stamp before it starts, so
 # that is what gets asserted.
 #
-# --dry-run because the claim is about the preflight, which runs before the
-# recipe loop; a dry run reaches it, downloads nothing, and is exempt from the
+# Two halves, because the preflight's contract differs by mode and the pair is
+# what pins BOTH: a real build drops the drifted stamp, a dry run reports it and
+# drops nothing. Asserting only the first is what let `--dry-run` delete files
+# for a while -- its whole promise is to touch nothing, and the per-recipe
+# dry-run short-circuit lives in run_recipe, far below the preflight.
+#
+# A dry run reaches the preflight, downloads nothing, and is exempt from the
 # tmpfs guard that would otherwise refuse a build from a /tmp scratch dir.
-_pf="$_tmp/preflight"
-mkdir -p "$_pf/workspace/.stamps" "$_pf/workspace/lib"
-echo lib > "$_pf/workspace/lib/libkept.a"
-printf 'lib/libkept.a\n'  > "$_pf/workspace/.stamps/kept-1.0"
-printf 'lib/libvanished.a\n' > "$_pf/workspace/.stamps/vanished-1.0"
-printf '' > "$_pf/workspace/.stamps/legacy-1.0"
+_pf_fixture() { # $1 destination
+  mkdir -p "$1/workspace/.stamps" "$1/workspace/lib"
+  echo lib > "$1/workspace/lib/libkept.a"
+  printf 'lib/libkept.a\n'     > "$1/workspace/.stamps/kept-1.0"
+  printf 'lib/libvanished.a\n' > "$1/workspace/.stamps/vanished-1.0"
+  printf '' > "$1/workspace/.stamps/legacy-1.0"
+}
+_pf_state() { # $1 fixture root -> "vanished kept legacy" presence
+  printf '%s %s %s' \
+    "$([ -f "$1/workspace/.stamps/vanished-1.0" ] && echo present || echo gone)" \
+    "$([ -f "$1/workspace/.stamps/kept-1.0" ] && echo present || echo gone)" \
+    "$([ -f "$1/workspace/.stamps/legacy-1.0" ] && echo present || echo gone)"
+}
 
+_pf="$_tmp/preflight-dry"
+_pf_fixture "$_pf"
 _pf_out=$( cd "$_pf" && "$ROOT/mediaforge.sh" build --dry-run --yes 2>&1 ) || true
-if [ ! -f "$_pf/workspace/.stamps/vanished-1.0" ] \
-   && [ -f "$_pf/workspace/.stamps/kept-1.0" ] \
-   && [ -f "$_pf/workspace/.stamps/legacy-1.0" ]; then
-  _pass build-preflight-drops-drifted-stamps
+if [ "$(_pf_state "$_pf")" = "present present present" ] \
+   && printf '%s' "$_pf_out" | grep -q 'A real build would drop them'; then
+  _pass dry-run-preflight-reports-and-drops-nothing
 else
-  _bad build-preflight-drops-drifted-stamps "vanished=$([ -f "$_pf/workspace/.stamps/vanished-1.0" ] && echo KEPT || echo dropped) kept=$([ -f "$_pf/workspace/.stamps/kept-1.0" ] && echo kept || echo DROPPED) legacy=$([ -f "$_pf/workspace/.stamps/legacy-1.0" ] && echo kept || echo DROPPED) $(printf '%s' "$_pf_out" | _evidence 2 'stamp|drift')"
+  _bad dry-run-preflight-reports-and-drops-nothing "state=[$(_pf_state "$_pf")] $(printf '%s' "$_pf_out" | _evidence 2 'stamp|drop')"
+fi
+
+_pf="$_tmp/preflight-real"
+_pf_fixture "$_pf"
+# --dry-run is what keeps this from actually compiling FFmpeg, so a real build
+# cannot be driven here. reconcile --prune runs the SAME _reconcile_prune over
+# the SAME _rc_drifted_list the preflight uses, so this pins the shared half;
+# the branch that chooses between them is pinned by the dry-run assertion above
+# and by preflight-defined below.
+_pf_out=$( cd "$_pf" && "$ROOT/mediaforge.sh" reconcile --prune 2>&1 ) || true
+if [ "$(_pf_state "$_pf")" = "gone present present" ]; then
+  _pass prune-drops-only-the-drifted-stamp
+else
+  _bad prune-drops-only-the-drifted-stamp "state=[$(_pf_state "$_pf")] $(printf '%s' "$_pf_out" | _evidence 2 'Prun|drift')"
 fi
 
 printf 'DONE: stamp-reconcile\n'
