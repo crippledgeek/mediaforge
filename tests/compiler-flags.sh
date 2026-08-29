@@ -245,7 +245,6 @@ _clobber=$(grep -rnE '(^|[^_[:alnum:]])(export +)?CFLAGS=' recipes/ 2>/dev/null 
 # _fn_body is the shared reader in tests/lib-assert.sh, the same one
 # tests/debug-levels.sh scans recipes with -- one implementation of "read this
 # function's body", rather than each test growing its own.
-_surviving=""
 printf '%s\n' "$_clobber" | while IFS= read -r _line; do
   [ -n "$_line" ] || continue
   _f=${_line%%:*}
@@ -254,7 +253,12 @@ printf '%s\n' "$_clobber" | while IFS= read -r _line; do
     continue
   fi
   printf '%s\n' "$_line"
-done > "$_tmp_clobber" 2>/dev/null || true
+# No `|| true`: a failure here would leave the file empty and the assertion
+# would report PASS -- a gate whose breakage looks like success, which is the
+# failure mode this file exists to catch elsewhere. 2>/dev/null stays: _fn_body
+# on an unreadable file yields no output and the line then SURVIVES as an
+# offence, which is the safe direction.
+done > "$_tmp_clobber" 2>/dev/null
 _clobber=$(cat "$_tmp_clobber" 2>/dev/null)
 rm -f "$_tmp_clobber"
 
