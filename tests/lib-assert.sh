@@ -109,3 +109,20 @@ _glob_not() { # name  actual  glob  detail-prefix
     *)  _pass "$1" ;;
   esac
 }
+
+# "Is this wiring present in that file?" -- a literal grep reported as a named
+# assertion. Defined here after being written twice: tests/debug-levels.sh and
+# tests/ccache.sh had character-identical copies that already disagreed on the
+# failure wording ("never calls" vs "never mentions"), which is the drift the
+# header above describes happening again in miniature.
+#
+# grep -qF, not -qE: every needle in-tree is a fixed string (a case label, a
+# help line, a function name), and one containing a regex metacharacter -- a
+# `--ccache)` label ends in one -- would silently match something else.
+_wired() { # name  file  needle
+  if grep -qF -- "$3" "$2" 2>/dev/null; then
+    _pass "$1"
+  else
+    _bad "$1" "$2 never mentions $3"
+  fi
+}

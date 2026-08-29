@@ -18,6 +18,7 @@ PREFIX="$TOPDIR/workspace"
 . "$SCRIPT_DIR/lib/flags.sh"
 . "$SCRIPT_DIR/lib/registry.sh"
 . "$SCRIPT_DIR/lib/platform.sh"
+. "$SCRIPT_DIR/lib/ccache.sh"
 . "$SCRIPT_DIR/lib/download.sh"
 . "$SCRIPT_DIR/lib/makesum.sh"
 . "$SCRIPT_DIR/lib/cleanup.sh"
@@ -68,6 +69,7 @@ DISABLE_PKGS=""
 ENABLE_PKGS=""
 USE_MENU=false
 ENABLE_LTO=false
+MF_CCACHE=false
 # Debug build level: "" (off), symbols, balanced or full. See lib/flags.sh.
 MF_DEBUG_LEVEL=""
 FLITE_AUDIO="none"
@@ -104,6 +106,8 @@ cmd_help() {
   printf '  -m, --enable-small        Minimal build\n'
   printf '      --enable-lto          Enable LTO in recipes that support it (default: off; archives may break on GCC major bumps)\n'
   printf '      --disable-lto         Force LTO off (default)\n'
+  printf '      --ccache              Compile through ccache when it is installed (default: off)\n'
+  printf '      --no-ccache           Do not use ccache (default)\n'
   printf '      --debug[=LEVEL]       Build with debug info. LEVEL is one of:\n'
   printf '                              symbols   -O2 -g3, assertions off, no measurable slowdown\n'
   printf '                              balanced  -Og -g3, assertions on, ~2x slower\n'
@@ -281,6 +285,8 @@ cmd_build() {
         ;;
       --enable-lto)        ENABLE_LTO=true ;;
       --disable-lto)       ENABLE_LTO=false ;;
+      --ccache)            MF_CCACHE=true ;;
+      --no-ccache)         MF_CCACHE=false ;;
       --flite-audio=*)     FLITE_AUDIO="${1#--flite-audio=}" ;;
       --flite-audio)       shift; _need_arg "$#" --flite-audio; FLITE_AUDIO="$1" ;;
       --openssldir=*)      OPENSSLDIR="${1#--openssldir=}" ;;
@@ -474,6 +480,13 @@ cmd_build() {
   command_exists "make" || die "make not installed"
   command_exists "g++"  || die "g++ not installed"
   command_exists "curl" || die "curl not installed"
+
+  # After the compiler pre-flight above: mf_ccache_setup links the names that
+  # resolve, so a tree with no compiler should fail on the missing compiler
+  # rather than on the empty masquerade directory.
+  if [ "$MF_CCACHE" = true ]; then
+    mf_ccache_setup
+  fi
 
   command_exists "cargo"   || warn "cargo not installed — rav1e will be skipped"
   command_exists "python3" || warn "python3 not installed — dav1d and lv2 will be skipped"
