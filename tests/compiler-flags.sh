@@ -229,11 +229,36 @@ _d='$'
 # QUOTING the old assignment so the next reader knows why the derivation
 # matters, and a check that reads prose as code reports the explanation as the
 # offence -- which is exactly what happened on the first run of this assertion.
+_tmp_clobber=$(mktemp) || exit 1
+trap 'rm -f "$_tmp_clobber"' EXIT INT TERM
 _clobber=$(grep -rnE '(^|[^_[:alnum:]])(export +)?CFLAGS=' recipes/ 2>/dev/null \
            | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' \
            | grep -vF "CFLAGS=\"${_d}CFLAGS" \
            | grep -vF "${_d}CFLAGS\"" \
            | grep -vE "_cflagsbackup|CFLAGS=\"[${_d}]_" || true)
+# A recipe may route the derivation through a helper -- giflib passes
+# CFLAGS="$(_giflib_cflags)" on its make line because giflib's Makefile ASSIGNS
+# CFLAGS and only a command-line macro overrides it. That is derivation, not
+# replacement, but it looks identical to a grep of the assignment alone. Follow
+# the named helper into its own body and drop the line if the helper derives.
+#
+# _fn_body is the shared reader in tests/lib-assert.sh, the same one
+# tests/debug-levels.sh scans recipes with -- one implementation of "read this
+# function's body", rather than each test growing its own.
+_surviving=""
+printf '%s\n' "$_clobber" | while IFS= read -r _line; do
+  [ -n "$_line" ] || continue
+  _f=${_line%%:*}
+  _helper=$(printf '%s' "$_line" | grep -oE "CFLAGS=\"[${_d}]\(_[a-z0-9_]+\)" | sed 's/[^_a-z0-9]//g')
+  if [ -n "$_helper" ] && [ -f "$_f" ] &&
+     _fn_body "$_f" "$_helper" | grep -qF "${_d}CFLAGS"; then
+    continue
+  fi
+  printf '%s\n' "$_line"
+done > "$_tmp_clobber" 2>/dev/null || true
+_clobber=$(cat "$_tmp_clobber" 2>/dev/null)
+rm -f "$_tmp_clobber"
+
 if [ -z "$_clobber" ]; then
   _pass no-recipe-replaces-composed-cflags
 else

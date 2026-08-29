@@ -240,18 +240,6 @@ mf_compose_cflags() {
   mf_compose_flags "$1 $_mf_opt" "$_mf_user"
 }
 
-# Recompose $CFLAGS/$CXXFLAGS/$LDFLAGS from mediaforge's own accumulated flags
-# (MF_OWN_*) plus the user's (MF_USER_*), and export the compiler pair.
-#
-# Called at EVERY point where mediaforge has finished contributing flags of its
-# own -- once at startup, again after option parsing adds -fPIC, and again after
-# the per-recipe accumulator files are read. Recomposing rather than appending
-# is what keeps the user's flags last no matter how late mediaforge discovers
-# one of its own; appending to the already-composed line silently reverses the
-# precedence the GNU standards require.
-#
-# LDFLAGS is deliberately not exported, matching the long-standing behaviour:
-# recipes read it as a shell variable and pass it explicitly where they need it.
 # What a configure script's PREPROCESSOR-ONLY checks need from us.
 #
 # Three recipes -- nettle, gnutls and libpng -- each discovered independently
@@ -282,6 +270,19 @@ mf_compose_cflags() {
 # empty operator half collapses instead of leaving a trailing space, and the
 # noglob handling that helper documents covers this line too.
 mf_cppflags() { mf_compose_flags "-I$PREFIX/include" "${MF_USER_CFLAGS-}"; }
+
+# Recompose $CFLAGS/$CXXFLAGS/$LDFLAGS from mediaforge's own accumulated flags
+# (MF_OWN_*) plus the user's (MF_USER_*), and export the compiler pair.
+#
+# Called at EVERY point where mediaforge has finished contributing flags of its
+# own -- once at startup, again after option parsing adds -fPIC, and again after
+# the per-recipe accumulator files are read. Recomposing rather than appending
+# is what keeps the user's flags last no matter how late mediaforge discovers
+# one of its own; appending to the already-composed line silently reverses the
+# precedence the GNU standards require.
+#
+# LDFLAGS is deliberately not exported, matching the long-standing behaviour:
+# recipes read it as a shell variable and pass it explicitly where they need it.
 
 mf_export_flags() {
   CFLAGS=$(mf_compose_cflags "$MF_OWN_CFLAGS" "${MF_USER_CFLAGS-}")

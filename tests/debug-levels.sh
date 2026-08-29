@@ -350,7 +350,6 @@ _mf_headers_only=' nv-codec.sh '
 # Fold backslash continuations before matching: gsm, bzip2 and librtmp all put
 # the macro on the line AFTER `run make`, and a line-oriented grep reads those
 # as a bare make and reports the defect this file exists to catch.
-_mf_logical() { awk '{ if (sub(/\\$/, "")) { buf = buf $0; next } print buf $0; buf = "" }' "$1"; }
 
 # Scoped to pkg_build below, which is the phase that compiles. An earlier
 # version scanned the whole recipe and a mutation walked straight through it:
@@ -362,33 +361,6 @@ _mf_logical() { awk '{ if (sub(/\\$/, "")) { buf = buf $0; next } print buf $0; 
 # Generalized over the function name because the composed-CFLAGS claim below has
 # to read a helper's body too, and reading two function bodies two ways is how
 # the copies in this file drifted before.
-_mf_fn_body() { # file  function-name
-  # Terminates on a `}` at COLUMN ZERO, not on any line ending in one. The first
-  # version used /\}[[:space:]]*$/, which is not brace matching: an ordinary body
-  # line ending in a close brace ended the extraction and everything below it
-  # became invisible -- a false PASS of exactly the kind this scan exists to
-  # catch:
-  #
-  #     pkg_build() {
-  #       run make CFLAGS="$CFLAGS" libfoo.a
-  #       _v=${SOMEVAR}          <- extraction stopped here
-  #       run make libextra.a    <- bare, compiles, never seen
-  #     }
-  #
-  # `${VAR}` at end of line, a brace group, and an inline awk program all trigger
-  # it. Found in review rather than by this file, which is the part worth
-  # recording: the scan could not police its own reader.
-  #
-  # A phase written on ONE line (quirc) closes where it opens, so it is finished
-  # at the start line rather than left open to swallow the rest of the file.
-  _mf_logical "$1" | awk -v fn="$2" '
-    $0 ~ "^[[:space:]]*" fn "\\(\\)" {
-      f = 1
-      if ($0 ~ /\}[[:space:]]*$/) { print; f = 0; next }
-    }
-    f { print }
-    f && /^\}/ { f = 0 }'
-}
 
 # The READER gets its own assertion, because everything below trusts it. Reverting
 # it to the any-line terminator and dropping a defective recipe in the tree does
@@ -397,6 +369,7 @@ _mf_fn_body() { # file  function-name
 # extraction (`${VAR}` at end of line, a brace group) are ones no recipe happens
 # to contain today, which is exactly why the bug survived review of the recipes.
 _mf_fx=$(mktemp) || { printf 'FAIL [reader-fixture]\n' >&2; exit 1; }
+trap 'rm -f "$_mf_fx"' EXIT INT TERM
 cat > "$_mf_fx" <<'FIXTURE'
 pkg_build() {
   run make CFLAGS="$CFLAGS" libfoo.a
@@ -404,7 +377,7 @@ pkg_build() {
   run make libextra.a
 }
 FIXTURE
-if _mf_fn_body "$_mf_fx" pkg_build | grep -q 'libextra'; then
+if _fn_body "$_mf_fx" pkg_build | grep -q 'libextra'; then
   _pass reader-reads-past-a-line-ending-in-brace
 else
   _bad reader-reads-past-a-line-ending-in-brace \
@@ -415,7 +388,7 @@ cat > "$_mf_fx" <<'FIXTURE'
 pkg_build() { run make CFLAGS="$CFLAGS" libfoo.a; }
 PKG_AFTER="not part of the phase"
 FIXTURE
-if _mf_fn_body "$_mf_fx" pkg_build | grep -q 'PKG_AFTER'; then
+if _fn_body "$_mf_fx" pkg_build | grep -q 'PKG_AFTER'; then
   _bad reader-stops-at-a-one-line-phase "read past the closing brace of a one-line phase"
 else
   _pass reader-stops-at-a-one-line-phase
@@ -442,7 +415,7 @@ for _r in $(find recipes -name '*.sh' | sort); do
   _mf_scanned=$((_mf_scanned + 1))
   _mf_seen="$_mf_seen $(basename "$_r")"
   _mf_name="make-carries-flags-$(basename "$_r" .sh)"
-  _mf_body=$(_mf_fn_body "$_r" pkg_build)
+  _mf_body=$(_fn_body "$_r" pkg_build)
   # An empty body means either the recipe defines no pkg_build -- in which case
   # the framework's default_build runs a bare `make -j`, which is the defect --
   # or the extraction above stopped matching. Both must fail rather than pass an
@@ -451,13 +424,6 @@ for _r in $(find recipes -name '*.sh' | sort); do
     _bad "$_mf_name" "no pkg_build body to read — a bare default_build, or a shape the scan cannot see"
     continue
   fi
-  # EVERY compiling invocation, not just one of them, and two claims per recipe
-  # because either alone is satisfiable by a recipe that still builds stripped.
-  # The macro spelling is upstream's to dictate -- CFLAGS (bzip2, giflib),
-  # CCFLAGS (gsm), XCFLAGS (librtmp) -- so the first claim matches any *FLAGS=,
-  # and the second requires the composed CFLAGS to feed it rather than a fresh
-  # literal like -O2. `make clean` is exempt: it compiles nothing, and librtmp
-  # legitimately runs one first. The "." stands in for the dollar, as above.
   # The EFFECTIVE body: the phase plus the bodies of any same-file helpers it
   # calls. A recipe may delegate its make to a helper -- librtmp runs the same
   # six settings from four call sites and now routes them through one -- and a
@@ -472,7 +438,7 @@ for _r in $(find recipes -name '*.sh' | sort); do
                  sed 's/[^_a-z0-9]//g' | sort -u); do
     grep -qE "^${_mf_h}\\(\\)" "$_r" || continue
     _mf_eff="$_mf_eff
-$(_mf_fn_body "$_r" "$_mf_h")"
+$(_fn_body "$_r" "$_mf_h")"
   done
 
   # EVERY compiling invocation, and two claims, because either alone is
@@ -488,15 +454,25 @@ $(_mf_fn_body "$_r" "$_mf_h")"
                  grep -E 'FLAGS=[^;]*.CFLAGS' || true)
   # giflib's helper PRINTS the flags rather than running make, so the composed
   # CFLAGS sits in the helper body while the FLAGS= macro is on the make line.
+  # Follow ONLY the helper named inside that macro's value.
+  #
+  # An earlier version grepped the whole effective body for [$]CFLAGS, which
+  # degraded the claim to "this recipe mentions CFLAGS somewhere". Demonstrated
+  # in review: rewriting librtmp's helper to a literal XCFLAGS="-O2 ..." AND
+  # adding an unrelated same-file helper that happened to mention $CFLAGS made
+  # the mutation pass. Latent rather than live -- no recipe has such a helper --
+  # but the fallback has to name the helper it is vouching for.
   #
   # [$]CFLAGS, not .CFLAGS: the dot form -- used elsewhere in this file where a
   # dollar cannot be written -- also matches the macro NAMES, since XCFLAGS and
-  # CCFLAGS both end in CFLAGS. Measured: rewriting librtmp's helper to
-  # XCFLAGS="-O2 -I..." left this file green, because the word XCFLAGS satisfied
-  # its own check. A bracket expression pins the dollar without tripping the
-  # linter's "expressions do not expand in single quotes".
+  # CCFLAGS both end in CFLAGS.
   if [ -z "$_mf_composed" ]; then
-    printf '%s\n' "$_mf_eff" | grep -qE '[$]CFLAGS' && _mf_composed="via a helper"
+    for _mf_h in $(printf '%s\n' "$_mf_eff" | grep -oE 'FLAGS="?[$]\(_[a-z0-9_]+\)' |
+                   sed 's/[^_a-z0-9]//g' | sort -u); do
+      _fn_body "$_r" "$_mf_h" | grep -qE '[$]CFLAGS' || continue
+      _mf_composed="via $_mf_h"
+      break
+    done
   fi
 
   if [ -n "$_mf_bare" ]; then
@@ -667,16 +643,16 @@ _wired vpx-reads-assertions     recipes/video/libvpx.sh 'mf_debug_assertions'
 # a regex whose "." stands in for the dollar, the same way the rav1e assertion
 # above does it, so this file contains no literal $( inside quotes for the
 # linter to read as a failed expansion.
-# Folded through _mf_logical first: the call sits on a continuation line, and a
+# Folded through _logical_lines first: the call sits on a continuation line, and a
 # line-oriented grep reads the invocation and its arguments as separate lines --
 # the same trap the bare-make scan above folds for.
-if _mf_logical recipes/video/libvpx.sh |
+if _logical_lines recipes/video/libvpx.sh |
      grep -qE -- 'run ./configure.*.\(_libvpx_debug_configure\)'; then
   _pass vpx-applies-configure
 else
   _bad vpx-applies-configure "the configure helper is defined but never called"
 fi
-if _mf_logical recipes/video/libvpx.sh |
+if _logical_lines recipes/video/libvpx.sh |
      grep -qE -- 'run make.*.\(_libvpx_debug_make\)'; then
   _pass vpx-applies-make
 else
@@ -693,11 +669,118 @@ if [ -f patches/libilbc-cmake-append-flags.patch ]; then
 else
   _bad ilbc-patch-exists "recipe applies a patch that is not in the tree"
 fi
-# The patch must APPEND rather than assign, which is the whole point of it.
-if grep -q 'CMAKE_C_FLAGS}' patches/libilbc-cmake-append-flags.patch 2>/dev/null; then
-  _pass ilbc-patch-appends
+# The patch must APPEND rather than assign -- for BOTH languages. libilbc
+# declares LANGUAGES C CXX and compiles two C++ translation units into the
+# library, so a C-only fix leaves those two objects with upstream's assigned
+# flags and none of the level's.
+for _mf_lang in C CXX; do
+  if grep -qE "^\+.*[$]{CMAKE_${_mf_lang}_FLAGS}" patches/libilbc-cmake-append-flags.patch 2>/dev/null; then
+    _pass "ilbc-patch-appends-$_mf_lang"
+  else
+    _bad "ilbc-patch-appends-$_mf_lang" "the patch does not carry the existing ${_mf_lang} flags through"
+  fi
+done
+
+# ...and the patch must actually APPLY in full. This is the assertion that was
+# missing, and its absence let a real defect ship inside the commit that claimed
+# to fix it: the header read @@ -53,7 +53,7 @@ while the body carried 12 lines
+# either side. GNU patch honours the DECLARED counts -- it consumed seven lines,
+# applied the C half, dropped the C++ half, and exited 0. Nothing noticed: the
+# recipe's guard only fires on a non-zero exit, and the old assertion here
+# grepped the patch TEXT for a string that was present in the half it never
+# applied.
+#
+# Scanned across every patch in the tree rather than this one, because the
+# failure is a property of the format, not of libilbc: a hand-edited hunk header
+# is silent everywhere. Lives in this file rather than its own because
+# tests/oracle-baseline.sh requires every assertion in a NEWLY ADDED file to
+# fail on the merge base, and the other patches in patches/ are well-formed
+# there -- those assertions would pass, and the gate would reject the file.
+for _mf_patch in patches/*.patch; do
+  [ -f "$_mf_patch" ] || continue
+  # Three shapes a naive counter gets wrong, each found by running it against
+  # the twelve patches already in the tree rather than only against the new one:
+  #   - an EMPTY line is a legitimate context line (a diff may drop the leading
+  #     space on a blank line) -- oapv-install-libdir has them, and reading them
+  #     as "not context" under-counts;
+  #   - a multi-file patch's next "--- a/..." / "+++ b/..." header must END the
+  #     current hunk, not be counted as its -/+ lines -- libjxl-static-linking
+  #     patches two files and over-counted by exactly one each way;
+  #   - "\ No newline at end of file" belongs to neither side.
+  # All twelve pass with these handled, which is what says the scan measures the
+  # format rather than its own assumptions.
+  _mf_bad_hunk=$(awk '
+    function flush() {
+      if (hdr != "" && (o != declo || n != decln))
+        print hdr " declares " declo "/" decln " but body has " o "/" n
+      hdr = ""
+    }
+    /^(--- |\+\+\+ |diff )/ { flush(); next }
+    /^@@/ {
+      flush()
+      hdr = $0; o = 0; n = 0
+      declo = $2; decln = $3
+      sub(/^-[0-9]+,?/, "", declo); sub(/^\+[0-9]+,?/, "", decln)
+      if (declo == "") declo = 1
+      if (decln == "") decln = 1
+      next
+    }
+    hdr == "" { next }
+    /^\\/ { next }
+    /^-/    { o++; next }
+    /^\+/   { n++; next }
+    { o++; n++ }
+    END { flush() }' "$_mf_patch")
+  if [ -z "$_mf_bad_hunk" ]; then
+    _pass "patch-hunk-counts-$(basename "$_mf_patch" .patch)"
+  else
+    _bad "patch-hunk-counts-$(basename "$_mf_patch" .patch)" "$_mf_bad_hunk"
+  fi
+done
+
+# --- the gate that runs the gates ----------------------------------------
+# tests/run.sh names its ~30 test files by hand, so adding a test means
+# remembering to wire it -- and forgetting is SILENT: the file passes when run
+# directly and the pre-push gate never executes it. tests/ccache.sh shipped that
+# way and a security review found it, not this suite.
+#
+# What made it invisible was a coincidence of wording: the oracle gate prints
+# "PASS: tests/ccache.sh -- 9 assertions here, 9 failing on the base", which
+# reads exactly like the suite ran it. It had not; oracle-baseline runs newly
+# ADDED files against the merge base, which is a different thing from run.sh
+# invoking them.
+#
+# Every tests/*.sh must therefore be named in run.sh, except the library and the
+# runner itself, which are sourced or are the thing doing the running.
+# The exemptions come from run.sh's own NOT-IN-SUITE line rather than from a
+# copy here: four tests assert against a built $PREFIX and stay manual, and a
+# second list of them in this file would be free to drift from the first.
+_mf_manual=$(sed -n 's/^# NOT-IN-SUITE: //p' tests/run.sh)
+if [ -z "$_mf_manual" ]; then
+  _bad every-test-file-is-wired-into-run "run.sh carries no NOT-IN-SUITE line — the exemptions cannot be read"
 else
-  _bad ilbc-patch-appends "the patch assigns the flags instead of appending to them"
+  _mf_unwired=""
+  for _mf_t in tests/*.sh; do
+    _mf_base=$(basename "$_mf_t")
+    case "$_mf_base" in
+      run.sh|lib-assert.sh|lib-provenance.sh) continue ;;
+    esac
+    case " $_mf_manual " in *" $_mf_base "*) continue ;; esac
+    # Anchored on the INVOCATION, not on the name appearing anywhere: run.sh's
+    # own comments name test files (this scan's rationale names two of them),
+    # and an unanchored grep counts that prose as wiring. Measured -- deleting
+    # `sh tests/ccache.sh` from run.sh left this assertion green, because the
+    # paragraph explaining why the assertion exists still mentioned the file.
+    grep -qE "^[[:space:]]*sh $_mf_t([[:space:]]|\$)" tests/run.sh ||
+      _mf_unwired="$_mf_unwired $_mf_base"
+  done
+fi
+if [ -n "$_mf_manual" ]; then
+  if [ -z "$_mf_unwired" ]; then
+    _pass every-test-file-is-wired-into-run
+  else
+    _bad every-test-file-is-wired-into-run "never executed by tests/run.sh:$_mf_unwired"
+  fi
 fi
 
 printf 'DONE: debug-levels\n'
