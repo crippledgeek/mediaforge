@@ -111,6 +111,21 @@ default_build() {
 
 default_install() {
   run make install
+  # Publish immediately, so a recipe can manipulate what it just installed
+  # (GH-59). Under staging `make install` writes to $DESTDIR, and a recipe that
+  # goes on to touch "$PREFIX/..." in the SAME phase would otherwise act on a
+  # prefix the files have not reached yet.
+  #
+  # That is not hypothetical: recipes/video/xeve.sh and recipes/video/xevd.sh
+  # both call default_install and then `rm -f "$PREFIX/lib/libxeve.so"` to drop
+  # the shared library upstream ships beside the static one. Without this commit
+  # the rm matches nothing, the merge publishes the .so anyway, and FFmpeg's
+  # static link can resolve -lxeve against it -- the exact outcome those two
+  # lines exist to prevent, silently undone.
+  #
+  # A recipe that overrides pkg_install with a raw `ninja -C build install` or
+  # `cmake --install` and then edits $PREFIX must commit for the same reason.
+  mf_stage_commit
 }
 
 default_noop() {

@@ -139,6 +139,49 @@ if [ -f "$ROOT/lib/stage.sh" ]; then
     _bad stamp-drains-the-accumulator "the accumulator survived stamp_write, so the next stamp would inherit these files"
   fi
 
+  # A recipe that deletes what it just installed, in the SAME phase.
+  # recipes/video/xeve.sh and recipes/video/xevd.sh both call default_install
+  # and then `rm -f "$PREFIX/lib/libxeve.so"` to drop the shared library
+  # upstream ships beside the static one. If the install is still sitting in the
+  # stage when the rm runs, the rm matches nothing and the merge publishes the
+  # .so anyway -- so FFmpeg's static link can resolve against a shared library
+  # the recipe explicitly removed. The ordering below is what default_install
+  # guarantees by committing before it returns.
+  mf_stage_begin
+  _stage="$DESTDIR$PREFIX"
+  mkdir -p "$_stage/lib"
+  echo shared > "$_stage/lib/libunwanted.so"
+  echo static > "$_stage/lib/libwanted.a"
+  mf_stage_commit                      # what default_install now does
+  rm -f "$PREFIX/lib/libunwanted.so"   # what the recipe does next
+  mf_stage_commit                      # the framework's own commit, after the phase
+  if [ ! -e "$PREFIX/lib/libunwanted.so" ] && [ -f "$PREFIX/lib/libwanted.a" ]; then
+    _pass recipe-can-delete-what-it-just-installed
+  else
+    _bad recipe-can-delete-what-it-just-installed "unwanted=$([ -e "$PREFIX/lib/libunwanted.so" ] && echo PUBLISHED || echo gone) wanted=$([ -f "$PREFIX/lib/libwanted.a" ] && echo kept || echo MISSING)"
+  fi
+  # And the deleted file must not linger in the manifest either, or every later
+  # reconcile reports drift for a file the recipe meant to remove.
+  if mf_stage_pending_extant | grep -q 'libunwanted.so'; then
+    _bad deleted-install-drops-from-manifest "the removed .so is still recorded"
+  else
+    _pass deleted-install-drops-from-manifest
+  fi
+  mf_stage_pending_reset
+
+  # default_install must be the thing that guarantees it, not the caller. A
+  # recipe author writing `default_install; rm "$PREFIX/x"` has no reason to
+  # suspect staging exists.
+  #
+  # Anchored to a STATEMENT, not a mention. The first spelling of this grep was
+  # a bare needle, and the explanatory comment inside default_install contains
+  # the word -- so deleting the call left the assertion green (mutation-verified).
+  if _fn_body lib/framework.sh default_install | grep -qE '^[[:space:]]*mf_stage_commit[[:space:]]*$'; then
+    _pass default-install-publishes-before-returning
+  else
+    _bad default-install-publishes-before-returning "default_install returns without committing the stage"
+  fi
+
   # A recipe that stages nothing -- gsm, ladspa and amf install with a bare
   # shell cp, which DESTDIR does not redirect -- must still get a stamp, and an
   # EMPTY one. That is the "unverifiable" signal, and it is also every stamp
