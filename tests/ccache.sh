@@ -83,7 +83,8 @@ if [ ! -f lib/ccache.sh ]; then
   for _a in masquerade-dir-built only-existing-compilers path-is-prepended \
             auto-uses-cache auto-degrades-without-ccache off-disables-everywhere \
             off-builds-no-masquerade explicit-clears-inherited-disable \
-            auto-respects-inherited-disable unknown-state-dies \
+            auto-respects-inherited-disable auto-defers-on-empty-disable \
+            unknown-state-dies \
             dies-without-ccache; do
     _bad "$_a" "lib/ccache.sh absent — claim would be vacuous"
   done
@@ -302,6 +303,28 @@ elif [ -e "$_tmp/prefix-defer/.ccache-bin" ]; then
   _bad auto-respects-inherited-disable "built a masquerade directory over an inherited CCACHE_DISABLE"
 else
   _pass auto-respects-inherited-disable
+fi
+
+# The same claim one state over, and the reason the presence test is spelled
+# `+` rather than `:-`. ccache reads an exported-but-empty CCACHE_DISABLE as
+# disabled just like `1` (measured, 4.13.6), so an implementation testing the
+# VALUE would build the masquerade directory over an operator who had disabled
+# the cache -- and every other assertion in this file would stay green, because
+# each of them exports the value 1.
+CCACHE_DISABLE=; export CCACHE_DISABLE
+_apply defer-empty "$_tmp/bin" auto
+unset CCACHE_DISABLE
+_empty=$(_recorded defer-empty disable)
+if [ "$_ap_rc" -ne 0 ]; then
+  _bad auto-defers-on-empty-disable "exited $_ap_rc: $(_why defer-empty)"
+elif [ "$_empty" != "" ]; then
+  # _recorded prints UNSET for a variable that is not set, so exported-empty and
+  # never-set are distinguishable here -- which is what makes the claim testable.
+  _bad auto-defers-on-empty-disable "CCACHE_DISABLE=[$_empty], not the inherited empty value"
+elif [ -e "$_tmp/prefix-defer-empty/.ccache-bin" ]; then
+  _bad auto-defers-on-empty-disable "built a masquerade directory over an empty CCACHE_DISABLE"
+else
+  _pass auto-defers-on-empty-disable
 fi
 
 # --- refusals ---------------------------------------------------------------

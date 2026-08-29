@@ -18,10 +18,10 @@
 #      CMAKE_C_COMPILER_ARG1 -- it works, but the cache file no longer names the
 #      compiler, and anything reading it back gets ccache. With the masquerade
 #      dir it records /usr/lib/ccache/bin/cc, which is a compiler.
-#   3. One mechanism covers all five build systems. autotools, cmake, meson and
-#      the bare-make recipes all resolve compiler names through PATH; wiring
-#      each build system's own launcher option would be four mechanisms that
-#      agree only by inspection.
+#   3. One mechanism covers every build system that resolves compiler names
+#      through PATH -- autotools, cmake, meson and the bare-make recipes;
+#      wiring each build system's own launcher option would be four mechanisms
+#      that agree only by inspection.
 #
 # The directory is built here rather than reusing a distro's (/usr/lib/ccache/bin
 # on Arch, /usr/lib/ccache on Debian, a homebrew libexec on macOS) so there is no

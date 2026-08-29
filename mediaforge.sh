@@ -108,7 +108,7 @@ cmd_help() {
   printf '      --enable-lto          Enable LTO in recipes that support it (default: off; archives may break on GCC major bumps)\n'
   printf '      --disable-lto         Force LTO off (default)\n'
   printf '      --ccache              Compile through ccache; fail if it is not installed\n'
-  printf '                            (default: ccache is used whenever it is installed)\n'
+  printf '                            (default: used when installed, unless CCACHE_DISABLE is set)\n'
   printf '      --no-ccache           Do not use ccache, meson recipes included\n'
   printf '      --debug[=LEVEL]       Build with debug info. LEVEL is one of:\n'
   printf '                              symbols   -O2 -g3, assertions off, no measurable slowdown\n'
