@@ -152,6 +152,20 @@ else
     "unrecorded install: $(find "$_dest3/lib/pkgconfig" -name '*.pc' 2>/dev/null | tr '\n' ' ')/ recorded install still has freetype2.pc: $([ -e "$_dest/lib/pkgconfig/freetype2.pc" ] && echo yes || echo no)"
 fi
 
+# _finalize_only <workspace>: the build's finalize step alone, with BOTH its
+# diagnostics and its exit status preserved -- the refusals below are only
+# refusals if they are non-zero, and only useful if they say why.
+#
+# The `command -v` guard is what lets this file run against a merge base that
+# has no finalize step: it exits 0 having done nothing, which is the wrong
+# answer to every assertion here and so fails each of them rather than aborting.
+_finalize_only() { # workspace
+  PREFIX="$1" SCRIPT_DIR="$_root" VERBOSE=0 sh -c "$_MF_INSTALL_SOURCES"'
+    command -v pc_exclusions_finalize >/dev/null 2>&1 || exit 0
+    pc_exclusions_finalize
+  ' 2>&1
+}
+
 # ─── the traversal guard survived the move out of recipes/ffmpeg.sh ─────────
 # Queue entries are recipe-supplied constants, but a typo like
 # PKG_PC_FILES="../../something" reaches the record as a name to act on. The
@@ -168,11 +182,7 @@ printf '../evil.pc\n.hidden.pc\nfreetype2.pc\n' > "$_ws2/.pc-skip-queue"
 # stderr is KEPT. The module says the rejection is loud, and a silent `continue`
 # satisfies every claim about the recorded list while leaving an operator with a
 # mis-declared PKG_PC_FILES and nothing to read.
-_guard_log=$(PREFIX="$_ws2" SCRIPT_DIR="$_root" VERBOSE=0 sh -c "$_MF_INSTALL_SOURCES
-  if command -v pc_exclusions_finalize >/dev/null 2>&1; then
-    pc_exclusions_finalize
-  fi
-" 2>&1) || true
+_guard_log=$(_finalize_only "$_ws2") || true
 _recorded=$(tr '\n' ' ' < "$_ws2/.pc-exclude" 2>/dev/null)
 if [ "$_recorded" = "freetype2.pc " ] &&
    printf '%s\n' "$_guard_log" | grep -q '\.\./evil\.pc' &&
@@ -182,6 +192,58 @@ else
   _bad finalize-records-the-declared-name-and-refuses-a-traversing-one-loudly \
     "recorded: [$_recorded]; said: $(printf '%s' "$_guard_log" | tr '\n' ' ')"
 fi
+
+# ─── a record is never replaced by a shorter one ────────────────────────────
+# The two refusals the record's whole value rests on. It is the authority
+# do_install trusts, and its failure direction is asymmetric -- a missing name
+# is INSTALLED, and shadowing a system library is the outcome this mechanism
+# exists to prevent, while a spurious name merely withholds a .pc. So a
+# finalize that cannot produce the list the queue asked for has to fail loudly
+# and leave the previous list standing, not commit a shorter one and exit 0.
+#
+# Both are compound with "the record still says what it said", because a
+# non-zero exit alone is satisfiable by dying anywhere, including after the mv.
+_ws4="$_tmp/refuse/workspace"
+_stage "$_ws4"
+printf 'freetype2.pc\n' > "$_ws4/.pc-skip-queue"
+_finalize_only "$_ws4" >/dev/null
+_good_record=$(cat "$_ws4/.pc-exclude" 2>/dev/null)
+
+# Every entry rejected: the queue is not empty, so "nothing to exclude" is not
+# what it means -- it means the recipe declarations are wrong, and recording
+# zero would silently install every transitive utility from here on.
+printf '../evil.pc\n' > "$_ws4/.pc-skip-queue"
+_refuse_log=$(_finalize_only "$_ws4")
+_refuse_rc=$?
+if [ "$_refuse_rc" -ne 0 ] && [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ]; then
+  _pass an-all-rejected-queue-refuses-and-keeps-the-previous-record
+else
+  _bad an-all-rejected-queue-refuses-and-keeps-the-previous-record \
+    "rc=$_refuse_rc, record now [$(cat "$_ws4/.pc-exclude" 2>/dev/null | tr '\n' ' ')], said: $(printf '%s' "$_refuse_log" | tr '\n' ' ')"
+fi
+
+# An unreadable queue, which is the real shape of the unchecked-`sort` defect:
+# a redirection creates its target before the command runs, so a failure that
+# is not checked yields an EMPTY input and a zero-entry record from a queue
+# that asked for one.
+printf 'freetype2.pc\n' > "$_ws4/.pc-skip-queue"
+chmod 000 "$_ws4/.pc-skip-queue"
+if [ "$(id -u)" = "0" ]; then
+  # Root reads a 0000 file, so the fixture cannot bite. Reported rather than
+  # silently skipped: a SKIP prints neither PASS nor FAIL, so it stays
+  # consistent between this tree and the baseline run.
+  printf 'SKIP: unreadable-queue refusal (root ignores mode 000)\n'
+else
+  _unreadable_log=$(_finalize_only "$_ws4")
+  _unreadable_rc=$?
+  if [ "$_unreadable_rc" -ne 0 ] && [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ]; then
+    _pass an-unreadable-queue-refuses-and-keeps-the-previous-record
+  else
+    _bad an-unreadable-queue-refuses-and-keeps-the-previous-record \
+      "rc=$_unreadable_rc, record now [$(cat "$_ws4/.pc-exclude" 2>/dev/null | tr '\n' ' ')], said: $(printf '%s' "$_unreadable_log" | tr '\n' ' ')"
+  fi
+fi
+chmod 600 "$_ws4/.pc-skip-queue" 2>/dev/null
 
 # ─── nothing deletes from the workspace pkgconfig dir ───────────────────────
 # Derived, not listed. The defect was one line in one recipe; the guard has to

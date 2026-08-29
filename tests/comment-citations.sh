@@ -64,6 +64,13 @@ _tree_names=$( { find ./lib ./recipes ./tests ./patches ./profiles -type f -prin
 # considered, so a filename appearing in code (a path being built, an argument)
 # is not a comment and is not this rule's business.
 #
+# The colon does not have to touch the filename. `utils.sh (:17)` is the same
+# citation with the same rot profile, and it went stale in-tree while this gate
+# read past it -- the commit that wrote it inserted a source line above the line
+# it named. Optional blanks and an optional opening paren are allowed between
+# the two halves for that reason; measured against the whole tree, widening it
+# added those hits and no others.
+#
 # The scanner cannot trip over its own source: the pattern below is written as
 # a regex, whose characters are not the literal shape it looks for, and it
 # lives on a line that carries no "#" at all -- so this file is scanned like
@@ -73,7 +80,7 @@ _candidates=$(awk '
     _h = index($0, "#")
     if (_h == 0) next
     _c = substr($0, _h)
-    while (match(_c, /[A-Za-z0-9_+.-]+\.(sh|conf|md):[0-9]+/)) {
+    while (match(_c, /[A-Za-z0-9_+.-]+\.(sh|conf|md)[ \t]*[(]?:[0-9]+/)) {
       print FILENAME "|" FNR "|" substr(_c, RSTART, RLENGTH)
       _c = substr(_c, RSTART + RLENGTH)
     }

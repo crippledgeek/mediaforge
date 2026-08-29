@@ -17,8 +17,12 @@
 #
 # Requires the sourcing test to have set $_root to the repo root.
 
-# The load order mediaforge.sh uses: utils.sh (:17), resolve.sh (:26), then
-# lib/install.sh at each subcommand that needs it.
+# The load order mediaforge.sh uses at the top of the file: utils.sh, then
+# resolve.sh, then lib/install.sh at each subcommand that needs it. Named
+# rather than cited by line -- this comment's first draft said ":26" and was
+# wrong by the time it was committed, because the commit that wrote it had
+# inserted a source line above resolve.sh. tests/comment-citations.sh is the
+# gate for that, and it now catches this spelling too.
 #
 # Double-quoted with escaped dollars rather than single-quoted. The dollars are
 # equally literal to the inner shell either way, and this spelling keeps the
