@@ -26,6 +26,10 @@ _fail=0
 
 # shellcheck source=tests/lib-assert.sh
 . "$_root/tests/lib-assert.sh"
+# shellcheck source=tests/lib-scratch.sh
+. "$_root/tests/lib-scratch.sh"
+_scratch_init "$_root"
+trap '_scratch_cleanup' EXIT
 
 # ─── #18: the compiled-in trust store ───────────────────────────────────────
 # libtls bakes TLS_DEFAULT_CA_FILE at compile time (tls/Makefile.am:53-55) and
@@ -424,7 +428,7 @@ fi
 # Each case below is rejected at the boundary rather than defended against later.
 _reject_case() {
   _case=$1; _value=$2; _expect=$3
-  _o=$(./mediaforge.sh build --openssldir="$_value" --dry-run --yes 2>&1) || true
+  _o=$(_mf build --openssldir="$_value" --dry-run --yes 2>&1) || true
   if printf '%s' "$_o" | grep -q "$_expect"; then
     _pass "openssldir-rejects-$_case"
   else
@@ -452,7 +456,7 @@ _reject_case dotdot-segment       '/usr/local/../../etc/ssl' "'..' segment"
 _reject_case trailing-dotdot      '/usr/local/..'            "'..' segment"
 
 # A legitimate path with the characters real prefixes use must still pass.
-_o=$(./mediaforge.sh build --openssldir=/opt/my-prefix_1.0/etc/ssl --dry-run --yes 2>&1) || true
+_o=$(_mf build --openssldir=/opt/my-prefix_1.0/etc/ssl --dry-run --yes 2>&1) || true
 if printf '%s' "$_o" | grep -q 'Choices:.*openssldir=/opt/my-prefix_1.0/etc/ssl' \
    && ! printf '%s' "$_o" | grep -qi 'unknown option'; then
   _pass openssldir-accepts-realistic-path
@@ -532,7 +536,7 @@ fi
 # Matched against the exact die text, not the word "absolute": cmd_help's
 # --openssldir line now contains "absolute", so anything that prints usage —
 # including an unrelated parse failure — would satisfy a looser grep.
-_out=$(./mediaforge.sh build --openssldir=relative/etc/ssl --dry-run --yes 2>&1) || true
+_out=$(_mf build --openssldir=relative/etc/ssl --dry-run --yes 2>&1) || true
 if printf '%s' "$_out" | grep -q 'is not an absolute path'; then
   _pass openssldir-rejects-relative-path
 else
@@ -550,7 +554,7 @@ fi
 # the earlier `|| true` masked exactly that signal by folding every nonzero
 # rc into 0 before `_rc=$?` could read it, so it is dropped from this
 # assignment; the assertion below captures the real rc instead.
-_out=$(./mediaforge.sh build --openssldir=/etc/ssl --dry-run --yes 2>&1)
+_out=$(_mf build --openssldir=/etc/ssl --dry-run --yes 2>&1)
 _rc=$?
 if [ "$_rc" -eq 0 ] \
    && printf '%s' "$_out" | grep -q 'tls=' \
@@ -567,7 +571,7 @@ fi
 # next one as the value ("--openssldir --dry-run" yields OPENSSLDIR=--dry-run),
 # which the absolute-path check above then rejects on different grounds — a
 # genuine rejection, but not the one this assertion is about.
-_out=$(./mediaforge.sh build --openssldir 2>&1) || true
+_out=$(_mf build --openssldir 2>&1) || true
 if printf '%s' "$_out" | grep -q 'requires an argument'; then
   _pass openssldir-requires-a-value
 else

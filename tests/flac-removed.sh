@@ -16,6 +16,10 @@ cd "$_root" || exit 1
 _fail=0
 # shellcheck source=tests/lib-assert.sh
 . "$_root/tests/lib-assert.sh"
+# shellcheck source=tests/lib-scratch.sh
+. "$_root/tests/lib-scratch.sh"
+_scratch_init "$_root"
+trap '_scratch_cleanup' EXIT
 
 # 1) No source emits the invalid FFmpeg flag.
 if grep -rn -- '--enable-libflac' recipes/ lib/ mediaforge.sh >/dev/null 2>&1; then
@@ -33,7 +37,7 @@ else
 fi
 
 # 3) The --flac selector is rejected as an unknown option (fast: dies before build).
-_out=$(./mediaforge.sh build --flac=native 2>&1)
+_out=$(_mf build --flac=native 2>&1)
 if printf '%s\n' "$_out" | grep -qi 'unknown option'; then
   _pass flac-selector-rejected-as-unknown
 else

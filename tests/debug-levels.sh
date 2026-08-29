@@ -845,8 +845,16 @@ else
   _mf_unwired=""
   for _mf_t in tests/*.sh; do
     _mf_base=$(basename "$_mf_t")
+    # lib-*.sh by pattern rather than by name. The list was three literals and
+    # gained a fourth with tests/lib-scratch.sh (#55), which is the shape of a
+    # thing that will be forgotten next time: a new library would be reported
+    # as unwired, and the fix would look like adding it to run.sh -- wiring a
+    # file that asserts nothing. tests/oracle-baseline.sh already treats the
+    # prefix as the library convention and guards the one way it could be
+    # abused (a lib-*.sh that run.sh actually invokes fails there), so the
+    # convention is enforced from both ends rather than restated here.
     case "$_mf_base" in
-      run.sh|lib-assert.sh|lib-provenance.sh) continue ;;
+      run.sh|lib-*.sh) continue ;;
     esac
     case " $_mf_manual " in *" $_mf_base "*) continue ;; esac
     # Anchored on the INVOCATION, not on the name appearing anywhere: run.sh's

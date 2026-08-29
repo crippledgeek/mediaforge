@@ -5,22 +5,28 @@ set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
+_fail=0
+# shellcheck source=tests/lib-assert.sh
+. "$ROOT/tests/lib-assert.sh"
+# shellcheck source=tests/lib-scratch.sh
+. "$ROOT/tests/lib-scratch.sh"
+_scratch_init "$ROOT"
+
 _BIN=$(mktemp -d)
-trap 'rm -rf "$_BIN"' EXIT
+# One handler for both temporaries, for the reason tests/lib-scratch.sh gives
+# where it declines to register its own. Registered after _scratch_init so it
+# cannot run before the function it calls is defined.
+trap 'rm -rf "$_BIN"; _scratch_cleanup' EXIT
 printf '#!/bin/sh\nexit 127\n' >"$_BIN/whiptail"
 chmod +x "$_BIN/whiptail"
 PATH="$_BIN:$PATH"
 export PATH
 
-_fail=0
-# shellcheck source=tests/lib-assert.sh
-. "$ROOT/tests/lib-assert.sh"
-
 # In a non-interactive (no-TTY) sh -c invocation, smart prompts are skipped
 # and the conservative defaults kick in. So we test that --tls is recognised
 # from CLI even when whiptail is masked, and that the prompt path is unreachable
 # without a TTY.
-_output=$(./mediaforge.sh build --tls=mbedtls --dry-run --yes 2>&1) || true
+_output=$(_mf build --tls=mbedtls --dry-run --yes 2>&1) || true
 if printf '%s' "$_output" | grep -q "tls=mbedtls"; then
   _pass cli-tls-wins-with-whiptail-masked
 else
@@ -29,7 +35,7 @@ else
 fi
 
 # Confirm that non-interactive (no TTY) invocations apply the conservative default
-_output=$(./mediaforge.sh build --dry-run --yes 2>&1) || true
+_output=$(_mf build --dry-run --yes 2>&1) || true
 if printf '%s' "$_output" | grep -q "tls=gnutls"; then
   _pass non-interactive-default-is-gnutls
 else
