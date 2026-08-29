@@ -24,10 +24,16 @@ cd "$_root" || exit 1
 _fail=0
 # shellcheck source=tests/lib-assert.sh
 . "$_root/tests/lib-assert.sh"
+# shellcheck source=tests/lib-scratch.sh
+. "$_root/tests/lib-scratch.sh"
+_scratch_init "$_root"
+# The non-Linux path below exits early, so the cleanup is a trap rather than a
+# call at the tail.
+trap '_scratch_cleanup' EXIT
 
 # Extract the accumulated FFmpeg configure-opts line from a dry-run.
 _configure_line() {
-  ./mediaforge.sh build --dry-run "$@" 2>&1 | grep -- 'Would configure FFmpeg with:' || true
+  _mf build --dry-run "$@" 2>&1 | grep -- 'Would configure FFmpeg with:' || true
 }
 
 # 1) default build: flag absent

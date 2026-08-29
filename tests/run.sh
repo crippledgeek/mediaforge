@@ -103,6 +103,14 @@ sh tests/hash-comment-grammar.sh
 # gates (shellcheck, oracle-baseline) that format their own output.
 sh tests/ccache.sh
 sh tests/assert-reporter.sh
+# Pins that the suite's verdict is a function of the TREE and not of the
+# developer's build state (#55). Eight files ran mediaforge with the repo as
+# TOPDIR, so $PREFIX was the repo's own workspace/; the mixed-debug-level guard
+# turned that from latent into a suite that fails outright on any machine
+# carrying a --debug=full build. Runs each of them again against a poisoned
+# workspace, which is the only way to observe the coupling from inside the
+# suite -- every one of them passes on a clean machine either way.
+sh tests/workspace-independence.sh
 # Runs the unmerged test files against the merge base and fails if any assertion
 # passes there. Catches the oracle that drifted into matching an error message,
 # and the fixture whose path collided with the value it was distinguishing —

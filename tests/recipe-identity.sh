@@ -36,6 +36,10 @@ _fail=0
 
 # shellcheck source=tests/lib-assert.sh
 . "$ROOT/tests/lib-assert.sh"
+# shellcheck source=tests/lib-scratch.sh
+. "$ROOT/tests/lib-scratch.sh"
+_scratch_init "$ROOT"
+trap '_scratch_cleanup' EXIT
 
 # Guard for an assertion whose subject may not exist on the pre-fix tree, where
 # an undefined function exits 127 and a bare "did it fail?" check would read
@@ -74,7 +78,7 @@ _diverge=${_diverge% }
 # the divergence is a property of the tree BEFORE the fix as much as after, so
 # a standalone assertion on it would pass on the pre-fix tree and tell
 # tests/oracle-baseline.sh that this file detects something it does not.
-_dis=$(./mediaforge.sh build --dry-run --yes --disable=vapoursynth 2>&1)
+_dis=$(_mf build --dry-run --yes --disable=vapoursynth 2>&1)
 if [ "$_diverge" = "freetype2 freetype2-harfbuzz vapoursynth" ] \
    && printf '%s' "$_dis" | grep -q 'Skipping VapourSynth (disabled via CLI)'; then
   _pass disable-by-filename-skips-divergent-recipe
@@ -96,7 +100,7 @@ else
 fi
 
 # Not one recipe's bug: the same must hold for the other two divergent names.
-_dis2=$(./mediaforge.sh build --dry-run --yes --disable=freetype2-harfbuzz 2>&1)
+_dis2=$(_mf build --dry-run --yes --disable=freetype2-harfbuzz 2>&1)
 if printf '%s' "$_dis2" | grep -q 'Skipping FreeType2-hb (disabled via CLI)'; then
   _pass disable-by-filename-skips-second-divergent-recipe
 else

@@ -18,6 +18,9 @@ _fail=0
 
 # shellcheck source=tests/lib-assert.sh
 . "$ROOT/tests/lib-assert.sh"
+# shellcheck source=tests/lib-scratch.sh
+. "$ROOT/tests/lib-scratch.sh"
+_scratch_init "$ROOT"
 
 # Guard for negative assertions. On a tree without the feature an undefined
 # function exits 127, which a bare "expected it to fail" check reads as success
@@ -36,7 +39,7 @@ _require_fn() {
 
 _fx=$(mktemp -d)
 SRV_PID=''
-trap 'kill "$SRV_PID" 2>/dev/null; rm -rf "$_fx"' EXIT INT TERM
+trap 'kill "$SRV_PID" 2>/dev/null; rm -rf "$_fx"; _scratch_cleanup' EXIT INT TERM
 
 # Known-answer vector: sha256("test") is a published constant.
 printf 'test' > "$_fx/kat.txt"
@@ -1195,7 +1198,7 @@ fi
 # The parser's own half of S-F5, asserted where the list is built rather than
 # where it is read: two accumulating flags must produce a single-space-joined
 # list with no leading space.
-_normout=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes \
+_normout=$(_mf build --dry-run --yes \
   --skip-checksum=zlib,giflib --skip-checksum=opus 2>&1 \
   | grep 'Named recipes:' | head -1)
 if [ "${_normout##*Named recipes: }" = "zlib giflib opus" ]; then
@@ -1219,7 +1222,7 @@ fi
 # editor or a stray reformat would turn a literal one back into spaces and the
 # test would silently stop being about anything.
 _tab=$(printf '\t')
-_wsout=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes \
+_wsout=$(_mf build --dry-run --yes \
   "--skip-checksum=zlib,${_tab}giflib" 2>&1 \
   | grep 'Named recipes:' | head -1)
 if [ "${_wsout##*Named recipes: }" = "zlib giflib" ]; then
@@ -1230,7 +1233,7 @@ fi
 
 # S-F7: an empty value arms the banner with nothing after "Named recipes:" and
 # is the shortest route to the empty-key match above.
-_emptyout=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes --skip-checksum= 2>&1)
+_emptyout=$(_mf build --dry-run --yes --skip-checksum= 2>&1)
 _emptyrc=$?
 # Matched on the specific rejection wording, not on the flag text: the baseline
 # also dies here, with "Unknown option: --skip-checksum=", which contains the
@@ -1310,7 +1313,7 @@ fi
 # appearing anywhere in the output: --dry-run emits "Would build zlib-1.3.1"
 # for every recipe regardless of the banner, so a whole-output grep for `zlib`
 # passed on any tree that parses the flag at all and was measuring nothing.
-_cliout2=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes --skip-checksum 2>&1)
+_cliout2=$(_mf build --dry-run --yes --skip-checksum 2>&1)
 if printf '%s' "$_cliout2" | grep -qi 'ALL recipes'; then
   _pass skip-checksum-cli-global-banner
 else
@@ -1331,7 +1334,7 @@ fi
 # so a filename-only match would false-PASS on the base exactly like
 # skip-checksum-warns-filename's die-message trap above. "Unknown package:"
 # only appears once this task's registry-validation loop exists.
-_cliout3=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes --skip-checksum=doesnotexist 2>&1)
+_cliout3=$(_mf build --dry-run --yes --skip-checksum=doesnotexist 2>&1)
 _clirc3=$?
 if [ "$_clirc3" -ne 0 ] && printf '%s' "$_cliout3" | grep -qF 'Unknown package: doesnotexist'; then
   _pass skip-checksum-unknown-pkg-dies
@@ -1443,7 +1446,11 @@ fi
 # ANDed with a grep for the banner text in mediaforge.sh: "no recording banner
 # was printed" is trivially true on a tree that has no such banner, so on its
 # own this would pass on the baseline for a reason unrelated to the fix.
-_envout=$(cd "$ROOT" && MAKESUM_MODE=true ./mediaforge.sh build --dry-run --yes 2>&1)
+# The assignment is exported inside the command substitution's own subshell
+# rather than prefixed onto _mf: a prefix on a FUNCTION call is not exported to
+# the processes that function starts, so the variable this assertion is about
+# would never reach mediaforge at all and the check would pass vacuously.
+_envout=$(export MAKESUM_MODE=true; _mf build --dry-run --yes 2>&1)
 if grep -q 'recording is ACTIVE' "$ROOT/mediaforge.sh" \
    && ! printf '%s' "$_envout" | grep -q 'recording is ACTIVE'; then
   _pass makesum-mode-env-not-inherited
@@ -1453,7 +1460,7 @@ fi
 
 # The positive half: recording mode reached the legitimate way MUST announce
 # itself, or the assertion above passes on any tree that simply has no banner.
-_mkbanner=$(cd "$ROOT" && ./mediaforge.sh makesum --build --dry-run --yes 2>&1)
+_mkbanner=$(_mf makesum --build --dry-run --yes 2>&1)
 if printf '%s' "$_mkbanner" | grep -q 'recording is ACTIVE'; then
   _pass makesum-mode-announces-itself
 else
@@ -1647,8 +1654,8 @@ fi
 # both CLI entry points rather than by grepping for the helper's name, so the
 # claim is that both actually validate, not that a function exists.
 if _require_fn validate_pkg_names validate-pkg-names-shared; then
-  _vpn_build=$(cd "$ROOT" && ./mediaforge.sh build --dry-run --yes --disable=doesnotexist 2>&1 || true)
-  _vpn_ms=$(cd "$ROOT" && ./mediaforge.sh makesum doesnotexist 2>&1 || true)
+  _vpn_build=$(_mf build --dry-run --yes --disable=doesnotexist 2>&1 || true)
+  _vpn_ms=$(_mf makesum doesnotexist 2>&1 || true)
   if printf '%s' "$_vpn_build" | grep -qF 'Unknown package: doesnotexist' \
      && printf '%s' "$_vpn_ms" | grep -qF 'Unknown package: doesnotexist'; then
     _pass validate-pkg-names-shared
