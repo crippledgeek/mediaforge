@@ -173,6 +173,32 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 ./mediaforge.sh clean
 ```
 
+## Where the build may be written
+
+mediaforge derives both working directories from the directory you run it in --
+`packages/` for downloads and sources, `workspace/` for what they install into
+-- so the build lands wherever you were standing. A full tree measures about
+**34GB** (25GB of packages, 9.1GB of workspace, measured on a complete
+`--enable-nonfree --enable-static` build), which is more than most `/tmp` mounts
+hold.
+
+That matters because `/tmp` is usually tmpfs, which is RAM. A build that fills a
+disk fails the build; a build that fills a tmpfs exhausts memory, and the OOM
+killer starts choosing processes that have nothing to do with mediaforge. So
+building from a RAM-backed directory is **refused**:
+
+    $ cd /tmp/scratch && mediaforge.sh build
+    [mediaforge] FATAL: /tmp/scratch is on a RAM-backed filesystem. ...
+
+Pass `--allow-tmpfs` if the mount really is large enough; it warns and proceeds.
+On a disk-backed directory with less than 40GB free, mediaforge warns and builds
+anyway -- a smaller selection genuinely fits, so that one is your call.
+
+The filesystem type is read with `df -T`, falling back to `stat -f`. Neither
+exists in that form on macOS, where the type is simply unknown and only the
+free-space warning applies -- macOS keeps `/tmp` on disk, so the RAM case does
+not arise there.
+
 ## Compiler cache
 
 `--ccache` compiles through ccache when it is installed; `--no-ccache` is the

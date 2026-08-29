@@ -108,6 +108,11 @@ sh tests/hash-comment-grammar.sh
 # output, and since #48 every test in this file routes through it, bar the two
 # gates (shellcheck, oracle-baseline) that format their own output.
 sh tests/ccache.sh
+# Pins the refusal to build into RAM (#64). The working directories come from
+# the invocation directory, so a build started under /tmp writes tens of
+# gigabytes into tmpfs; filling that exhausts memory rather than disk, and the
+# OOM killer's SIGKILL cannot be trapped, so the half-written tree stays.
+sh tests/storage-guard.sh
 sh tests/assert-reporter.sh
 # Pins that the suite's verdict is a function of the TREE and not of the
 # developer's build state (#55). Eight files ran mediaforge with the repo as

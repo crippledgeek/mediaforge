@@ -18,6 +18,7 @@ PREFIX="$TOPDIR/workspace"
 . "$SCRIPT_DIR/lib/flags.sh"
 . "$SCRIPT_DIR/lib/registry.sh"
 . "$SCRIPT_DIR/lib/platform.sh"
+. "$SCRIPT_DIR/lib/storage.sh"
 . "$SCRIPT_DIR/lib/ccache.sh"
 . "$SCRIPT_DIR/lib/download.sh"
 . "$SCRIPT_DIR/lib/makesum.sh"
@@ -71,6 +72,7 @@ ENABLE_PKGS=""
 USE_MENU=false
 ENABLE_LTO=false
 MF_CCACHE=false
+MF_ALLOW_TMPFS=false
 # Debug build level: "" (off), symbols, balanced or full. See lib/flags.sh.
 MF_DEBUG_LEVEL=""
 FLITE_AUDIO="none"
@@ -107,6 +109,8 @@ cmd_help() {
   printf '  -m, --enable-small        Minimal build\n'
   printf '      --enable-lto          Enable LTO in recipes that support it (default: off; archives may break on GCC major bumps)\n'
   printf '      --disable-lto         Force LTO off (default)\n'
+  printf '      --allow-tmpfs         Build even when the working directory is on a RAM-backed\n'
+  printf '                            filesystem (refused by default — a full tree is ~34GB)\n'
   printf '      --ccache              Compile through ccache when it is installed (default: off)\n'
   printf '      --no-ccache           Do not use ccache (default)\n'
   printf '      --debug[=LEVEL]       Build with debug info. LEVEL is one of:\n'
@@ -286,6 +290,7 @@ cmd_build() {
         ;;
       --enable-lto)        ENABLE_LTO=true ;;
       --disable-lto)       ENABLE_LTO=false ;;
+      --allow-tmpfs)       MF_ALLOW_TMPFS=true ;;
       --ccache)            MF_CCACHE=true ;;
       --no-ccache)         MF_CCACHE=false ;;
       --flite-audio=*)     FLITE_AUDIO="${1#--flite-audio=}" ;;
@@ -478,6 +483,22 @@ cmd_build() {
   setup_traps
 
   # Pre-flight checks
+  #
+  # Storage first, and before anything is downloaded or written: the working
+  # directories are derived from the invocation directory, so a build started
+  # from /tmp writes tens of gigabytes into RAM. Refusing after the first recipe
+  # has fetched would refuse having already spent the thing being protected.
+  #
+  # A dry run is exempt because it writes nothing -- it prints the plan and
+  # stops. Guarding it would refuse an operation that cannot cause the problem,
+  # and it would refuse it in the ordinary case rather than an exotic one: every
+  # test that exercises the parser runs mediaforge from a mktemp -d scratch
+  # TOPDIR (tests/lib-scratch.sh), and mktemp answers with a directory under
+  # /tmp, which is tmpfs on Linux.
+  if [ "${DRY_RUN:-false}" != true ]; then
+    mf_storage_guard "$TOPDIR" "$MF_ALLOW_TMPFS"
+  fi
+
   command_exists "make" || die "make not installed"
   command_exists "g++"  || die "g++ not installed"
   command_exists "curl" || die "curl not installed"
