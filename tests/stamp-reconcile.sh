@@ -40,7 +40,7 @@ _cleanup_on_signal
 _wired stage-sourced          lib/utils.sh     'lib/stage.sh'
 _wired stamp-records-manifest lib/utils.sh     'mf_stage_pending_extant > '
 _wired staging-wraps-install  lib/framework.sh 'mf_stage_begin'
-_wired preflight-called       mediaforge.sh    'mf_build_preflight_stamps'
+_wired preflight-defined      mediaforge.sh    'mf_build_preflight_stamps() {'
 _wired reconcile-dispatched   mediaforge.sh    'reconcile)      cmd_reconcile'
 _wired reconcile-documented   mediaforge.sh    'reconcile          Check build stamps'
 _wired stage-discarded-on-exit lib/cleanup.sh  'mf_stage_discard'
@@ -229,6 +229,34 @@ if printf '%s' "$_out" | grep -q 'lost stamp.*x264'; then
   _pass artifact-without-stamp-is-reported
 else
   _bad artifact-without-stamp-is-reported "$(printf '%s' "$_out" | _evidence 3 'lost|x264')"
+fi
+
+# --- the preflight, driven through a real build ----------------------------
+#
+# Behavioural, not a grep. A `_wired` needle for mf_build_preflight_stamps is
+# satisfied by the function's own DEFINITION, so deleting the CALL from
+# cmd_build left every other assertion in this file green -- mutation-verified,
+# and the same trap tests/storage-guard.sh records for its own guard. What the
+# preflight claims is that a build DROPS a drifted stamp before it starts, so
+# that is what gets asserted.
+#
+# --dry-run because the claim is about the preflight, which runs before the
+# recipe loop; a dry run reaches it, downloads nothing, and is exempt from the
+# tmpfs guard that would otherwise refuse a build from a /tmp scratch dir.
+_pf="$_tmp/preflight"
+mkdir -p "$_pf/workspace/.stamps" "$_pf/workspace/lib"
+echo lib > "$_pf/workspace/lib/libkept.a"
+printf 'lib/libkept.a\n'  > "$_pf/workspace/.stamps/kept-1.0"
+printf 'lib/libvanished.a\n' > "$_pf/workspace/.stamps/vanished-1.0"
+printf '' > "$_pf/workspace/.stamps/legacy-1.0"
+
+_pf_out=$( cd "$_pf" && "$ROOT/mediaforge.sh" build --dry-run --yes 2>&1 ) || true
+if [ ! -f "$_pf/workspace/.stamps/vanished-1.0" ] \
+   && [ -f "$_pf/workspace/.stamps/kept-1.0" ] \
+   && [ -f "$_pf/workspace/.stamps/legacy-1.0" ]; then
+  _pass build-preflight-drops-drifted-stamps
+else
+  _bad build-preflight-drops-drifted-stamps "vanished=$([ -f "$_pf/workspace/.stamps/vanished-1.0" ] && echo KEPT || echo dropped) kept=$([ -f "$_pf/workspace/.stamps/kept-1.0" ] && echo kept || echo DROPPED) legacy=$([ -f "$_pf/workspace/.stamps/legacy-1.0" ] && echo kept || echo DROPPED) $(printf '%s' "$_pf_out" | _evidence 2 'stamp|drift')"
 fi
 
 printf 'DONE: stamp-reconcile\n'
