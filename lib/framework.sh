@@ -468,9 +468,26 @@ run_recipe() {
   mf_stage_pending_reset
   pkg_prepare
   pkg_configure
-  pkg_build
 
+  # Staging opens before pkg_build, not before pkg_install, because a recipe is
+  # free to install from the build phase and one does: recipes/hwaccel/opencl.sh
+  # runs `cmake --build build --target install` in pkg_build to place the
+  # OpenCL headers, then uses pkg_install for the ICD loader sub-build. With the
+  # window opening later those 18 headers went straight to the live prefix,
+  # unrecorded, and opencl reported unverifiable for a reason that was ours
+  # rather than the recipe's.
+  #
+  # DESTDIR is inert for a build that does not install -- the GNU Coding
+  # Standards scope it to install targets -- so the other 109 recipes see no
+  # change and stage nothing here.
   mf_stage_begin
+  pkg_build
+  # Publish before pkg_install for the same reason the commit before
+  # pkg_post_install exists: opencl's pkg_install configures the ICD loader with
+  # -DCMAKE_PREFIX_PATH="$PREFIX" and needs the headers pkg_build just installed
+  # to be LIVE, not sitting in the stage.
+  mf_stage_claim
+
   pkg_install
   # Merge BEFORE pkg_post_install, which is the load-bearing ordering here.
   # Thirteen recipes' post_install reads back or deletes a file pkg_install put

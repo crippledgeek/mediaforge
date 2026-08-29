@@ -65,6 +65,25 @@ else
   _bad publish-precedes-post-install "expected a claim/publish before pkg_post_install inside run_recipe (claim=${_ci:-none} post_install=${_pi:-none})"
 fi
 
+# The staging window opens before pkg_BUILD, not before pkg_install.
+#
+# recipes/hwaccel/opencl.sh installs the OpenCL headers from pkg_build
+# (`cmake --build build --target install`) and uses pkg_install for the ICD
+# loader sub-build. With the window opening at pkg_install those 18 headers
+# went to the live prefix unrecorded, and opencl reported unverifiable for a
+# reason that was the framework's rather than the recipe's. A claim between the
+# two phases is equally load-bearing: opencl's pkg_install configures the loader
+# with -DCMAKE_PREFIX_PATH="$PREFIX" and needs those headers live.
+_bi=$(printf '%s\n' "$_body" | grep -nE '^[[:space:]]*pkg_build[[:space:]]*$' | head -1 | cut -d: -f1)
+_sb=$(printf '%s\n' "$_body" | grep -nE '^[[:space:]]*mf_stage_begin[[:space:]]*$' | head -1 | cut -d: -f1)
+_ii=$(printf '%s\n' "$_body" | grep -nE '^[[:space:]]*pkg_install[[:space:]]*$' | head -1 | cut -d: -f1)
+if [ -n "$_sb" ] && [ -n "$_bi" ] && [ -n "$_ii" ] && [ -n "$_ci" ] \
+   && [ "$_sb" -lt "$_bi" ] && [ "$_bi" -lt "$_ci" ] && [ "$_ci" -lt "$_ii" ]; then
+  _pass staging-opens-before-build-and-publishes-before-install
+else
+  _bad staging-opens-before-build-and-publishes-before-install "expected begin < pkg_build < claim < pkg_install (begin=${_sb:-none} build=${_bi:-none} claim=${_ci:-none} install=${_ii:-none})"
+fi
+
 # --- the recording half ----------------------------------------------------
 if [ -f "$ROOT/lib/stage.sh" ]; then
   # A fake prefix, sourced with the two globals lib/stage.sh reads. No build is
