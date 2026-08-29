@@ -50,8 +50,10 @@ pkg_prepare() {
 # is not used to keep the symbols -- HAVE_GNU_STRIP=no does that in pkg_build --
 # because it also drops -DNDEBUG, which at `symbols` would turn assertions on at
 # the one level promising no measurable cost.
+_libvpx_debug_active() { [ -n "${MF_DEBUG_LEVEL:-}" ]; }
+
 _libvpx_debug_configure() {
-  [ -n "${MF_DEBUG_LEVEL:-}" ] || return 0
+  _libvpx_debug_active || return 0
   _vpx_opts='--disable-optimizations'
   if [ "$(mf_debug_assertions "$MF_DEBUG_LEVEL")" = on ]; then
     _vpx_opts="$_vpx_opts --enable-debug"
@@ -60,7 +62,7 @@ _libvpx_debug_configure() {
 }
 
 _libvpx_debug_make() {
-  [ -n "${MF_DEBUG_LEVEL:-}" ] || return 0
+  _libvpx_debug_active || return 0
   printf '%s' 'HAVE_GNU_STRIP=no'
 }
 

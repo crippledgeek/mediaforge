@@ -461,22 +461,47 @@ for _r in $(find recipes -name '*.sh' | sort); do
   # and the second requires the composed CFLAGS to feed it rather than a fresh
   # literal like -O2. `make clean` is exempt: it compiles nothing, and librtmp
   # legitimately runs one first. The "." stands in for the dollar, as above.
-  _mf_bare=$(printf '%s\n' "$_mf_body" | grep -E 'run make' |
+  # The EFFECTIVE body: the phase plus the bodies of any same-file helpers it
+  # calls. A recipe may delegate its make to a helper -- librtmp runs the same
+  # six settings from four call sites and now routes them through one -- and a
+  # scan reading only the phase sees a phase with no make in it at all. Both
+  # call shapes count: a $(substitution), which giflib uses to PRINT flags, and
+  # a plain invocation, which librtmp uses to RUN make.
+  #
+  # Only helpers defined in this same recipe are followed: a name resolving to a
+  # framework function is not a place this recipe's flags could be hiding.
+  _mf_eff="$_mf_body"
+  for _mf_h in $(printf '%s\n' "$_mf_body" | grep -oE '(^|[^a-z0-9_])_[a-z0-9_]+' |
+                 sed 's/[^_a-z0-9]//g' | sort -u); do
+    grep -qE "^${_mf_h}\\(\\)" "$_r" || continue
+    _mf_eff="$_mf_eff
+$(_mf_fn_body "$_r" "$_mf_h")"
+  done
+
+  # EVERY compiling invocation, and two claims, because either alone is
+  # satisfiable by a recipe that still builds stripped. The macro spelling is
+  # upstream's to dictate -- CFLAGS (bzip2, giflib), CCFLAGS (gsm), XCFLAGS
+  # (librtmp) -- so the first matches any *FLAGS=, and the second requires the
+  # composed CFLAGS to feed it rather than a fresh literal like -O2.
+  # `make clean` is exempt: it compiles nothing, and librtmp runs one first.
+  # The "." stands in for the dollar, as elsewhere in this file.
+  _mf_bare=$(printf '%s\n' "$_mf_eff" | grep -E 'run make' |
              grep -vE 'run make clean[[:space:]]*$' | grep -vE 'FLAGS=' || true)
-  _mf_composed=$(printf '%s\n' "$_mf_body" | grep -E 'run make' |
+  _mf_composed=$(printf '%s\n' "$_mf_eff" | grep -E 'run make' |
                  grep -E 'FLAGS=[^;]*.CFLAGS' || true)
-  # A recipe may route the value through a helper rather than repeating it at
-  # both of its make runs -- giflib does. Follow the helper into its own body
-  # instead of demanding the literal on the make line, which would push the
-  # recipe to duplicate the string just to satisfy this file.
+  # giflib's helper PRINTS the flags rather than running make, so the composed
+  # CFLAGS sits in the helper body while the FLAGS= macro is on the make line.
+  #
+  # [$]CFLAGS, not .CFLAGS: the dot form -- used elsewhere in this file where a
+  # dollar cannot be written -- also matches the macro NAMES, since XCFLAGS and
+  # CCFLAGS both end in CFLAGS. Measured: rewriting librtmp's helper to
+  # XCFLAGS="-O2 -I..." left this file green, because the word XCFLAGS satisfied
+  # its own check. A bracket expression pins the dollar without tripping the
+  # linter's "expressions do not expand in single quotes".
   if [ -z "$_mf_composed" ]; then
-    for _mf_h in $(printf '%s\n' "$_mf_body" | grep -oE '.\(_[a-z0-9_]+\)' | sed 's/[^_a-z0-9]//g'); do
-      if _mf_fn_body "$_r" "$_mf_h" | grep -qE '.CFLAGS'; then
-        _mf_composed="via $_mf_h"
-        break
-      fi
-    done
+    printf '%s\n' "$_mf_eff" | grep -qE '[$]CFLAGS' && _mf_composed="via a helper"
   fi
+
   if [ -n "$_mf_bare" ]; then
     _bad "$_mf_name" "compiles with a make that passes no flags macro: $_mf_bare"
   elif [ -z "$_mf_composed" ]; then
