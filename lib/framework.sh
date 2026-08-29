@@ -110,7 +110,24 @@ default_build() {
 }
 
 default_install() {
-  run make install
+  # DESTDIR on the COMMAND LINE, not merely in the environment.
+  #
+  # An assignment inside a makefile beats an environment variable of the same
+  # name; only a command-line assignment beats the makefile. xvidcore ships a
+  # bare `DESTDIR=` in build/generic/platform.inc, so it ignored the exported
+  # one entirely: measured 0 files staged through the environment against 3
+  # through the command line, on the same tree. Nothing failed and nothing
+  # warned -- the recipe installed straight to the live prefix exactly as it did
+  # before staging existed, and only its manifest came out empty, which reads
+  # identically to a recipe that installs with a shell cp.
+  #
+  # `make install DESTDIR=...` is the form the GNU Coding Standards document,
+  # so this is the canonical spelling rather than a workaround for one recipe.
+  if [ -n "${DESTDIR:-}" ]; then
+    run make install DESTDIR="$DESTDIR"
+  else
+    run make install
+  fi
   # Publish immediately, so a recipe can manipulate what it just installed
   # (GH-59). Under staging `make install` writes to $DESTDIR, and a recipe that
   # goes on to touch "$PREFIX/..." in the SAME phase would otherwise act on a

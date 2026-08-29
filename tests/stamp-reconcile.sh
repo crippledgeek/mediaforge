@@ -188,6 +188,60 @@ if [ -f "$ROOT/lib/stage.sh" ]; then
   fi
   mf_stage_pending_reset
 
+  # A makefile that ASSIGNS DESTDIR must still be staged.
+  #
+  # A variable assigned inside a makefile beats the environment; only a
+  # command-line assignment beats the makefile. xvidcore ships a bare
+  # `DESTDIR=` in build/generic/platform.inc and so ignored the exported one
+  # entirely -- 0 files staged against 3 via the command line, measured on the
+  # real tree. Nothing failed and nothing warned: the recipe installed straight
+  # to the live prefix as it always had, and only its manifest came out empty,
+  # which reads exactly like a recipe that installs with a shell cp.
+  #
+  # The fixture reproduces the clobber rather than naming xvidcore, so the
+  # assertion is about the mechanism and survives that recipe changing.
+  # default_install lives in lib/framework.sh, which this file does not
+  # otherwise need -- sourcing it defines functions only.
+  # shellcheck source=lib/framework.sh
+  . "$ROOT/lib/framework.sh"
+  if command -v make >/dev/null 2>&1; then
+    _mk="$_tmp/clobber"
+    mkdir -p "$_mk"
+    # Unquoted heredoc: $PREFIX expands, while \$(DESTDIR)/\$(prefix) stay
+    # literal for make to expand. The bare `DESTDIR=` on the first line is the
+    # clobber being reproduced -- it is what makes the exported value lose.
+    # The recipe lines need real tabs, which is why they are written with
+    # printf rather than continued in the heredoc.
+    cat > "$_mk/Makefile" <<EOF
+DESTDIR=
+prefix=$PREFIX
+install:
+	@mkdir -p \$(DESTDIR)\$(prefix)/lib
+	@echo lib > \$(DESTDIR)\$(prefix)/lib/libclobber.a
+EOF
+    mf_stage_pending_reset
+    mf_stage_begin
+    # NOT a subshell, and the accumulator is the oracle. default_install commits
+    # before returning, so the staged file is merged out of the stage by the
+    # time we could look there -- and the file lands in $PREFIX either way,
+    # whether it went through the stage or straight past it. What separates the
+    # two is whether the MANIFEST records it: only a staged install is recorded.
+    _mk_back=$(pwd)
+    cd "$_mk" || exit 1
+    default_install >/dev/null 2>&1
+    cd "$_mk_back" || exit 1
+    if printf '%s' "$MF_STAGE_PENDING" | grep -q '^lib/libclobber\.a$'; then
+      _pass makefile-assigned-destdir-is-overridden
+    else
+      _bad makefile-assigned-destdir-is-overridden "installed=$([ -f "$PREFIX/lib/libclobber.a" ] && echo yes || echo no) but unrecorded, so the makefile's own DESTDIR= beat the environment"
+    fi
+    mf_stage_end
+    mf_stage_pending_reset
+    rm -f "$PREFIX/lib/libclobber.a"
+  else
+    _bad makefile-assigned-destdir-is-overridden "make is not installed"
+  fi
+
   # default_install must be the thing that guarantees it, not the caller. A
   # recipe author writing `default_install; rm "$PREFIX/x"` has no reason to
   # suspect staging exists.

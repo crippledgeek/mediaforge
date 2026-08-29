@@ -19,12 +19,23 @@
 # single recipe. All three were probed rather than assumed:
 #
 #   1. DESTDIR is honoured from the ENVIRONMENT by GNU make, `cmake --install`
-#      and `ninja install` alike, so one `export` redirects every build-system
-#      install in the tree. (CMake documents DESTDIR as an environment variable
-#      whose "initial value is taken from the calling process environment";
-#      Meson documents `DESTDIR=/path meson install`; the GNU Coding Standards
-#      tell Makefile authors never to set it themselves, i.e. it comes from
-#      outside.)
+#      and `ninja install` alike, so one `export` redirects most of the tree's
+#      installs. (CMake documents DESTDIR as an environment variable whose
+#      "initial value is taken from the calling process environment"; Meson
+#      documents `DESTDIR=/path meson install`; the GNU Coding Standards tell
+#      Makefile authors never to set it themselves, i.e. it comes from outside.)
+#
+#      WITH ONE EXCEPTION, and it is the reason default_install passes DESTDIR
+#      on the command line rather than relying on the export: a variable
+#      ASSIGNED INSIDE A MAKEFILE beats the environment, and only a
+#      command-line assignment beats the makefile. The GNU standards tell
+#      authors not to assign it, and xvidcore does anyway -- a bare `DESTDIR=`
+#      in build/generic/platform.inc. Measured on the same tree: 0 files staged
+#      through the environment, 3 through the command line. The failure is
+#      silent, because the recipe still installs correctly (straight to the live
+#      prefix, as before staging existed) and only its manifest comes out empty,
+#      which is indistinguishable from a recipe that genuinely installs with a
+#      shell cp.
 #   2. DESTDIR does NOT reach installed file CONTENTS. GNU: "Specifying DESTDIR
 #      should not change the operation of the software in any way, so its value
 #      should not be included in any file contents." That is what keeps a staged
