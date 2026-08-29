@@ -791,6 +791,36 @@ for _mf_fx_patch in removed-dashes format-patch-trailer genuinely-malformed; do
 done
 rm -rf "$_mf_pp"
 
+# --- every flag the parser accepts is documented somewhere --------------------
+# --debug shipped documented; --ccache did not, and neither did --spirv before
+# it. Both were in `mediaforge.sh help` and in no document, which is the shape
+# that hides: the help text is generated from the same file as the parser, so
+# reading it back proves nothing about whether a user could have found the flag.
+#
+# The DEPRECATED aliases are excluded by how they behave rather than by a list:
+# each one dies with "Syntax changed", and documenting them would advertise
+# syntax that no longer works. Anything else the parser accepts must appear in
+# Documentation/usage.md or in the README.
+# Read line by line rather than word-splitting the grep, and capture the
+# subshell's OUTPUT: a `while read` in a pipeline cannot export a variable back
+# to this shell in POSIX sh, which is the trap that makes the loop look like it
+# found nothing.
+_mf_undoc=$(grep -oE '^[[:space:]]+--[a-z0-9-]+[)=*]' mediaforge.sh |
+            grep -oE -- '--[a-z0-9-]+' | sort -u |
+            while IFS= read -r _mf_flag; do
+              grep -qE -- "$_mf_flag\)[[:space:]]+die \"Syntax changed" mediaforge.sh && continue
+              # Whole token, not substring: a plain grep for --spirv is
+              # satisfied by --spirvX, so renaming a documented flag would
+              # leave this green. Measured -- that mutation did not bite.
+              grep -qE -- "$_mf_flag([^a-z0-9-]|\$)" Documentation/usage.md README.md 2>/dev/null ||
+                printf ' %s' "$_mf_flag"
+            done)
+if [ -z "$_mf_undoc" ]; then
+  _pass every-flag-is-documented
+else
+  _bad every-flag-is-documented "accepted by the parser, documented nowhere:$_mf_undoc"
+fi
+
 # --- the gate that runs the gates ----------------------------------------
 # tests/run.sh names its ~30 test files by hand, so adding a test means
 # remembering to wire it -- and forgetting is SILENT: the file passes when run
