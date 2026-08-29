@@ -175,19 +175,23 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 
 ## Compiler cache
 
-`--ccache` compiles through ccache when it is installed; `--no-ccache` is the
-default and the explicit spelling of it. Asking for a cache that is not
-installed is an error, not a silent no-op:
+**The default is to use ccache when it is installed**, and to build without one
+when it is not. `--ccache` demands it: asking for a cache that is not installed
+is an error, not a silent no-op. `--no-ccache` turns it off everywhere:
 
-    ./mediaforge.sh build --debug=full --ccache
+    ./mediaforge.sh build --debug=full           # cached, if ccache is installed
+    ./mediaforge.sh build --ccache               # cached, or refuse to build
+    ./mediaforge.sh build --no-ccache            # never cached
 
 It works by putting a directory of compiler-named symlinks ahead of PATH, so a
 recipe that sets its own CC still gets the cache. Two things are worth knowing
 before relying on it:
 
-  * meson recipes find ccache by themselves whether or not this flag is
-    passed. The flag makes the rest of the tree consistent with them rather
-    than introducing the cache.
+  * meson recipes find ccache by themselves, whichever way the flag is set.
+    That is why the default is on: it was never "no cache" -- it was ccache for
+    the meson recipes and not for the other four build systems. `--no-ccache`
+    therefore exports CCACHE_DISABLE, which is what reaches a ccache mediaforge
+    did not put there.
   * ccache hashes the compiler flags, so a debug build shares nothing with a
     non-debug one. The first build at a given level populates the cache and
     the second is fast. A full -O0 -g3 tree is large; raise the cache ceiling

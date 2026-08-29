@@ -70,7 +70,7 @@ DISABLE_PKGS=""
 ENABLE_PKGS=""
 USE_MENU=false
 ENABLE_LTO=false
-MF_CCACHE=false
+MF_CCACHE=auto
 # Debug build level: "" (off), symbols, balanced or full. See lib/flags.sh.
 MF_DEBUG_LEVEL=""
 FLITE_AUDIO="none"
@@ -107,8 +107,9 @@ cmd_help() {
   printf '  -m, --enable-small        Minimal build\n'
   printf '      --enable-lto          Enable LTO in recipes that support it (default: off; archives may break on GCC major bumps)\n'
   printf '      --disable-lto         Force LTO off (default)\n'
-  printf '      --ccache              Compile through ccache when it is installed (default: off)\n'
-  printf '      --no-ccache           Do not use ccache (default)\n'
+  printf '      --ccache              Compile through ccache; fail if it is not installed\n'
+  printf '      --no-ccache           Do not use ccache, meson recipes included\n'
+  printf '                            (default: use ccache when it is installed)\n'
   printf '      --debug[=LEVEL]       Build with debug info. LEVEL is one of:\n'
   printf '                              symbols   -O2 -g3, assertions off, no measurable slowdown\n'
   printf '                              balanced  -Og -g3, assertions on, ~2x slower\n'
@@ -482,12 +483,11 @@ cmd_build() {
   command_exists "g++"  || die "g++ not installed"
   command_exists "curl" || die "curl not installed"
 
-  # After the compiler pre-flight above: mf_ccache_setup links the names that
-  # resolve, so a tree with no compiler should fail on the missing compiler
-  # rather than on the empty masquerade directory.
-  if [ "$MF_CCACHE" = true ]; then
-    mf_ccache_setup
-  fi
+  # After the compiler pre-flight above: the masquerade directory links the names
+  # that resolve, so a tree with no compiler should fail on the missing compiler
+  # rather than on an empty directory. The state-to-behaviour table lives in
+  # lib/ccache.sh, beside the mechanism it selects.
+  mf_ccache_apply "$MF_CCACHE"
 
   command_exists "cargo"   || warn "cargo not installed — rav1e will be skipped"
   command_exists "python3" || warn "python3 not installed — dav1d and lv2 will be skipped"
