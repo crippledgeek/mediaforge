@@ -15,6 +15,7 @@ Commands:
   check-updates      Check for newer dependency versions
   makesum            Fetch recipe sources and record their sha256/size sidecars
   check-shadowers    Audit workspace .pc files for system-version shadowing
+  reconcile          Check build stamps against the artifacts they vouch for
   list-profiles      List available version profiles
   help               Show help
   version            Show version
@@ -167,6 +168,11 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 ./mediaforge.sh check-shadowers              # warn-only, exit 0
 ./mediaforge.sh check-shadowers --strict     # exit 1 on new shadowers (CI)
 
+# Check the build stamps against the workspace they vouch for
+./mediaforge.sh reconcile                    # exit 1 if any stamp has lost its artifact
+./mediaforge.sh reconcile --quiet            # report only problems
+./mediaforge.sh reconcile --prune            # drop the drifted stamps and exit 0
+
 # Record/update checksum sidecars
 ./mediaforge.sh makesum                      # every recipe, plus the FFmpeg tarball
 ./mediaforge.sh makesum zlib openssl         # just these recipes
@@ -176,6 +182,39 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 # Clean
 ./mediaforge.sh clean
 ```
+
+## Build stamps and reconcile
+
+A build stamp in `workspace/.stamps/` records that a recipe was built. Since GH-59
+it also records **what** it built: one `workspace`-relative path per line, naming
+the files that recipe's install produced. That is the same idea as FreeBSD's
+`pkg-plist`, pkgsrc's `PLIST` or Portage's `CONTENTS`, and it exists so a stamp is
+evidence rather than a claim.
+
+`reconcile` compares the two and reports each stamp as:
+
+| state | meaning |
+|---|---|
+| `verified` | every path the stamp names is present |
+| `DRIFTED` | the stamp names a path that is gone |
+| `unverifiable` | the stamp carries no manifest |
+
+**`DRIFTED` is the one that matters.** A stamp that outlives its artifact makes the
+next build *skip* a recipe it never actually built, and the failure then surfaces at
+FFmpeg's configure or link step, nowhere near the recipe that caused it. `build`
+therefore drops drifted stamps automatically before it starts, so those recipes are
+rebuilt rather than skipped; `reconcile` is the read-only view of the same check,
+and `--prune` performs the drop on its own.
+
+`unverifiable` is not a problem. It means the stamp has no manifest to check —
+either it was written before GH-59, or it belongs to one of the recipes that
+installs with a plain `cp` (`gsm`, `ladspa`, `amf`, ...), which stages nothing
+because `DESTDIR` only redirects installs performed by make, ninja and cmake. Those
+recipes behave exactly as they always have; they simply cannot be verified this way.
+
+The reverse direction — a `.pc` sitting in the workspace with no stamp — is reported
+as `lost stamp` and does not affect the exit status. It costs a needless rebuild,
+which is wasteful rather than incorrect.
 
 ## Where the build may be written
 

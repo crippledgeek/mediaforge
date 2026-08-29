@@ -331,6 +331,9 @@ rm -rf "$_leaf_stage" "$_leaf_dest" "$_leaf_sentinel"
 # list, fall back, and warn on a miss. libtls derives <openssldir>/cert.pem, so
 # the candidates are DIRECTORIES whose child is literally cert.pem — a narrower
 # list than curl's bundle-file list.
+# SCRIPT_DIR is how lib/utils.sh locates lib/stage.sh (GH-59). mediaforge.sh
+# sets it from $0; a test sourcing the library directly supplies it itself.
+SCRIPT_DIR="$_root"
 # shellcheck source=lib/utils.sh
 . "$_root/lib/utils.sh"
 # shellcheck source=lib/resolve.sh

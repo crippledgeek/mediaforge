@@ -4,6 +4,10 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT"
 PREFIX="$ROOT/workspace"
 AUTOINSTALL=yes   # is_interactive() -> false, so resolve_choices skips prompts
 DRY_RUN=false
+# SCRIPT_DIR is how lib/utils.sh locates its own dependency (lib/stage.sh, GH-59).
+# mediaforge.sh sets it from $0; a test that sources the library directly has to
+# supply it, and $ROOT is the same directory by construction.
+SCRIPT_DIR="$ROOT"
 # shellcheck source=lib/utils.sh
 . lib/utils.sh
 # shellcheck source=lib/menu.sh

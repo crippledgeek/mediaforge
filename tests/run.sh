@@ -113,6 +113,12 @@ sh tests/ccache.sh
 # gigabytes into tmpfs; filling that exhausts memory rather than disk, and the
 # OOM killer's SIGKILL cannot be trapped, so the half-written tree stays.
 sh tests/storage-guard.sh
+# Pins that a build stamp is EVIDENCE and not a claim (#59). A stamp used to be
+# an empty file, so nothing noticed when one outlived the artifact it vouched
+# for -- and the next build then skips a recipe it never built, failing at
+# FFmpeg's link step instead. Covers both the recording half (staged installs,
+# lib/stage.sh) and the reporting half (the reconcile subcommand).
+sh tests/stamp-reconcile.sh
 sh tests/assert-reporter.sh
 # Pins that the suite's verdict is a function of the TREE and not of the
 # developer's build state (#55). Eight files ran mediaforge with the repo as

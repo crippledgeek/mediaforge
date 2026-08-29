@@ -169,6 +169,9 @@ _guard() { # tag  allow_ram(true|false)
   (
     PATH="$_tmp/bin:$_path0"; export PATH
     # shellcheck source=lib/utils.sh
+    # SCRIPT_DIR is how lib/utils.sh locates lib/stage.sh (GH-59). mediaforge.sh
+    # sets it from $0; a test sourcing the library directly supplies it itself.
+    SCRIPT_DIR="$ROOT"
     . "$ROOT/lib/utils.sh"
     # shellcheck source=lib/storage.sh
     . "$ROOT/lib/storage.sh"

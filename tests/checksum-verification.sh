@@ -33,6 +33,9 @@ _require_fn() {
   return 1
 }
 
+# SCRIPT_DIR is how lib/utils.sh locates lib/stage.sh (GH-59). mediaforge.sh
+# sets it from $0; a test sourcing the library directly supplies it itself.
+SCRIPT_DIR="$ROOT"
 . "$ROOT/lib/utils.sh"
 . "$ROOT/lib/download.sh"
 . "$ROOT/lib/resolve.sh"

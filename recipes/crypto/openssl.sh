@@ -40,12 +40,19 @@ pkg_configure() {
 }
 
 pkg_install() {
-  # install_sw, NOT install, and that is now load-bearing rather than merely
-  # lean. Plain `make install` also runs install_ssldirs, which writes certs/,
-  # private/ and openssl.cnf.dist into $(DESTDIR)$(OPENSSLDIR) — and mediaforge
-  # sets no DESTDIR. Now that OPENSSLDIR can resolve to a HOST directory, that
-  # would write into the host's /etc/ssl: exactly the hazard
+  # install_sw, NOT install, and that is still load-bearing. Plain `make install`
+  # also runs install_ssldirs, which writes certs/, private/ and
+  # openssl.cnf.dist into $(DESTDIR)$(OPENSSLDIR) — and OPENSSLDIR can resolve to
+  # a HOST directory, the same hazard
   # patches/libressl-no-openssldir-install.patch removes on the libressl arm.
   # install_sw installs only the software, never the ssl dirs.
+  #
+  # Since GH-59 the install phases DO run under a DESTDIR (lib/stage.sh), which
+  # would now redirect install_ssldirs into the stage rather than onto the host —
+  # so DESTDIR is no longer the reason to avoid it. install_sw stays anyway: the
+  # staged ssl dirs would land outside $PREFIX, be reported by
+  # mf_stage_warn_stray and then discarded, which is a confusing way to achieve
+  # what not installing them achieves directly. Relying on the stage would also
+  # put the host's trust store one unset variable away from being written.
   run make install_sw
 }

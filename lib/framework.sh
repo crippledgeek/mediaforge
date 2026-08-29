@@ -423,14 +423,40 @@ run_recipe() {
     export CFLAGS
   fi
 
-  # Run phases
+  # Run phases.
+  #
+  # Staging (GH-59) wraps the two INSTALL phases only. DESTDIR is meaningful
+  # nowhere else -- the GNU Coding Standards scope it to install targets -- and
+  # narrowing the window keeps configure and build seeing exactly the
+  # environment they saw before.
+  #
+  # mf_stage_pending_reset before rather than after: a recipe that dies mid-build
+  # leaves its accumulator behind, and the next recipe must not inherit it and
+  # write another package's files into its own stamp.
+  mf_stage_pending_reset
   pkg_prepare
   pkg_configure
   pkg_build
-  pkg_install
-  pkg_post_install
 
-  # Mark as done
+  mf_stage_begin
+  pkg_install
+  # Merge BEFORE pkg_post_install, which is the load-bearing ordering here.
+  # Thirteen recipes' post_install reads back or deletes a file pkg_install put
+  # in the live prefix -- eight rewrite an installed .pc (chromaprint, srt,
+  # vmaf, openh264, vvenc, x265, xevd, xeve), shaderc renames one, four delete
+  # shared libraries make install produced (brotli, xvidcore, xevd, xeve), and
+  # libressl asserts libtls.pc exists. Every one of them would read a path still
+  # sitting in the stage if this merge waited for the stamp.
+  mf_stage_commit
+  pkg_post_install
+  # Catches the two recipes that INSTALL from post_install: x264's
+  # `make install-lib-static` and libcdio's second `make install`. Both honour
+  # DESTDIR, so both stage; without this commit their files would reach the
+  # prefix but never the manifest.
+  mf_stage_commit
+  mf_stage_end
+
+  # Mark as done, draining the accumulator into the stamp.
   stamp_write "$PKG_NAME" "$PKG_VERSION"
 
   accumulate_ffmpeg_opt

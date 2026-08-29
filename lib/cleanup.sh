@@ -19,6 +19,13 @@ on_exit() {
     warn "Fix the issue and re-run to resume from the failed package."
   fi
 
+  # Drop any staged install that never got merged (GH-59). A build that dies
+  # inside pkg_install leaves one behind, and nothing else removes it. The
+  # stamps are deliberately preserved above; the stage deliberately is not —
+  # it is the work of the recipe that just FAILED, so keeping it would leave a
+  # half-installed tree waiting to be merged by the next run.
+  mf_stage_discard
+
   # Restore working directory
   cd "$TOPDIR" 2>/dev/null || true
 

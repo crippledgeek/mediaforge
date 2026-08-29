@@ -17,11 +17,16 @@ PKG_MUTEX_GROUP="tls"
 
 pkg_prepare() {
   # LibreSSL's install-exec-hook writes cert.pem/openssl.cnf/x509v3.cnf into
-  # @OPENSSLDIR@, ignoring --prefix, and default_install runs a bare
-  # `make install` with no DESTDIR to redirect it. With a host openssldir that
-  # fails outright as a user and overwrites the host trust store as root — the
-  # upstream no-overwrite guard is defeated by a `$i`/`$$i` typo. Removing the
-  # hook is what makes --openssldir safe to point anywhere.
+  # @OPENSSLDIR@, ignoring --prefix. With a host openssldir that fails outright
+  # as a user and overwrites the host trust store as root — the upstream
+  # no-overwrite guard is defeated by a `$i`/`$$i` typo. Removing the hook is
+  # what makes --openssldir safe to point anywhere.
+  #
+  # Since GH-59 default_install runs under a DESTDIR (lib/stage.sh), which would
+  # catch the hook's writes in the stage instead of on the host. The patch stays
+  # regardless: it removes the hazard at its source rather than depending on an
+  # environment variable being set correctly at the moment it fires, and a
+  # trust-store overwrite is not a failure mode to leave one variable away.
   # --fuzz=0 so a future tarball that drifts fails loudly instead of mis-applying.
   if ! patch -p1 -f --fuzz=0 < "$SCRIPT_DIR/patches/libressl-no-openssldir-install.patch"; then
     patch -p1 -R --fuzz=0 --dry-run < "$SCRIPT_DIR/patches/libressl-no-openssldir-install.patch" >/dev/null 2>&1 \
