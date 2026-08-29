@@ -66,6 +66,8 @@ Recipe overrides:
   --clean-choices           Delete the stored choice matrix and exit
 
 Makesum options (used by the makesum subcommand):
+  --allow-tmpfs             Fetch even when the working directory is on a
+                            RAM-backed filesystem (refused by default)
   --profile=X.Y             Record digests against a specific version profile
   --update                  Overwrite an existing digest that no longer matches
   --build                   Run a real build with recording enabled, to reach
