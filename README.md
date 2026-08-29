@@ -27,6 +27,37 @@ trailing auto-install, which always uses the menu.
 The build needs a POSIX shell, make, g++ (clang++ on macOS) and curl. Optional
 tools enable individual recipes rather than gating the build.
 
+Commands
+--------
+
+* build            compile FFmpeg and the libraries it links against
+* install          copy a finished build to a prefix, recording a manifest
+* uninstall        delete what that manifest lists
+* clean            remove the build tree and the downloaded sources
+* check-updates    compare pinned versions against upstream releases
+* makesum          record or refresh the .hash sidecar for a recipe
+* check-shadowers  report .pc files that would shadow the system's
+* list-profiles    list the version profiles in profiles/
+* help             print every option
+
+Debug builds
+------------
+
+--debug compiles the whole tree with symbols, including the ~110 dependencies.
+Three levels, cheapest first:
+
+    ./mediaforge.sh build --debug=symbols    # -O2 -g3, no measurable slowdown
+    ./mediaforge.sh build --debug=balanced   # -Og -g3, assertions on, 2x slower
+    ./mediaforge.sh build --debug            # -O0 -g3, assertions on, 4x slower
+
+Bare --debug means full. Every level turns LTO off, because LTO discards the
+per-function debug info the level exists to produce.
+
+A workspace records the level it was built at and refuses to mix. Build stamps
+key on name and version alone, so a second build at a different level would skip
+every recipe it had already built and link a debug FFmpeg against optimized,
+stripped archives. Run clean, or delete workspace/.stamps, to change level.
+
 Documentation
 -------------
 
