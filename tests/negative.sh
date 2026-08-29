@@ -84,6 +84,7 @@ _xavs2_stampfile="$_stampdir/xavs2-$_xv"
 # because they sequence the assertions rather than clean up after them: each one
 # must not see the stamp the previous one planted.
 trap '_scratch_cleanup' EXIT
+_cleanup_on_signal
 : > "$_stampfile"
 _out=$(_mf build --tls=openssl --dry-run --yes 2>&1) || true
 rm -f "$_stampfile"

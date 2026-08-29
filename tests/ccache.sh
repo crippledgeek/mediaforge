@@ -105,7 +105,8 @@ _link_tools() { # dir  tool...
 }
 
 _tmp=$(mktemp -d) || { printf 'FAIL [tmpdir]\n' >&2; exit 1; }
-trap 'rm -rf "$_tmp"' EXIT INT TERM
+trap 'rm -rf "$_tmp"' EXIT
+_cleanup_on_signal
 
 # A SANDBOX PATH holding exactly one compiler name (cc), a stub ccache, and the
 # three tools the function shells out to. Restricting PATH is what makes the

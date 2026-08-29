@@ -369,7 +369,17 @@ _mf_headers_only=' nv-codec.sh '
 # extraction (`${VAR}` at end of line, a brace group) are ones no recipe happens
 # to contain today, which is exactly why the bug survived review of the recipes.
 _mf_fx=$(mktemp) || { printf 'FAIL [reader-fixture]\n' >&2; exit 1; }
-trap 'rm -f "$_mf_fx"' EXIT INT TERM
+# Both fixtures in ONE handler, because POSIX trap has no append form and the
+# patch-scan registration further down USED TO REPLACE this one. That leaked
+# nothing -- $_mf_fx is removed explicitly a few lines below, well before the
+# second trap existed, and a run dying in between was still covered by this one
+# (measured on the merge base: a completed run leaves TMPDIR empty). What it
+# left was a dead handler and an ordering dependency: whoever deletes that
+# explicit rm, or moves either fixture, silently loses the guarantee. One
+# handler removes the dependency rather than the leak. $_mf_pp does not exist
+# yet, and rm tolerates the ${x:+} guard expanding to nothing.
+trap 'rm -f "$_mf_fx"; rm -rf ${_mf_pp:+"$_mf_pp"}' EXIT
+_cleanup_on_signal
 cat > "$_mf_fx" <<'FIXTURE'
 pkg_build() {
   run make CFLAGS="$CFLAGS" libfoo.a
@@ -773,7 +783,6 @@ done
 #   - git format-patch ends with the signature delimiter "-- " and a version.
 # All three were reported malformed by the first version of the rule.
 _mf_pp=$(mktemp -d) || { printf 'FAIL [patch-scan-fixture]\n' >&2; exit 1; }
-trap 'rm -rf "$_mf_pp"' EXIT INT TERM
 printf '%s\n' '--- a/x.sql' '+++ b/x.sql' '@@ -1,3 +1,2 @@' ' keep' '--- a comment' ' tail' > "$_mf_pp/removed-dashes.patch"
 printf '%s\n' '--- a/z.c' '+++ b/z.c' '@@ -1,3 +1,3 @@' ' a' '-b' '+c' ' d' '-- ' '2.43.0' > "$_mf_pp/format-patch-trailer.patch"
 printf '%s\n' '--- a/w.c' '+++ b/w.c' '@@ -1,2 +1,2 @@' ' a' '-b' '+c' ' d' > "$_mf_pp/genuinely-malformed.patch"

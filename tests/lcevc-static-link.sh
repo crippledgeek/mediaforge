@@ -48,7 +48,8 @@ _fail=0
 _probe="$_here/lcevc-link/link_probe.cpp"
 _cxx=${CXX:-c++}
 _out=$(mktemp -d)
-trap 'rm -rf "$_out"' EXIT INT TERM
+trap 'rm -rf "$_out"' EXIT
+_cleanup_on_signal
 
 echo "PREFIX:      $PREFIX"
 echo "modules:     $PC_MODULES"

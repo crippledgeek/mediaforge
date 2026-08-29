@@ -17,6 +17,7 @@ _BIN=$(mktemp -d)
 # where it declines to register its own. Registered after _scratch_init so it
 # cannot run before the function it calls is defined.
 trap 'rm -rf "$_BIN"; _scratch_cleanup' EXIT
+_cleanup_on_signal
 printf '#!/bin/sh\nexit 127\n' >"$_BIN/whiptail"
 chmod +x "$_BIN/whiptail"
 PATH="$_BIN:$PATH"

@@ -44,7 +44,8 @@ _fail=0
 # takes a fresh subdirectory of it, so a `exit 1` on a later mktemp cannot strand
 # the dirs the earlier cases made.
 _tmp=$(mktemp -d) || exit 1
-trap 'rm -rf "$_tmp"' EXIT INT TERM
+trap 'rm -rf "$_tmp"' EXIT
+_cleanup_on_signal
 
 # $1 names a case; sets _s (staging prefix), _d (install prefix) and _out_dir as
 # siblings, so a manifest entry of "../<name>" reaches a known path outside the

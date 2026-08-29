@@ -283,7 +283,8 @@ if [ "$_claims_seen" -ge "$_MIN_UPSTREAM_CLAIMS" ] || [ "$_sig_seen" -ge "$_MIN_
   _fx=$(mktemp -d) || { _bad fixture-scratch-dir "mktemp failed"; _fx=''; }
 fi
 if [ -n "$_fx" ]; then
-  trap 'rm -rf "$_fx"' EXIT INT TERM
+  trap 'rm -rf "$_fx"' EXIT
+  _cleanup_on_signal
 
   # Sentinel digests. The VALUE is irrelevant but the LENGTH is not:
   # hash_file_validate enforces 64/128 hex characters per keyword, so a short
