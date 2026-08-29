@@ -30,6 +30,7 @@ _scratch_init "$_root"
 # The non-Linux path below exits early, so the cleanup is a trap rather than a
 # call at the tail.
 trap '_scratch_cleanup' EXIT
+_cleanup_on_signal
 
 # Extract the accumulated FFmpeg configure-opts line from a dry-run.
 _configure_line() {

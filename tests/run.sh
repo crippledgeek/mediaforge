@@ -117,6 +117,12 @@ sh tests/assert-reporter.sh
 # workspace, which is the only way to observe the coupling from inside the
 # suite -- every one of them passes on a clean machine either way.
 sh tests/workspace-independence.sh
+# Pins that an INTERRUPTED run leaves nothing behind (#64). Eight files cleaned
+# up on EXIT alone, which under dash -- where /bin/sh is dash, not here -- means
+# not at all when the run is signalled; what survives is a temporary tree in
+# TMPDIR, and TMPDIR is tmpfs on many hosts, so the leak is RAM. Runs after
+# workspace-independence because it SIGNALS that file as its subject.
+sh tests/signal-cleanup.sh
 # Runs the unmerged test files against the merge base and fails if any assertion
 # passes there. Catches the oracle that drifted into matching an error message,
 # and the fixture whose path collided with the value it was distinguishing —

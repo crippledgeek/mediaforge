@@ -12,6 +12,7 @@ _fail=0
 . "$ROOT/tests/lib-scratch.sh"
 _scratch_init "$ROOT"
 trap '_scratch_cleanup' EXIT
+_cleanup_on_signal
 
 # _run <assertion-name> <expected-text> <command...> asserts the dry-run says
 # it; _run_no asserts it does not. Both append --dry-run --yes themselves.

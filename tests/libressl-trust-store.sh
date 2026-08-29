@@ -32,6 +32,7 @@ _fail=0
 . "$_root/tests/lib-scratch.sh"
 _scratch_init "$_root"
 trap '_scratch_cleanup' EXIT
+_cleanup_on_signal
 
 # ─── #18: the compiled-in trust store ───────────────────────────────────────
 # libtls bakes TLS_DEFAULT_CA_FILE at compile time (tls/Makefile.am:53-55) and
