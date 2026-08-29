@@ -47,9 +47,15 @@ pkg_install() {
   # zix
   if stamp_check "zix" "0.8.0"; then
     fetch "https://gitlab.com/drobilla/zix/-/archive/v0.8.0/zix-v0.8.0.tar.gz" "zix-v0.8.0.tar.gz"
+    # No `meson configure` step: -Dprefix and -Dlibdir are what mf_meson already
+    # passes at setup, and -Dc_args REPLACES the value meson took from CFLAGS at
+    # setup rather than adding to it (measured: c_args went from
+    # [-fPIC, -I..., -fno-omit-frame-pointer] to [-march=native] alone). So the
+    # line dropped mediaforge's composed flags from this one sub-build, and the
+    # -march=native it added is a host-CPU-specific instruction set baked into a
+    # shipped artifact -- the only such flag anywhere in the tree.
     mf_meson build
     cd build || die "Failed to cd to zix build"
-    run meson configure -Dc_args="-march=native" -Dprefix="$PREFIX" -Dlibdir="$PREFIX/lib"
     run meson compile
     run meson install
     stamp_write "zix" "0.8.0"

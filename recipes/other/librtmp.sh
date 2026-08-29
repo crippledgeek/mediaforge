@@ -40,6 +40,22 @@ _librtmp_crypto() {
   esac
 }
 
+# Every make this recipe runs takes the same six settings, and they had been
+# written out four times -- three crypto arms plus the install run, which this
+# branch added as the fourth. The flags they carry are the whole point (an arm
+# that drifts builds librtmp at the Makefile's own optimization), so the copies
+# are exactly what must not be allowed to disagree.
+#
+# CRYPTO is a parameter rather than being read here, because the arms genuinely
+# differ on it: the "none" arm passes it EMPTY, which is not the same as passing
+# the value _librtmp_crypto returns.
+_librtmp_make() { # crypto-value  extra-args...
+  _rtmp_crypto=$1
+  shift
+  run make SYS=posix prefix="$PREFIX" SHARED= CRYPTO="$_rtmp_crypto" \
+    XCFLAGS="$CFLAGS -I$PREFIX/include" XLDFLAGS="-L$PREFIX/lib" "$@"
+}
+
 pkg_build() {
   cd librtmp || die "Failed to cd to librtmp"
   # Wipe any stale .o/.a/.pc from a previous CRYPTO= setting so the .pc gets
@@ -48,25 +64,19 @@ pkg_build() {
 
   _crypto=$(_librtmp_crypto)
   case "$_crypto" in
-    OPENSSL)
-      run make SYS=posix prefix="$PREFIX" SHARED= CRYPTO="$_crypto" \
-        XCFLAGS="$CFLAGS -I$PREFIX/include" XLDFLAGS="-L$PREFIX/lib" \
-        LIB_OPENSSL="-lssl -lcrypto -lz -ldl -lpthread"
-      ;;
-    GNUTLS)
-      run make SYS=posix prefix="$PREFIX" SHARED= CRYPTO="$_crypto" \
-        XCFLAGS="$CFLAGS -I$PREFIX/include" XLDFLAGS="-L$PREFIX/lib"
-      ;;
-    *)
-      run make SYS=posix prefix="$PREFIX" SHARED= CRYPTO= \
-        XCFLAGS="$CFLAGS -I$PREFIX/include" XLDFLAGS="-L$PREFIX/lib"
-      ;;
+    OPENSSL) _librtmp_make "$_crypto" LIB_OPENSSL="-lssl -lcrypto -lz -ldl -lpthread" ;;
+    GNUTLS)  _librtmp_make "$_crypto" ;;
+    *)       _librtmp_make "" ;;
   esac
 }
 
 pkg_install() {
   # Pass the same CRYPTO so `install_base`'s librtmp.pc target substitutes
   # the matching REQ_$(CRYPTO) into Requires.
+  # The flags go on this run too: `install` depends on install_base, which
+  # depends on librtmp.a, so the install target has a compilable prerequisite.
+  # It is up to date by the time this runs and rebuilds nothing today -- but
+  # that is a property of build order, not of the command.
   _crypto=$(_librtmp_crypto)
-  run make SYS=posix prefix="$PREFIX" SHARED= CRYPTO="$_crypto" install
+  _librtmp_make "$_crypto" install
 }

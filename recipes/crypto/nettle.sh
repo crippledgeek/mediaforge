@@ -10,5 +10,5 @@ PKG_PC_FILES="nettle hogweed"
 pkg_configure() {
   run ./configure --prefix="$PREFIX" --disable-shared --enable-static \
     --disable-openssl --disable-documentation --libdir="$PREFIX/lib" \
-    CPPFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS"
+    CPPFLAGS="$(mf_cppflags)" LDFLAGS="$LDFLAGS"
 }

@@ -1,11 +1,13 @@
 #!/bin/sh
-# Pins --debug: the three levels, and that each one reaches ALL FIVE places a
+# Pins --debug: the three levels, and that each one reaches ALL SEVEN places a
 # build's optimization and symbol posture is decided.
 #
 # That last part is the whole risk. A debug mode that turns four of the five
 # knobs produces a tree that still compiles and still links, and whose stack
 # traces are simply wrong in the recipes it missed -- which is the hardest kind
-# of defect to attribute, because nothing fails. The four are:
+# of defect to attribute, because nothing fails. The five build systems that
+# read the environment are below; the sixth (make on an upstream Makefile) and
+# seventh (nvcc) have their own section banners further down. They are:
 #
 #   autotools  the composed CFLAGS (via MF_DEFAULT_OPT and the symbol flags)
 #   cmake      CMAKE_BUILD_TYPE, forced over whatever the recipe declared
@@ -319,6 +321,386 @@ if grep -qE -- 'env .{1}_rav1e_cargo_env' recipes/video/rav1e.sh 2>/dev/null; th
   _pass recipe-scopes-cargo-env
 else
   _bad recipe-scopes-cargo-env "rav1e does not scope the overrides to the cargo command"
+fi
+
+# --- the sixth path: make run directly on an upstream Makefile ---------------
+# Every knob above assumes the recipe's build system READS the environment.
+# A recipe that runs make against a hand-written upstream Makefile does not get
+# that for free: a Makefile's `CFLAGS = ...` is an ASSIGNMENT, and an assignment
+# beats the environment -- only a command-line `make CFLAGS=...` overrides it
+# (POSIX make, "Macros": command-line macros take precedence over both).
+#
+# giflib shipped exactly that shape and nothing caught it. Under --debug=full,
+# libgif.a came out of the build with no .debug_* sections at all -- built at
+# the Makefile's own -O2, stripped -- while every sibling archive from the same
+# run carried -O0 -g3. It compiled, it linked, it ran; the only symptom was
+# giflib frames missing from every backtrace. Measured, not reasoned: `readelf`
+# on dgif_lib.o found 0 debug sections with the flags in the environment and 2
+# with the same flags on the make command line.
+#
+# So the claim is structural and per-invocation: every make that COMPILES must
+# name a flags macro on the command line, and that macro must be fed by the
+# composed CFLAGS.
+#
+# ONE exemption, and it is real: nv-codec runs make to install ffnvcodec's
+# headers and compiles nothing, so it has no flags to carry. The first version
+# of this list also named amf, vaapi, ladspa and vapoursynth "for the same
+# reason" -- but those four contain no `make` at all, so they never reach the
+# gate below and the exemption never fired for them. Four false citations that
+# taught the next reader those recipes run make; rotted before being committed.
+_mf_headers_only=' nv-codec.sh '
+
+# Fold backslash continuations before matching: gsm, bzip2 and librtmp all put
+# the macro on the line AFTER `run make`, and a line-oriented grep reads those
+# as a bare make and reports the defect this file exists to catch.
+_mf_logical() { awk '{ if (sub(/\\$/, "")) { buf = buf $0; next } print buf $0; buf = "" }' "$1"; }
+
+# Scoped to pkg_build below, which is the phase that compiles. An earlier
+# version scanned the whole recipe and a mutation walked straight through it:
+# reverting giflib's BUILD line to a bare `run make` left the file green,
+# because its install line still carried the macro and the scan only asked
+# whether the recipe mentioned one somewhere. The claim has to be about the
+# invocation that does the compiling, not about the file.
+#
+# Generalized over the function name because the composed-CFLAGS claim below has
+# to read a helper's body too, and reading two function bodies two ways is how
+# the copies in this file drifted before.
+_mf_fn_body() { # file  function-name
+  # Terminates on a `}` at COLUMN ZERO, not on any line ending in one. The first
+  # version used /\}[[:space:]]*$/, which is not brace matching: an ordinary body
+  # line ending in a close brace ended the extraction and everything below it
+  # became invisible -- a false PASS of exactly the kind this scan exists to
+  # catch:
+  #
+  #     pkg_build() {
+  #       run make CFLAGS="$CFLAGS" libfoo.a
+  #       _v=${SOMEVAR}          <- extraction stopped here
+  #       run make libextra.a    <- bare, compiles, never seen
+  #     }
+  #
+  # `${VAR}` at end of line, a brace group, and an inline awk program all trigger
+  # it. Found in review rather than by this file, which is the part worth
+  # recording: the scan could not police its own reader.
+  #
+  # A phase written on ONE line (quirc) closes where it opens, so it is finished
+  # at the start line rather than left open to swallow the rest of the file.
+  _mf_logical "$1" | awk -v fn="$2" '
+    $0 ~ "^[[:space:]]*" fn "\\(\\)" {
+      f = 1
+      if ($0 ~ /\}[[:space:]]*$/) { print; f = 0; next }
+    }
+    f { print }
+    f && /^\}/ { f = 0 }'
+}
+
+# The READER gets its own assertion, because everything below trusts it. Reverting
+# it to the any-line terminator and dropping a defective recipe in the tree does
+# not fail anything above -- the recipe simply stops being read, which is the
+# failure mode itself. Fixture rather than a real recipe: the shapes that break
+# extraction (`${VAR}` at end of line, a brace group) are ones no recipe happens
+# to contain today, which is exactly why the bug survived review of the recipes.
+_mf_fx=$(mktemp) || { printf 'FAIL [reader-fixture]\n' >&2; exit 1; }
+cat > "$_mf_fx" <<'FIXTURE'
+pkg_build() {
+  run make CFLAGS="$CFLAGS" libfoo.a
+  _v=${SOMEVAR}
+  run make libextra.a
+}
+FIXTURE
+if _mf_fn_body "$_mf_fx" pkg_build | grep -q 'libextra'; then
+  _pass reader-reads-past-a-line-ending-in-brace
+else
+  _bad reader-reads-past-a-line-ending-in-brace \
+    "extraction stopped early; every scan below silently skips whatever follows"
+fi
+# ...and a one-line phase must not swallow the rest of the file.
+cat > "$_mf_fx" <<'FIXTURE'
+pkg_build() { run make CFLAGS="$CFLAGS" libfoo.a; }
+PKG_AFTER="not part of the phase"
+FIXTURE
+if _mf_fn_body "$_mf_fx" pkg_build | grep -q 'PKG_AFTER'; then
+  _bad reader-stops-at-a-one-line-phase "read past the closing brace of a one-line phase"
+else
+  _pass reader-stops-at-a-one-line-phase
+fi
+rm -f "$_mf_fx"
+
+_mf_scanned=0
+_mf_seen=""
+for _r in $(find recipes -name '*.sh' | sort); do
+  # recipes/ffmpeg.sh is not a recipe in this sense: cmd_build sources it
+  # directly rather than through run_recipe(), so it defines no pkg_* phases and
+  # the "no pkg_build body" rule below does not describe it. Its own flags come
+  # from the ffmpeg column and --extra-cflags, both asserted earlier in this
+  # file. It reaches this loop only because the exclusion below is now anchored.
+  case "$_r" in recipes/ffmpeg.sh) continue ;; esac
+  grep -qE 'run make' "$_r" || continue
+  # Anchored on how these are INVOKED, because an unanchored word matches
+  # comments too: a future comment in giflib.sh reading "unlike the meson
+  # recipes" would drop giflib from the scan entirely, and with five candidates
+  # against a floor of four, exactly one recipe can vanish without tripping
+  # make-scan-found-recipes below.
+  grep -qE 'run \./(configure|Configure)|mf_cmake|mf_meson|run cargo|PKG_CMAKE=true|PKG_REQUIRES_MESON=true' "$_r" && continue
+  case "$_mf_headers_only" in *" $(basename "$_r") "*) continue ;; esac
+  _mf_scanned=$((_mf_scanned + 1))
+  _mf_seen="$_mf_seen $(basename "$_r")"
+  _mf_name="make-carries-flags-$(basename "$_r" .sh)"
+  _mf_body=$(_mf_fn_body "$_r" pkg_build)
+  # An empty body means either the recipe defines no pkg_build -- in which case
+  # the framework's default_build runs a bare `make -j`, which is the defect --
+  # or the extraction above stopped matching. Both must fail rather than pass an
+  # unread recipe: this is the mutation the whole-file version missed.
+  if [ -z "$_mf_body" ]; then
+    _bad "$_mf_name" "no pkg_build body to read — a bare default_build, or a shape the scan cannot see"
+    continue
+  fi
+  # EVERY compiling invocation, not just one of them, and two claims per recipe
+  # because either alone is satisfiable by a recipe that still builds stripped.
+  # The macro spelling is upstream's to dictate -- CFLAGS (bzip2, giflib),
+  # CCFLAGS (gsm), XCFLAGS (librtmp) -- so the first claim matches any *FLAGS=,
+  # and the second requires the composed CFLAGS to feed it rather than a fresh
+  # literal like -O2. `make clean` is exempt: it compiles nothing, and librtmp
+  # legitimately runs one first. The "." stands in for the dollar, as above.
+  # The EFFECTIVE body: the phase plus the bodies of any same-file helpers it
+  # calls. A recipe may delegate its make to a helper -- librtmp runs the same
+  # six settings from four call sites and now routes them through one -- and a
+  # scan reading only the phase sees a phase with no make in it at all. Both
+  # call shapes count: a $(substitution), which giflib uses to PRINT flags, and
+  # a plain invocation, which librtmp uses to RUN make.
+  #
+  # Only helpers defined in this same recipe are followed: a name resolving to a
+  # framework function is not a place this recipe's flags could be hiding.
+  _mf_eff="$_mf_body"
+  for _mf_h in $(printf '%s\n' "$_mf_body" | grep -oE '(^|[^a-z0-9_])_[a-z0-9_]+' |
+                 sed 's/[^_a-z0-9]//g' | sort -u); do
+    grep -qE "^${_mf_h}\\(\\)" "$_r" || continue
+    _mf_eff="$_mf_eff
+$(_mf_fn_body "$_r" "$_mf_h")"
+  done
+
+  # EVERY compiling invocation, and two claims, because either alone is
+  # satisfiable by a recipe that still builds stripped. The macro spelling is
+  # upstream's to dictate -- CFLAGS (bzip2, giflib), CCFLAGS (gsm), XCFLAGS
+  # (librtmp) -- so the first matches any *FLAGS=, and the second requires the
+  # composed CFLAGS to feed it rather than a fresh literal like -O2.
+  # `make clean` is exempt: it compiles nothing, and librtmp runs one first.
+  # The "." stands in for the dollar, as elsewhere in this file.
+  _mf_bare=$(printf '%s\n' "$_mf_eff" | grep -E 'run make' |
+             grep -vE 'run make clean[[:space:]]*$' | grep -vE 'FLAGS=' || true)
+  _mf_composed=$(printf '%s\n' "$_mf_eff" | grep -E 'run make' |
+                 grep -E 'FLAGS=[^;]*.CFLAGS' || true)
+  # giflib's helper PRINTS the flags rather than running make, so the composed
+  # CFLAGS sits in the helper body while the FLAGS= macro is on the make line.
+  #
+  # [$]CFLAGS, not .CFLAGS: the dot form -- used elsewhere in this file where a
+  # dollar cannot be written -- also matches the macro NAMES, since XCFLAGS and
+  # CCFLAGS both end in CFLAGS. Measured: rewriting librtmp's helper to
+  # XCFLAGS="-O2 -I..." left this file green, because the word XCFLAGS satisfied
+  # its own check. A bracket expression pins the dollar without tripping the
+  # linter's "expressions do not expand in single quotes".
+  if [ -z "$_mf_composed" ]; then
+    printf '%s\n' "$_mf_eff" | grep -qE '[$]CFLAGS' && _mf_composed="via a helper"
+  fi
+
+  if [ -n "$_mf_bare" ]; then
+    _bad "$_mf_name" "compiles with a make that passes no flags macro: $_mf_bare"
+  elif [ -z "$_mf_composed" ]; then
+    _bad "$_mf_name" "passes a flags macro that never references the composed CFLAGS"
+  else
+    _pass "$_mf_name"
+  fi
+done
+# The scan itself can rot: a rename of the phase function, or a find that matches
+# nothing, leaves every assertion above unrun and the file green.
+#
+# Named rather than counted. A floor of "at least four" cannot see ONE recipe
+# drop out -- and dropping out silently is what the unanchored exclusion regex
+# used to allow, since a comment mentioning meson was enough. Measured: with the
+# old regex and one word added to a giflib comment, giflib left the scan and
+# nothing failed. A name that disappears fails loudly here instead; a recipe
+# legitimately converted to another build system fails here too, which is a
+# human deciding to update this line rather than a scan quietly shrinking.
+for _mf_want in giflib.sh quirc.sh gsm.sh bzip2.sh librtmp.sh; do
+  case "$_mf_seen " in
+    *" $_mf_want "*) _pass "make-scan-covers-${_mf_want%.sh}" ;;
+    *) _bad "make-scan-covers-${_mf_want%.sh}" \
+         "not scanned — excluded by mistake, renamed, or no longer runs make. Scanned:$_mf_seen" ;;
+  esac
+done
+
+# --- the seventh path: nvcc, and the two ways a recipe can lose the flags -----
+# nvcc drives FFmpeg's CUDA compilation and is a third toolchain that reads no
+# CFLAGS, so the level has to be restated in its vocabulary exactly as cargo's
+# was. It had taken the optimization half through MF_DEFAULT_OPT since before
+# --debug existed and took no symbols at all, so a --debug tree carried
+# symbol-less CUDA objects while every other object had -g3.
+#
+# The spelling cannot be copied from the CFLAGS column: nvcc REJECTS -g3
+# outright ("nvcc fatal: Unknown option '-g3'", measured against CUDA 13's nvcc,
+# which also accepts -g, -lineinfo, -G and any combination of them). So the
+# negative assertion below is not stylistic -- a -g3 reaching nvcc fails the
+# build rather than degrading it.
+_d nvcc-symbols-lineinfo  mf_debug_nvcc symbols  '*-lineinfo*'
+_d nvcc-balanced-host-g   mf_debug_nvcc balanced '*-g*'
+_d nvcc-full-device-debug mf_debug_nvcc full     '*-G*'
+for _lv in symbols balanced full; do
+  _d_not "nvcc-no-g3-$_lv" mf_debug_nvcc "$_lv" '*-g3*'
+done
+if _have mf_debug_nvcc && [ -z "$(mf_debug_nvcc '')" ]; then
+  _pass nvcc-none-when-no-debug
+else
+  _bad nvcc-none-when-no-debug "expected empty"
+fi
+_wired recipe-uses-nvcc-column recipes/hwaccel/nv-codec.sh 'mf_debug_nvcc'
+
+# meson takes CFLAGS into c_args at SETUP, and `meson configure -Dc_args=...`
+# REPLACES that value rather than adding to it. Measured on meson 1.12.0: c_args
+# went from [-fPIC, -I/opt/inc, -fno-omit-frame-pointer] to [-march=native]
+# alone. recipes/audio/lv2.sh did exactly that to its bundled zix, so that one
+# sub-build lost -fPIC, the prefix include path and the frame pointer, while
+# keeping -O0/-g from the buildtype -- a partial loss, which is the kind that
+# reads as working.
+#
+# Scanned across every recipe rather than asserted about lv2, because the next
+# recipe to reach for `meson configure` will reach for the same option.
+# Anchored on meson's option form. An unanchored 'c_args=' also matches
+# recipes/other/srt.sh's own _enc_args variable, which has nothing to do with
+# meson -- the first version of this assertion reported it as a defect.
+_mf_cargs=$(grep -rnE -- '[-]D(c|cpp)_args=' recipes/ 2>/dev/null || true)
+if [ -z "$_mf_cargs" ]; then
+  _pass no-recipe-replaces-meson-cargs
+else
+  _bad no-recipe-replaces-meson-cargs "$_mf_cargs"
+fi
+
+# The preprocessor-only checks want the include path, not the whole composed
+# CFLAGS. Passing CFLAGS as CPPFLAGS works and puts every flag on the compile
+# line twice (autoconf compiles with `$CC -c $CFLAGS $CPPFLAGS`), which is how
+# nettle and gnutls produced objects whose producer reads "-g3 -g3 -O0 -O0".
+# mf_cppflags says it once; these assert nobody goes back to the copy.
+_mf_cpp=$(grep -rn 'CPPFLAGS="[$]CFLAGS"' recipes/ 2>/dev/null || true)
+if [ -z "$_mf_cpp" ]; then
+  _pass no-recipe-passes-cflags-as-cppflags
+else
+  _bad no-recipe-passes-cflags-as-cppflags "$_mf_cpp"
+fi
+for _r in recipes/crypto/nettle.sh recipes/crypto/gnutls.sh recipes/image/libpng.sh; do
+  _wired "uses-cppflags-helper-$(basename "$_r" .sh)" "$_r" 'mf_cppflags'
+done
+# Behavioural, not a restatement of the one-line body. The claim that matters is
+# the OPERATOR'S: flags they exported must still reach the preprocessor-only
+# checks, because that is what CPPFLAGS="$CFLAGS" gave them and what the first
+# version of mf_cppflags silently took away -- an operator with a dependency in
+# a non-default prefix would have watched a configure check start failing with
+# no error to read. Review caught it; these are so the next narrowing does not
+# need a reviewer.
+if _have mf_cppflags; then
+  _glob cppflags-has-the-prefix-path \
+    "$(PREFIX=/p MF_USER_CFLAGS='' mf_cppflags)" '*-I/p/include*' 'mf_cppflags'
+  _glob cppflags-keeps-operator-include \
+    "$(PREFIX=/p MF_USER_CFLAGS='-I/opt/idn2/include' mf_cppflags)" '*-I/opt/idn2/include*' 'mf_cppflags'
+  _glob cppflags-keeps-operator-define \
+    "$(PREFIX=/p MF_USER_CFLAGS='-DHAVE_BAR' mf_cppflags)" '*-DHAVE_BAR*' 'mf_cppflags'
+  # ...while mediaforge's OWN composed optimization and symbol flags stay out,
+  # which is the doubling this helper exists to stop. Asserted with an empty
+  # operator half: an operator who exports -O2 themselves is entitled to it here.
+  _glob_not cppflags-omits-composed-opt \
+    "$(PREFIX=/p MF_USER_CFLAGS='' mf_cppflags)" '*-O*' 'mf_cppflags'
+  _glob_not cppflags-omits-composed-g \
+    "$(PREFIX=/p MF_USER_CFLAGS='' mf_cppflags)" '*-g3*' 'mf_cppflags'
+else
+  for _a in cppflags-has-the-prefix-path cppflags-keeps-operator-include \
+            cppflags-keeps-operator-define cppflags-omits-composed-opt \
+            cppflags-omits-composed-g; do
+    _bad "$_a" "mf_cppflags absent — claim would be vacuous"
+  done
+fi
+
+# --- the eighth path: build files that turn the knobs back --------------------
+# Three archives came out of a full --debug=full build without what the level
+# promised, and none of them was a missing knob -- each was a project's own build
+# file overriding one we had already set. They are pinned here by mechanism.
+#
+# liblc3: its meson.build carries default_options: ['b_lto=true']. Our
+# --buildtype replaces the buildtype sitting right beside it and leaves b_lto
+# alone, and an LTO object holds GIMPLE rather than DWARF -- so liblc3.a had zero
+# .debug_info across all 12 members while meson-info reported buildtype debug,
+# debug True and optimization 0, every one of them correctly applied. --debug's
+# help text promises "Forces LTO off"; for meson recipes it now does.
+for _lv in symbols balanced full; do
+  _d "meson-lto-off-$_lv" mf_debug_meson_args "$_lv" '*-Db_lto=false*'
+done
+if _have mf_debug_meson_args && [ -z "$(mf_debug_meson_args '')" ]; then
+  _pass meson-none-when-no-debug
+else
+  _bad meson-none-when-no-debug "expected empty"
+fi
+
+# The assertions column exists because libvpx needed to ASK. Its --enable-debug
+# keeps symbols and drops -DNDEBUG in one flag, so a recipe reaching for it at
+# `symbols` would turn assertions on at the one level promising no measurable
+# cost. The concept was already spelled three ways above -- meson's b_ndebug,
+# cmake's Debug-vs-RelWithDebInfo, FFmpeg's --disable-optimizations -- and a
+# build system speaking none of them had no way to read it.
+_d assertions-symbols-off  mf_debug_assertions symbols  'off'
+_d assertions-balanced-on  mf_debug_assertions balanced 'on'
+_d assertions-full-on      mf_debug_assertions full     'on'
+if _have mf_debug_assertions && [ -z "$(mf_debug_assertions '')" ]; then
+  _pass assertions-none-when-no-debug
+else
+  _bad assertions-none-when-no-debug "expected empty"
+fi
+# The column must AGREE with the two vocabularies that already encode it, or the
+# tree says two different things about the same level.
+_d assertions-agree-symbols-meson mf_debug_meson_args symbols  '*-Db_ndebug=true*'
+_d assertions-agree-full-meson    mf_debug_meson_args full     '*-Db_ndebug=false*'
+
+# libvpx builds libvpx_g.a with the symbols and installs a stripped copy of it
+# (measured: 52.8 MB / 460 debug sections vs 4.9 MB / none). It must disable
+# that strip, and it must read the assertions column rather than deciding for
+# itself which levels want -DNDEBUG dropped.
+_wired vpx-disables-the-strip   recipes/video/libvpx.sh 'HAVE_GNU_STRIP=no'
+# ...and disables vpx's OWN -O3, which it appends after the composed CFLAGS and
+# which therefore decides. Verified the hard way: with the strip fixed but this
+# flag absent, the rebuilt archive's producer read "-g3 -g -O0 -O3" -- every
+# symbol the level asked for, compiled at the optimization level it did not.
+_wired vpx-disables-its-own-opt recipes/video/libvpx.sh '--disable-optimizations'
+_wired vpx-reads-assertions     recipes/video/libvpx.sh 'mf_debug_assertions'
+# ...and APPLIES both, rather than defining helpers nothing calls. Matched with
+# a regex whose "." stands in for the dollar, the same way the rav1e assertion
+# above does it, so this file contains no literal $( inside quotes for the
+# linter to read as a failed expansion.
+# Folded through _mf_logical first: the call sits on a continuation line, and a
+# line-oriented grep reads the invocation and its arguments as separate lines --
+# the same trap the bare-make scan above folds for.
+if _mf_logical recipes/video/libvpx.sh |
+     grep -qE -- 'run ./configure.*.\(_libvpx_debug_configure\)'; then
+  _pass vpx-applies-configure
+else
+  _bad vpx-applies-configure "the configure helper is defined but never called"
+fi
+if _mf_logical recipes/video/libvpx.sh |
+     grep -qE -- 'run make.*.\(_libvpx_debug_make\)'; then
+  _pass vpx-applies-make
+else
+  _bad vpx-applies-make "the make helper is defined but never called"
+fi
+
+# libilbc ASSIGNS CMAKE_C_FLAGS, replacing what cmake takes from the
+# environment. Fixed by patch, not by a -D: a plain set() in a CMakeLists makes
+# a normal variable that shadows the cache entry -DCMAKE_C_FLAGS_DEBUG writes,
+# so the flag would be accepted and ignored.
+_wired ilbc-applies-the-patch recipes/audio/libilbc.sh 'libilbc-cmake-append-flags.patch'
+if [ -f patches/libilbc-cmake-append-flags.patch ]; then
+  _pass ilbc-patch-exists
+else
+  _bad ilbc-patch-exists "recipe applies a patch that is not in the tree"
+fi
+# The patch must APPEND rather than assign, which is the whole point of it.
+if grep -q 'CMAKE_C_FLAGS}' patches/libilbc-cmake-append-flags.patch 2>/dev/null; then
+  _pass ilbc-patch-appends
+else
+  _bad ilbc-patch-appends "the patch assigns the flags instead of appending to them"
 fi
 
 printf 'DONE: debug-levels\n'

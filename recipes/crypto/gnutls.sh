@@ -22,5 +22,5 @@ pkg_configure() {
     --disable-gtk-doc-html --disable-libdane --disable-nls \
     --enable-local-libopts --disable-guile --with-included-libtasn1 \
     --with-included-unistring --without-p11-kit $_idn_flag \
-    CPPFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS"
+    CPPFLAGS="$(mf_cppflags)" LDFLAGS="$LDFLAGS"
 }
