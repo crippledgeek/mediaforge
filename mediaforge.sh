@@ -146,6 +146,8 @@ cmd_help() {
   printf '\nMakesum options (used by the makesum subcommand):\n'
   printf '      --profile=X.Y         Record digests against a specific version profile\n'
   printf '      --update              Overwrite an existing digest that no longer matches\n'
+  printf '      --allow-tmpfs         Fetch even when the working directory is on a\n'
+  printf '                            RAM-backed filesystem (refused by default)\n'
   printf '      --build               Run a real build with recording enabled, to reach\n'
   printf '                            sub-build downloads (forwards remaining args to build;\n'
   printf '                            no package filter)\n'
@@ -841,13 +843,20 @@ cmd_makesum() {
   # tests/checksum-verification.sh pins that both subcommands answer a bad name
   # identically, which is what caught the first ordering.
   #
-  # And only for the DISTDIR mediaforge derived. An overridden DISTDIR is a
-  # deliberate redirect -- the operator has already said where the bytes go, and
-  # it is usually somewhere small and specific rather than a whole tree. Guarding
-  # it would refuse that choice on the operator's behalf while measuring a
-  # directory they did not ask us to fill.
+  # $TOPDIR, not $DISTDIR: packages/ does not exist until the first fetch
+  # creates it, and both probes fail open on a path that is not there -- so
+  # guarding $DISTDIR returned 0 on precisely the fresh tree it was added to
+  # protect, and makesum went on to download. $TOPDIR always exists and is the
+  # same filesystem, which the condition below has just established.
+  #
+  # That condition is a HARNESS carve-out, not an operator one. There is no
+  # --distdir flag and no environment override -- line 13 assigns
+  # DISTDIR="$TOPDIR/packages" unconditionally -- so the only thing that can
+  # take the false branch is an in-process caller that set DISTDIR before
+  # calling cmd_makesum, which is what tests/checksum-verification.sh does with
+  # its own small fixture directories.
   if [ "$DISTDIR" = "$TOPDIR/packages" ]; then
-    mf_storage_guard "$DISTDIR" "$MF_ALLOW_TMPFS"
+    mf_storage_guard "$TOPDIR" "$MF_ALLOW_TMPFS"
   fi
 
   while IFS= read -r _recipe || [ -n "$_recipe" ]; do

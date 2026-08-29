@@ -34,11 +34,29 @@ _wired flag-parsed     mediaforge.sh '--allow-tmpfs)'
 # is the shape tests/debug-levels.sh exists to catch.
 _wired flag-documented mediaforge.sh '--allow-tmpfs         Build even when'
 _wired guard-called    mediaforge.sh 'mf_storage_guard'
+# TWO parsers, so two arms. cmd_makesum has its own option loop and does not
+# share cmd_build's, so a flag added to one is absent from the other -- and
+# `flag-parsed` above matches either, so it cannot tell. Counted rather than
+# spelled, because the two arms are indented differently; a third parser
+# appearing should fail this and be looked at rather than silently accepted.
+_arms=$(grep -c -- '--allow-tmpfs)' mediaforge.sh || true)
+if [ "$_arms" = 2 ]; then
+  _pass both-parsers-accept-the-override
+else
+  _bad both-parsers-accept-the-override "expected an --allow-tmpfs case arm in both cmd_build and cmd_makesum, found $_arms"
+fi
 # Position, not merely presence. The guard's whole claim is that it refuses
 # BEFORE anything is written, and $PREFIX is created by save_stored_choices; a
 # grep for the call cannot tell the two orders apart.
+#
+# Two limits, stated rather than fixed. This pins LEXICAL order, not execution
+# order -- a guard hoisted above save_stored_choices but wrapped in a branch
+# that is never taken would satisfy it. And it reads save_stored_choices as the
+# stand-in for "the first write"; the .debug-level write is covered only
+# because it is lexically later. Both are worth less than the regression this
+# does catch, which nothing else on this branch would see.
 _gline=$(grep -n 'mf_storage_guard' mediaforge.sh | grep -v '^[0-9]*: *#' | head -1 | cut -d: -f1)
-_sline=$(grep -n '^  save_stored_choices' mediaforge.sh | head -1 | cut -d: -f1)
+_sline=$(grep -n '^[[:space:]]*save_stored_choices$' mediaforge.sh | head -1 | cut -d: -f1)
 if [ -z "$_gline" ] || [ -z "$_sline" ]; then
   _bad guard-precedes-first-write "could not locate both the guard call and save_stored_choices"
 elif [ "$_gline" -lt "$_sline" ]; then
@@ -52,7 +70,7 @@ if [ ! -f lib/storage.sh ]; then
             refuses-ramfs warns-below-the-floor silent-at-the-floor \
             warns-one-block-below-the-floor unknown-type-does-not-refuse \
             unreadable-free-space-does-not-refuse refuses-devtmpfs \
-            dry-run-is-exempt; do
+            dry-run-is-exempt makesum-refuses-ram-disk; do
     _bad "$_a" "lib/storage.sh absent — claim would be vacuous"
   done
 printf 'DONE: storage-guard\n'
@@ -68,6 +86,12 @@ fi
 . "$ROOT/lib/storage.sh"
 # shellcheck source=tests/lib-scratch.sh
 . "$ROOT/tests/lib-scratch.sh"
+
+# The PATH as it was before any sandbox touched it. The shims below run inside
+# subshells, so a later `PATH="...:$PATH"` reads a value shellcheck cannot prove
+# is the outer one (SC2031) -- and neither can a reader. Captured once, used by
+# name, so every sandbox composes from the same known base.
+_path0=$PATH
 
 _tmp=$(mktemp -d) || { printf 'FAIL [tmpdir]\n' >&2; exit 1; }
 trap 'rm -rf "$_tmp"; _scratch_cleanup' EXIT
@@ -148,7 +172,7 @@ chmod +x "$_tmp/bin/df" "$_tmp/bin/stat"
 _guard() { # tag  allow_ram(true|false)
   set +e
   (
-    PATH="$_tmp/bin:$PATH"; export PATH
+    PATH="$_tmp/bin:$_path0"; export PATH
     # shellcheck source=lib/utils.sh
     . "$ROOT/lib/utils.sh"
     # shellcheck source=lib/storage.sh
@@ -295,9 +319,39 @@ case "$(mf_fs_type "$_MF_SCRATCH")" in
       0:*) _pass dry-run-is-exempt ;;
       *) _bad dry-run-is-exempt "the dry run exited $_dry_rc, so the exemption was never exercised: $(printf '%s' "$_dry" | tr '\n' ' ')" ;;
     esac
+
+    # makesum's fetch-only path, which had a guard and no assertion -- and so
+    # shipped a guard that never fired: it was handed $DISTDIR, which does not
+    # exist until the first fetch creates it, and both probes fail open on a
+    # missing path. The suite stayed green while makesum downloaded from a
+    # tmpfs TOPDIR.
+    #
+    # Network-free BY CONSTRUCTION, not by trusting the guard. When the guard
+    # works the refusal precedes the fetch loop and nothing is downloaded -- but
+    # this assertion's whole job is to fail when the guard does NOT work, and
+    # measured that way it downloaded tarballs for ten minutes before being
+    # killed. A test that fetches the internet on a regression is a test nobody
+    # will keep. So the run gets a curl that cannot succeed: a regression now
+    # fails fast with a fetch error rather than filling the disk it is meant to
+    # be protecting.
+    #
+    # A separate directory from the df/stat shims above, and PATH set in a
+    # subshell: the guard must do its REAL filesystem detection here, so the
+    # stubs that fake tmpfs for the unit cases must not be in scope.
+    mkdir -p "$_tmp/nonet"
+    printf '#!/bin/sh\nexit 1\n' > "$_tmp/nonet/curl"; chmod +x "$_tmp/nonet/curl"
+    #
+    # No --allow-tmpfs twin: the allowed path would proceed to fetch ~110
+    # tarballs, so makesum's parser arm is pinned by counting case arms instead.
+    _ms_rc=0
+    _ms=$( PATH="$_tmp/nonet:$_path0" _mf makesum 2>&1 ) || _ms_rc=$?
+    case "$_ms" in
+      *RAM-backed*) _pass makesum-refuses-ram-disk ;;
+      *) _bad makesum-refuses-ram-disk "makesum ran from a RAM-backed TOPDIR without refusing (rc=$_ms_rc): $(printf '%s' "$_ms" | tr '\n' ' ' | cut -c1-200)" ;;
+    esac
     ;;
   *)
-    printf 'NOTE: mktemp -d is not on a RAM-backed filesystem here — the dry-run exemption was not measured\n'
+    printf 'NOTE: mktemp -d is not on a RAM-backed filesystem here — the dry-run exemption and makesum refusal were not measured\n'
     ;;
 esac
 
