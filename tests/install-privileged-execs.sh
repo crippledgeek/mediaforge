@@ -46,6 +46,8 @@ cd "$_root" || exit 1
 _fail=0
 # shellcheck source=tests/lib-assert.sh
 . "$_root/tests/lib-assert.sh"
+# shellcheck source=tests/lib-install-driver.sh
+. "$_root/tests/lib-install-driver.sh"
 
 # `exec "$@"` after logging: the shim must be transparent, so the install still
 # happens for real and the assertions can look at the tree afterwards.
@@ -87,9 +89,7 @@ _drive() {
   : > "$_log"
   PATH="$_shim:$PATH" SUDO_LOG="$_log" MF_PREFIX="$_pfx" MF_SRC="$_stagedir" \
   SCRIPT_DIR="${MF_SCRIPT_DIR:-$_root}" SUDO_DENY="${MF_SUDO_DENY:-}" \
-  sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    . "$SCRIPT_DIR/lib/install.sh"
+  sh -c "$_MF_INSTALL_SOURCES"'
     _install_prefix="$MF_PREFIX"
     # Unprivileged on purpose: the prefix is ours, the answer is identical, and
     # resolving it under the shim would count an exec _install_file never made.

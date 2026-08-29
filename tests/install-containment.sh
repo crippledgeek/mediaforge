@@ -49,19 +49,13 @@ cd "$_root" || exit 1
 _fail=0
 # shellcheck source=tests/lib-assert.sh
 . "$_root/tests/lib-assert.sh"
+# shellcheck source=tests/lib-install-driver.sh
+. "$_root/tests/lib-install-driver.sh"
 
-# Drive do_install in a separate `sh` rather than a ( ) subshell: it reads
-# PREFIX/AUTOINSTALL from the environment, and shadowing this script's own
-# PREFIX inside a subshell would both confuse the reader and leak install.sh's
-# functions into the assertions that follow.
+# Named for what this file asks of it. The mechanism -- a separate `sh` with
+# the install layer sourced -- lives in tests/lib-install-driver.sh.
 _run_install() {
-  PREFIX="$1" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-  sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    . "$SCRIPT_DIR/lib/resolve.sh"
-    . "$SCRIPT_DIR/lib/install.sh"
-    do_install "$1"
-  ' _ "$2" 2>&1
+  _install_sh "$1" do_install "$2"
 }
 
 # A staging prefix holding one file of each class this file exercises.
@@ -226,13 +220,15 @@ if awk '/^_needs_priv\(\)/,/^}/' lib/install.sh | grep -q '_resolve_existing'; t
   _np_probe=$(mktemp -d) || exit 1
   mkdir -p "$_np_probe/locked"
   chmod 000 "$_np_probe/locked"
+  # Not _install_sh: this probes one function rather than running an entry
+  # point, and it deliberately leaves PREFIX unset -- the question is about an
+  # ancestor of the DESTINATION, and a build prefix in the environment is one
+  # more thing that could be answering.
   _np_answer=$(
-    SCRIPT_DIR="$_root" sh -c '
-      . "$SCRIPT_DIR/lib/utils.sh"
-      . "$SCRIPT_DIR/lib/resolve.sh"
-      . "$SCRIPT_DIR/lib/install.sh"
-      if _needs_priv "$1"; then echo NEEDS-PRIV; else echo NO-PRIV; fi
-    ' _ "$_np_probe/locked/pfx" 2>&1
+    SCRIPT_DIR="$_root" \
+    sh -c "$_MF_INSTALL_SOURCES
+      if _needs_priv \"\$1\"; then echo NEEDS-PRIV; else echo NO-PRIV; fi
+    " _ "$_np_probe/locked/pfx" 2>&1
   ) || true
   chmod 700 "$_np_probe/locked"
   rm -rf "$_np_probe"
