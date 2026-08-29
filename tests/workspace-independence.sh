@@ -194,8 +194,17 @@ esac
 if [ -z "$_wrote" ]; then
   _pass suite-writes-nothing-into-the-tree-it-runs-from
 else
+  # One accumulator, so the prefix has to be true of everything that can land in
+  # it -- a path a test left behind AND the population having lost its writer.
+  # "a test used its own root as TOPDIR and left:" was true of the first and
+  # false of the second, which is the shape this file warns about where it
+  # strips comments: a failure message asserting the opposite of the truth,
+  # sending a reader after a coupled test that does not exist. Splitting the
+  # branches into two _bad calls is worse -- the tail below would then _pass the
+  # same assertion name in the same run, and tests/oracle-baseline.sh counts
+  # '^PASS' and '^FAIL' separately.
   _bad suite-writes-nothing-into-the-tree-it-runs-from \
-    "a test used its own root as TOPDIR and left:$_wrote"
+    "unexpected state after the run:$_wrote"
 fi
 
 fi
