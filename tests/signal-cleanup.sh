@@ -51,7 +51,14 @@ for _f in tests/*.sh .githooks/*; do
   [ -f "$_f" ] || continue
   grep -qE '^[[:space:]]*trap .*[[:space:]]EXIT' "$_f" || continue
   _examined=$((_examined + 1))
-  grep -qE '^[[:space:]]*trap .*(INT|TERM)|_cleanup_on_signal' "$_f" ||
+  # The signal names in SIGNAL POSITION, and the helper as a CALL. Both halves
+  # over-matched before: `INT` and `TERM` were bare substrings, so a handler
+  # removing "$_PRINT_TMP" reported itself paired on the letters in the variable
+  # name; and the helper alternative was unanchored, so a COMMENT naming it was
+  # enough. Both were demonstrated against synthetic files. That matters more
+  # here than in most greps -- this assertion's whole job is to catch a file
+  # nobody has written yet, and it cannot be caught by the behavioural half.
+  grep -qE "^[[:space:]]*trap .*[[:space:]](INT|TERM)([[:space:]]|\$)|^[[:space:]]*_cleanup_on_signal([[:space:]]|\$)" "$_f" ||
     _unpaired="$_unpaired ${_f##*/}"
 done
 # The floor. Every clause above is "grep found nothing", which an empty tests/
@@ -74,10 +81,12 @@ _entries() { # dir
 }
 
 # --- behavioural: signal a real test, look at what survives ------------------
-# tests/workspace-independence.sh is the subject because it is the sharp case:
-# it is the only test whose temporary trees can legitimately grow a DISTDIR --
-# a coupled test running mediaforge inside the farm is what it exists to catch
-# -- so it is the one whose leak is measured in gigabytes rather than kilobytes.
+# tests/workspace-independence.sh is the subject because it is the sharp case.
+# Others point DISTDIR at a temporary tree too (tests/fetch-fail-no-cache.sh,
+# tests/checksum-verification.sh), but they put a fixture there and know its
+# size; this one's farms grow a DISTDIR only when a coupled test runs mediaforge
+# inside them, which is the unbounded case it exists to catch -- so it is the
+# one whose leak is measured in gigabytes rather than kilobytes.
 # Run under dash, not $SHELL or /bin/sh: bash cleans up on SIGTERM by itself
 # (measured above), so on a host whose /bin/sh is bash this assertion would pass
 # against the unfixed tree -- it did, on the first draft, which is how the shell
@@ -96,12 +105,12 @@ trap 'exit 143' TERM
 # on the host. mktemp(1) reads TMPDIR, which is how the subject's temporary
 # trees are made to land somewhere countable.
 _sub="$_tmp/subject-tmp"
-mkdir -p "$_sub"
 if ! command -v dash >/dev/null 2>&1; then
   printf 'NOTE: no dash on this host — the interrupted-run assertion was not measured\n'
   printf 'DONE: signal-cleanup\n'
   exit "$_fail"
 fi
+mkdir -p "$_sub"
 TMPDIR="$_sub" dash tests/workspace-independence.sh >"$_tmp/out" 2>&1 &
 _pid=$!
 
@@ -128,7 +137,14 @@ if [ "$(_entries "$_sub")" -eq 0 ]; then
   wait "$_pid" 2>/dev/null || true
 else
   kill -TERM "$_pid" 2>/dev/null || true
-  wait "$_pid" 2>/dev/null || true
+  # The EXIT STATUS is the discriminator, and it is free. An empty directory on
+  # its own does not say the signal did anything: a subject that catches TERM
+  # and RESUMES -- which is what `trap ... EXIT INT TERM` does, per POSIX, in
+  # twelve other files here -- runs to completion and cleans up through its own
+  # EXIT trap, and so does one that simply finished before the kill landed. Both
+  # exit 0 and both leave nothing, which is indistinguishable from the fix. 143
+  # is 128+SIGTERM: the subject was ended BY the signal.
+  _status=0; wait "$_pid" || _status=$?
   # A signalled shell does not stop instantly: the handler has to run, and the
   # rm -rf inside it takes as long as the tree is large. Poll for the directory
   # to empty rather than reading it once, so the assertion measures whether
@@ -140,7 +156,9 @@ else
     sleep 0.05
   done
   _left=$(find "$_sub" -mindepth 1 -maxdepth 1 2>/dev/null | tr '\n' ' ')
-  if [ -z "$_left" ]; then
+  if [ "$_status" -ne 143 ]; then
+    _bad interrupted-run-leaves-nothing "the subject exited $_status rather than by the signal — nothing was measured"
+  elif [ -z "$_left" ]; then
     _pass interrupted-run-leaves-nothing
   else
     _bad interrupted-run-leaves-nothing "a SIGTERM left behind:$_left"
