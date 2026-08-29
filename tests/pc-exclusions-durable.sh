@@ -238,7 +238,9 @@ _good_record=$(cat "$_ws4/.pc-exclude" 2>/dev/null)
 printf '../evil.pc\n' > "$_ws4/.pc-skip-queue"
 _refuse_log=$(_pc_step "$_ws4" pc_exclusions_finalize)
 _refuse_rc=$?
-if [ "$_refuse_rc" -ne 0 ] && [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ]; then
+if [ "$_refuse_rc" -ne 0 ] &&
+   [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ] &&
+   printf '%s\n' "$_refuse_log" | grep -q 'was rejected'; then
   _pass an-all-rejected-queue-refuses-and-keeps-the-previous-record
 else
   _bad an-all-rejected-queue-refuses-and-keeps-the-previous-record \
@@ -257,11 +259,53 @@ fi
 : > "$_ws4/.pc-skip-queue"
 _empty_log=$(_pc_step "$_ws4" pc_exclusions_finalize)
 _empty_rc=$?
-if [ "$_empty_rc" -ne 0 ] && [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ]; then
+# The message is asserted, not just the non-zero exit. An empty queue also
+# reaches the older all-rejected check further down -- the read loop appends
+# nothing, so the survivor count is zero either way -- and a test that asks only
+# "did something die" passes with both new guards deleted. Measured: a reviewer
+# removed them and all eleven assertions stayed green.
+if [ "$_empty_rc" -ne 0 ] &&
+   [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ] &&
+   printf '%s\n' "$_empty_log" | grep -q 'exists but is empty'; then
   _pass an-empty-queue-refuses-and-keeps-the-previous-record
 else
   _bad an-empty-queue-refuses-and-keeps-the-previous-record \
     "rc=$_empty_rc, record now [$(tr '\n' ' ' < "$_ws4/.pc-exclude" 2>/dev/null)], said: $(printf '%s' "$_empty_log" | tr '\n' ' ')"
+fi
+
+# The mismatch branch itself, reached by making the measurement disagree with
+# the loop. A genuine mid-read I/O fault cannot be induced from a test, but the
+# guard's input can: a `wc` on PATH that reports a count the loop cannot have
+# read is the same disagreement the fault produces, and it is the only thing
+# this branch ever looks at. The suite already shims `sudo` this way in
+# tests/install-manifest-reconcile.sh.
+#
+# The shim lives inside the command substitution's subshell, so PATH is not
+# exported into the rest of this file -- an assignment prefixing a FUNCTION call
+# persists in the caller's shell, unlike one prefixing a command.
+_wcshim="$_tmp/wcshim"
+mkdir -p "$_wcshim" || exit 1
+cat > "$_wcshim/wc" <<'SHIM'
+#!/bin/sh
+# More lines than any queue this test writes, so the counts cannot agree.
+printf '%s
+' 99
+SHIM
+chmod +x "$_wcshim/wc"
+printf 'freetype2.pc\n' > "$_ws4/.pc-skip-queue"
+_trunc_log=$(
+  PATH="$_wcshim:$PATH"
+  export PATH
+  _pc_step "$_ws4" pc_exclusions_finalize
+)
+_trunc_rc=$?
+if [ "$_trunc_rc" -ne 0 ] &&
+   [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ] &&
+   printf '%s\n' "$_trunc_log" | grep -q 'truncated'; then
+  _pass a-short-read-refuses-and-keeps-the-previous-record
+else
+  _bad a-short-read-refuses-and-keeps-the-previous-record \
+    "rc=$_trunc_rc, record now [$(tr '\n' ' ' < "$_ws4/.pc-exclude" 2>/dev/null)], said: $(printf '%s' "$_trunc_log" | tr '\n' ' ')"
 fi
 
 # An unreadable queue, which is the real shape of the unchecked-`sort` defect:
