@@ -136,7 +136,7 @@ else
   printf '%s\n' "$_offenders" | sed '/^[[:space:]]*$/d' >&2
 fi
 
-# ─── the scanner detects, on a tree that is not clean ───────────────────────
+# ─── the fixture does not run itself ────────────────────────────────────────
 # Skipped when this file is the one under test. The fixture RUNS the scanner,
 # and a scanner that runs its own fixture runs a scanner that runs its own
 # fixture: measured, that fork-bombs the machine until nothing can spawn. The
