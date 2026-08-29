@@ -156,3 +156,34 @@ _fn_body() { # file  function-name
     f { print }
     f && /^\}/ { f = 0 }'
 }
+
+# Does this function actually USE the composed CFLAGS -- in code, not in prose?
+#
+# Both scanners ask it: tests/compiler-flags.sh to tell a recipe that DERIVES
+# its flags from one that replaces them, and tests/debug-levels.sh to vouch for
+# a helper feeding a make macro. Both asked it as a bare substring search over
+# the helper's whole body, and a security review reproduced the bypass that
+# allows:
+#
+#     _evil_cflags() {
+#       # NOTE: does not use $CFLAGS here, this is a decoy comment only
+#       printf '%s' "-O2 -w"
+#     }
+#
+# The comment satisfied the search, so a helper dropping -fPIC, the prefix
+# include path and any operator hardening flags read as legitimate derivation.
+#
+# Full-line comments are stripped and the reference must be a real token, not a
+# substring: a bare CFLAGS match also hits the macro NAMES -- XCFLAGS and
+# CCFLAGS both end in it -- and $CFLAGS_BACKUP is not a use of $CFLAGS either.
+#
+# Residual, stated rather than papered over: a trailing comment on a line that
+# is otherwise code (`printf '%s' "-O2"  # $CFLAGS`) still satisfies this.
+# Stripping those means parsing shell quoting, since a # inside a quoted flag
+# value is not a comment. The reproduced bypass was a comment-only line; this
+# closes that and leaves the narrower one visible here.
+_uses_composed_cflags() { # file  function-name
+  _fn_body "$1" "$2" |
+    grep -vE '^[[:space:]]*#' |
+    grep -qE '[$]CFLAGS([^_A-Za-z0-9]|$)'
+}

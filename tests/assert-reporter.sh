@@ -14,7 +14,7 @@
 # `grep -c '^FAIL'` to decide whether a newly added file could detect its own
 # change, so the reporters' exact bytes are a gate input, not cosmetics.
 #
-# THREE assertions, and the split is deliberate.
+# FOUR assertions, and the split is deliberate.
 #
 # Probes 1-6 are ONE compound assertion, for a reason that is now HISTORICAL and
 # is written in the past tense on purpose. oracle-baseline requires that no
@@ -190,7 +190,46 @@ _wired name tests/lib-assert.sh '_pass|_bad'
 EOF
 _want 'wired-needle-is-literal' "$(cat "$_err")" 'FAIL [name] tests/lib-assert.sh never mentions _pass|_bad'
 
-_wrong_wired=$_wrong   # last handoff: no _want may follow this line
+_wrong_wired=$_wrong
+_wrong=''
+
+# 13-15. _uses_composed_cflags is the fourth thing this library owns, and the
+# one whose failure is silent in the worst way: it is the predicate two gates
+# use to decide whether a recipe DERIVES its compiler flags or REPLACES them.
+# Mutating the comment-stripping out of it leaves both gates green on a recipe
+# that drops -fPIC and the prefix include path -- measured, which is why it is
+# pinned here rather than only through the gates that call it.
+_probe_dir=$(mktemp -d) || exit 1
+cat > "$_probe_dir/decoy.sh" <<'DECOY'
+_decoy_cflags() {
+  # NOTE: does not use $CFLAGS here, this is a decoy comment only
+  printf '%s' "-O2 -w"
+}
+DECOY
+cat > "$_probe_dir/real.sh" <<'REAL'
+_real_cflags() { printf '%s' "-std=gnu99 $CFLAGS"; }
+_named_cflags() { printf '%s' "$CFLAGS_BACKUP"; }
+REAL
+
+if _uses_composed_cflags "$_probe_dir/decoy.sh" _decoy_cflags; then
+  _want 'cflags-decoy-comment-rejected' 'exempted' 'rejected'
+else
+  _want 'cflags-decoy-comment-rejected' 'rejected' 'rejected'
+fi
+if _uses_composed_cflags "$_probe_dir/real.sh" _real_cflags; then
+  _want 'cflags-real-derivation-accepted' 'accepted' 'accepted'
+else
+  _want 'cflags-real-derivation-accepted' 'rejected' 'accepted'
+fi
+# A longer name that merely STARTS with CFLAGS is not a use of it.
+if _uses_composed_cflags "$_probe_dir/real.sh" _named_cflags; then
+  _want 'cflags-longer-name-not-a-use' 'accepted' 'rejected'
+else
+  _want 'cflags-longer-name-not-a-use' 'rejected' 'rejected'
+fi
+rm -rf "$_probe_dir"
+
+_wrong_cflags=$_wrong   # last handoff: no _want may follow this line
 
 if [ -z "$_wrong_rep" ]; then
   _pass reporter-output-contract-holds
@@ -210,6 +249,12 @@ else
   _bad wired-helper-contract-holds "$_wrong_wired"
 fi
 
+if [ -z "$_wrong_cflags" ]; then
+  _pass cflags-derivation-predicate-holds
+else
+  _bad cflags-derivation-predicate-holds "$_wrong_cflags"
+fi
+
 printf 'DONE: assert-reporter\n'
 
 # Exits on $_wrong, NOT on $_fail, and this is the one file in the suite that
@@ -218,5 +263,5 @@ printf 'DONE: assert-reporter\n'
 # line and still exit 0 -- measured: mutating `_fail=1` out of the library left
 # this file reporting the defect on stdout while tests/run.sh, which reads exit
 # status, went green.
-[ -z "$_wrong_rep$_wrong_ev$_wrong_wired" ] || exit 1
+[ -z "$_wrong_rep$_wrong_ev$_wrong_wired$_wrong_cflags" ] || exit 1
 exit 0

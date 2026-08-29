@@ -469,7 +469,7 @@ $(_fn_body "$_r" "$_mf_h")"
   if [ -z "$_mf_composed" ]; then
     for _mf_h in $(printf '%s\n' "$_mf_eff" | grep -oE 'FLAGS="?[$]\(_[a-z0-9_]+\)' |
                    sed 's/[^_a-z0-9]//g' | sort -u); do
-      _fn_body "$_r" "$_mf_h" | grep -qE '[$]CFLAGS' || continue
+      _uses_composed_cflags "$_r" "$_mf_h" || continue
       _mf_composed="via $_mf_h"
       break
     done
@@ -696,10 +696,54 @@ done
 # tests/oracle-baseline.sh requires every assertion in a NEWLY ADDED file to
 # fail on the merge base, and the other patches in patches/ are well-formed
 # there -- those assertions would pass, and the gate would reject the file.
+# One implementation, two callers: the tree scan below and the fixtures after it.
+_mf_scan_hunks() { # patch-file
+  awk '
+    function flush() {
+      if (hdr != "" && (o != declo || n != decln))
+        print hdr " declares " declo "/" decln " but body has " o "/" n
+      hdr = ""
+    }
+    { line[NR] = $0 }
+    END {
+      for (i = 1; i <= NR; i++) {
+        l = line[i]
+        # A file header is the PAIR "--- x" / "+++ y". Matching "--- " alone is
+        # wrong: a diff that REMOVES a source line beginning with "-- " renders
+        # as "--- a comment", which is a body line, and treating it as a header
+        # reports a well-formed patch as malformed. SQL, Lua, Haskell and Ada
+        # all comment with --, and no patch in the tree happens to today.
+        if (l ~ /^--- / && line[i + 1] ~ /^\+\+\+ /) { flush(); i++; continue }
+        if (l ~ /^diff /) { flush(); continue }
+        # git format-patch ends the diff with the signature delimiter "-- ",
+        # followed by a version line; without this the trailer counts as removed
+        # lines against the last hunk.
+        if (l == "-- ") { flush(); continue }
+        if (l ~ /^@@/) {
+          flush()
+          hdr = l; o = 0; n = 0
+          split(l, f, " ")
+          declo = f[2]; decln = f[3]
+          sub(/^-[0-9]+,?/, "", declo); sub(/^\+[0-9]+,?/, "", decln)
+          if (declo == "") declo = 1
+          if (decln == "") decln = 1
+          continue
+        }
+        if (hdr == "") continue
+        if (l ~ /^\\/) continue
+        if (l ~ /^-/) { o++; continue }
+        if (l ~ /^\+/) { n++; continue }
+        o++; n++
+      }
+      flush()
+    }' "$1"
+}
+
 for _mf_patch in patches/*.patch; do
   [ -f "$_mf_patch" ] || continue
   # Three shapes a naive counter gets wrong, each found by running it against
-  # the twelve patches already in the tree rather than only against the new one:
+  # the fourteen patches in the tree rather than only against the two being
+  # fixed here:
   #   - an EMPTY line is a legitimate context line (a diff may drop the leading
   #     space on a blank line) -- oapv-install-libdir has them, and reading them
   #     as "not context" under-counts;
@@ -707,36 +751,45 @@ for _mf_patch in patches/*.patch; do
   #     current hunk, not be counted as its -/+ lines -- libjxl-static-linking
   #     patches two files and over-counted by exactly one each way;
   #   - "\ No newline at end of file" belongs to neither side.
-  # All twelve pass with these handled, which is what says the scan measures the
-  # format rather than its own assumptions.
-  _mf_bad_hunk=$(awk '
-    function flush() {
-      if (hdr != "" && (o != declo || n != decln))
-        print hdr " declares " declo "/" decln " but body has " o "/" n
-      hdr = ""
-    }
-    /^(--- |\+\+\+ |diff )/ { flush(); next }
-    /^@@/ {
-      flush()
-      hdr = $0; o = 0; n = 0
-      declo = $2; decln = $3
-      sub(/^-[0-9]+,?/, "", declo); sub(/^\+[0-9]+,?/, "", decln)
-      if (declo == "") declo = 1
-      if (decln == "") decln = 1
-      next
-    }
-    hdr == "" { next }
-    /^\\/ { next }
-    /^-/    { o++; next }
-    /^\+/   { n++; next }
-    { o++; n++ }
-    END { flush() }' "$_mf_patch")
+  # All fourteen pass with these handled, which is what says the scan measures
+  # the format rather than its own assumptions.
+  _mf_bad_hunk=$(_mf_scan_hunks "$_mf_patch")
   if [ -z "$_mf_bad_hunk" ]; then
     _pass "patch-hunk-counts-$(basename "$_mf_patch" .patch)"
   else
     _bad "patch-hunk-counts-$(basename "$_mf_patch" .patch)" "$_mf_bad_hunk"
   fi
 done
+
+
+# The scanner gets its own fixtures, both directions. Its failure mode is
+# a false FAIL on a correct patch -- the pre-push gate stopping a build for a
+# patch that is fine -- and nothing in patches/ exercises the shapes that cause
+# it, which is exactly why they need synthesising:
+#   - a diff that REMOVES a line beginning with "-- " renders as "--- a comment"
+#     and is a body line, not a file header (SQL, Lua, Haskell, Ada comment that
+#     way);
+#   - a diff that ADDS one beginning with "++ " renders as "+++ b tricky";
+#   - git format-patch ends with the signature delimiter "-- " and a version.
+# All three were reported malformed by the first version of the rule.
+_mf_pp=$(mktemp -d) || { printf 'FAIL [patch-scan-fixture]\n' >&2; exit 1; }
+trap 'rm -rf "$_mf_pp"' EXIT INT TERM
+printf '%s\n' '--- a/x.sql' '+++ b/x.sql' '@@ -1,3 +1,2 @@' ' keep' '--- a comment' ' tail' > "$_mf_pp/removed-dashes.patch"
+printf '%s\n' '--- a/z.c' '+++ b/z.c' '@@ -1,3 +1,3 @@' ' a' '-b' '+c' ' d' '-- ' '2.43.0' > "$_mf_pp/format-patch-trailer.patch"
+printf '%s\n' '--- a/w.c' '+++ b/w.c' '@@ -1,2 +1,2 @@' ' a' '-b' '+c' ' d' > "$_mf_pp/genuinely-malformed.patch"
+for _mf_fx_patch in removed-dashes format-patch-trailer genuinely-malformed; do
+  _mf_patch="$_mf_pp/$_mf_fx_patch.patch"
+  _mf_out=$(_mf_scan_hunks "$_mf_patch")
+  case "$_mf_fx_patch" in
+    genuinely-malformed)
+      if [ -n "$_mf_out" ]; then _pass "patch-scan-catches-$_mf_fx_patch"
+      else _bad "patch-scan-catches-$_mf_fx_patch" "a body longer than its header declares was not reported"; fi ;;
+    *)
+      if [ -z "$_mf_out" ]; then _pass "patch-scan-allows-$_mf_fx_patch"
+      else _bad "patch-scan-allows-$_mf_fx_patch" "reported a well-formed patch: $_mf_out"; fi ;;
+  esac
+done
+rm -rf "$_mf_pp"
 
 # --- the gate that runs the gates ----------------------------------------
 # tests/run.sh names its ~30 test files by hand, so adding a test means
