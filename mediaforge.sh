@@ -22,6 +22,7 @@ PREFIX="$TOPDIR/workspace"
 . "$SCRIPT_DIR/lib/download.sh"
 . "$SCRIPT_DIR/lib/makesum.sh"
 . "$SCRIPT_DIR/lib/cleanup.sh"
+. "$SCRIPT_DIR/lib/pc-exclusions.sh"
 . "$SCRIPT_DIR/lib/framework.sh"
 . "$SCRIPT_DIR/lib/resolve.sh"
 . "$SCRIPT_DIR/lib/menu.sh"
@@ -542,8 +543,9 @@ cmd_build() {
 
   # Reset the pc-skip queue at the start of every build. Recipes with
   # PKG_TRANSITIVE_UTIL=true append their .pc filenames; recipes/ffmpeg.sh
-  # processes the queue after FFmpeg's configure has consumed the .pc files.
-  rm -f "$PREFIX/.pc-skip-queue" 2>/dev/null
+  # finalizes the queue after FFmpeg's configure has consumed the .pc files.
+  # See lib/pc-exclusions.sh for why the finalized list is not reset here.
+  pc_exclusions_reset
 
   # Add CUDA to PATH if installed (common locations)
   for _cuda_dir in /opt/cuda /usr/local/cuda; do
@@ -875,7 +877,8 @@ cmd_check_shadowers() {
         printf 'Usage: %s check-shadowers [--strict]\n\n' "$PROGNAME"
         printf 'Audit workspace .pc files against the system pkgconfig path.\n'
         printf 'Reports each system overlap as either:\n'
-        printf '  [expected]   — recipe declared PKG_TRANSITIVE_UTIL=true; .pc dropped at build end\n'
+        printf '  [expected]   — recipe declared PKG_TRANSITIVE_UTIL=true; .pc kept in the\n'
+        printf '                 workspace but not installed\n'
         printf '  [NEW SHADOW] — would be installed AND system has it; review whether the recipe\n'
         printf '                 should set PKG_TRANSITIVE_UTIL=true\n\n'
         printf '  --strict   exit 1 when new shadowers are found (default: warn only)\n'
@@ -913,12 +916,13 @@ cmd_check_shadowers() {
   _new=0
   _known=0
 
-  # First pass: recipe-declared transitive utils. These were removed from the
-  # workspace by recipes/ffmpeg.sh's queue-processing step, so they won't be
-  # in the dir listing — but they're still valid audit subjects. Probe the
+  # First pass: recipe-declared transitive utils. These stay in the workspace
+  # — the next build links against them — and are excluded at install time
+  # instead, so the dir listing says nothing about them either way. Probe the
   # system for each and report it as [expected dropped] (recipe intent +
   # system has it, doctrine working as designed) or [expected NO SYSTEM]
-  # (recipe dropped but system doesn't have it — falls through to nothing).
+  # (recipe drops it but the system doesn't have it — falls through to
+  # nothing). "Dropped" is about the INSTALL prefix throughout.
   for _e in $_expected_set; do
     if PKG_CONFIG_PATH="" pkg-config --exists "$_e" 2>/dev/null; then
       _sys_ver=$(PKG_CONFIG_PATH="" pkg-config --modversion "$_e" 2>/dev/null)
@@ -931,8 +935,8 @@ cmd_check_shadowers() {
   done
 
   # Second pass: workspace .pc files that overlap with system. These ARE
-  # being installed (not in the recipe-intent skip-queue) and might be a
-  # missed transitive-util declaration. Codec libs (x264, vpx, x265, ...)
+  # being installed (no recipe declared them) and might be a missed
+  # transitive-util declaration. Codec libs (x264, vpx, x265, ...)
   # legitimately appear here because they're intentionally installed for
   # downstream static link.
   for _pc in "$_pc_dir"/*.pc; do

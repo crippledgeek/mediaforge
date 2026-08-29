@@ -1,13 +1,21 @@
 #!/bin/sh
 # Install/uninstall mediaforge-built FFmpeg binaries and libraries.
 #
-# Install layer is intentionally dumb: it copies whatever is in the
-# workspace pkgconfig dir at install time. Transitive-utility .pc files
-# (fontconfig, harfbuzz, freetype2, ...) are removed from the workspace
-# by recipes/ffmpeg.sh's post-build hook, which processes the queue
-# populated by recipes that declared PKG_TRANSITIVE_UTIL=true. Decision
-# of "should this .pc be installed?" lives in the recipe layer where the
-# recipe author knows the intent — no central distro-flavored stop-list.
+# Install layer copies the workspace pkgconfig dir minus the transitive
+# utilities (fontconfig, harfbuzz, freetype2, ...), which would shadow the
+# system's own. Which names those are is not decided here: each is declared
+# by the recipe that owns it (PKG_TRANSITIVE_UTIL=true), recorded by
+# recipes/ffmpeg.sh once configure has consumed them, and read back through
+# pc_is_excluded. The intent stays in the recipe layer where the author knows
+# it — no central distro-flavored stop-list — and the workspace keeps the
+# files, so it can be built from again (GH-60). See lib/pc-exclusions.sh.
+
+# Sourced here rather than left to the caller, unlike lib/utils.sh: the
+# exclusion record is an implementation detail of the pkgconfig loop below, and
+# five callers already source this file by hand (mediaforge.sh plus four test
+# drivers). A dependency none of them names is one none of them can forget.
+# shellcheck source=lib/pc-exclusions.sh
+. "$SCRIPT_DIR/lib/pc-exclusions.sh"
 
 # ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -514,13 +522,17 @@ do_install() {
     log "  lib/$_name"
   done
 
-  # pkgconfig files (rewrite prefix). The workspace pkgconfig dir was
-  # already curated by recipes/ffmpeg.sh — transitive-util .pc files were
-  # removed there per each recipe's PKG_TRANSITIVE_UTIL declaration.
-  # Install layer is dumb: copy whatever survived.
+  # pkgconfig files (rewrite prefix), minus the transitive utilities the
+  # build recorded per each recipe's PKG_TRANSITIVE_UTIL declaration. The
+  # skip is by NAME against that record rather than by absence from the dir:
+  # the files stay in the workspace so the next build can link against them.
   for _pc in "$PREFIX/lib/pkgconfig/"*.pc; do
     [ -f "$_pc" ] || continue
     _name=$(basename "$_pc")
+    if pc_is_excluded "$_name"; then
+      log "  lib/pkgconfig/$_name (skipped — transitive utility)"
+      continue
+    fi
     _tmppc="$PREFIX/.logs/_pc_rewrite_$$"
     awk -v old="$PREFIX" -v new="$_install_prefix" '{gsub(old, new)} {print}' "$_pc" > "$_tmppc"
     _install_file "$_tmppc" "$_install_prefix/lib/pkgconfig/$_name" "$_manifest_tmp" "$_priv"

@@ -39,6 +39,12 @@ sh tests/install-privileged-execs.sh
 # removed rather than orphaned. Nothing else in the suite runs install TWICE,
 # which is the only way the defect is reachable.
 sh tests/install-manifest-reconcile.sh
+# Pins #60: the transitive-util .pc files stay in the workspace and are excluded
+# at install time instead of being deleted from it. Deleting them made the
+# workspace single-use -- the recipes that own them are stamped, so the second
+# build's FFmpeg configure resolved the names from the system and died on a
+# link probe, blaming an unrelated library.
+sh tests/pc-exclusions-durable.sh
 sh tests/checksum-verification.sh
 # Prose hygiene, not behaviour: a comment citing an in-tree file by LINE is
 # correct only until the next edit above it, and nothing else in this suite
