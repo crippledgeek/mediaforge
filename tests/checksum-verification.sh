@@ -1446,10 +1446,17 @@ fi
 # ANDed with a grep for the banner text in mediaforge.sh: "no recording banner
 # was printed" is trivially true on a tree that has no such banner, so on its
 # own this would pass on the baseline for a reason unrelated to the fix.
-# The assignment is exported inside the command substitution's own subshell
-# rather than prefixed onto _mf: a prefix on a FUNCTION call is not exported to
-# the processes that function starts, so the variable this assertion is about
-# would never reach mediaforge at all and the check would pass vacuously.
+# Exported inside the command substitution's own subshell rather than prefixed
+# onto _mf. The prefix WOULD reach mediaforge -- measured on this machine's sh,
+# dash, bash and zsh, all four of which put FOO in the environment of a child
+# started by `FOO=1 f`. What the prefix does not settle is what happens AFTER:
+# POSIX.1-2024 2.9.1.2 says such assignments "shall affect the current execution
+# environment during the execution of the function" and that it is "unspecified
+# whether or not the variable assignments persist after the completion of the
+# function". A shell that persists it would leave MAKESUM_MODE=true set for
+# every later _mf call in this file -- the one setting whose whole effect is to
+# disable checksum verification and rewrite sidecars. The subshell ends the
+# question rather than relying on the four shells that happen to be here.
 _envout=$(export MAKESUM_MODE=true; _mf build --dry-run --yes 2>&1)
 if grep -q 'recording is ACTIVE' "$ROOT/mediaforge.sh" \
    && ! printf '%s' "$_envout" | grep -q 'recording is ACTIVE'; then

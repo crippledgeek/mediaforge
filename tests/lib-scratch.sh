@@ -61,6 +61,19 @@ _scratch_cleanup() {
 # the scratch dir as $(pwd). Called by absolute path for the same reason:
 # ./mediaforge.sh would not resolve from there, and $SCRIPT_DIR is derived from
 # $0 rather than from the cwd, so the framework still loads from the repo.
+#
+# The missing-directory case is reported rather than left to `cd` — an early
+# _scratch_cleanup, or a /tmp reaper on a long run, and `cd` fails, mediaforge
+# never runs, and this returns EMPTY OUTPUT with a non-zero status that every
+# caller here discards with `|| true`. Empty output satisfies each of the
+# thirty-odd `_run_no`/`grep -q`-negated assertions in tests/dry-run-matrix.sh
+# and tests/negative.sh, so the failure mode is a green suite that ran nothing.
+# 127 rather than 1 so a caller that does look at the status sees "could not
+# execute" rather than "mediaforge said no".
 _mf() {
+  if [ ! -d "${_MF_SCRATCH:-}" ]; then
+    printf 'lib-scratch: the scratch TOPDIR is gone (_scratch_init not run, or removed early)\n' >&2
+    return 127
+  fi
   ( cd "$_MF_SCRATCH" && "$_MF_ROOT/mediaforge.sh" "$@" )
 }

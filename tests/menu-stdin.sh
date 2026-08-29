@@ -13,10 +13,9 @@ _fail=0
 _scratch_init "$ROOT"
 
 _BIN=$(mktemp -d)
-# One handler for both temporaries: `trap ... EXIT` has no append form in POSIX
-# sh, so a second registration would replace this one rather than add to it.
-# Registered after _scratch_init so the handler cannot run before the function
-# it calls is defined.
+# One handler for both temporaries, for the reason tests/lib-scratch.sh gives
+# where it declines to register its own. Registered after _scratch_init so it
+# cannot run before the function it calls is defined.
 trap 'rm -rf "$_BIN"; _scratch_cleanup' EXIT
 printf '#!/bin/sh\nexit 127\n' >"$_BIN/whiptail"
 chmod +x "$_BIN/whiptail"

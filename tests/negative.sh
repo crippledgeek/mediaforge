@@ -77,13 +77,12 @@ _glslang_stampfile="$_stampdir/glslang-$_gv"
 # Derive the xavs2 stamp name the same way for the GPL stamp-leak check below.
 _xv=$(sh -c '. recipes/video/xavs2.sh 2>/dev/null; printf "%s" "$PKG_VERSION"')
 _xavs2_stampfile="$_stampdir/xavs2-$_xv"
-# Clean up on exit even if a build aborts early under set -e. One handler, not
-# four: `trap ... EXIT` has no append form in POSIX sh, so a second registration
-# would replace this one rather than add to it. Removing the scratch TOPDIR is
-# now the whole cleanup — every stamp this file plants lives inside it, which is
-# the point of the change. The per-assertion `rm -f` calls below stay, because
-# they sequence the assertions rather than clean up after them: each one must
-# not see the stamp the previous one planted.
+# Clean up on exit even if a build aborts early under set -e. One handler, for
+# the reason tests/lib-scratch.sh gives where it declines to register its own —
+# and removing the scratch TOPDIR is now the whole cleanup, since every stamp
+# this file plants lives inside it. The per-assertion `rm -f` calls below stay,
+# because they sequence the assertions rather than clean up after them: each one
+# must not see the stamp the previous one planted.
 trap '_scratch_cleanup' EXIT
 : > "$_stampfile"
 _out=$(_mf build --tls=openssl --dry-run --yes 2>&1) || true
