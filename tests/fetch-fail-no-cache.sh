@@ -21,13 +21,20 @@ command -v python3 >/dev/null 2>&1 || { echo 'SKIP (no python3)'; exit 0; }
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 
+# lib-assert is sourced HERE rather than beside the other libraries below,
+# because the trap a few lines down needs _cleanup_on_signal to exist: a helper
+# defined after the handler it protects leaves the window between them unguarded.
+# shellcheck source=tests/lib-assert.sh
+. "$ROOT/tests/lib-assert.sh"
+
 DISTDIR=$(mktemp -d)
 PORT_FILE=$(mktemp)
 SRV_PID=''
 
 # Single-quote so the variables expand at trap time, not now (shellcheck-clean,
 # matches the trap idiom used by the other tests).
-trap 'kill "$SRV_PID" 2>/dev/null; rm -rf "$DISTDIR"; rm -f "$PORT_FILE"' EXIT INT TERM
+trap 'kill "$SRV_PID" 2>/dev/null; rm -rf "$DISTDIR"; rm -f "$PORT_FILE"' EXIT
+_cleanup_on_signal
 
 # Tiny HTTP server: bind 127.0.0.1 on an ephemeral port, answer every GET with
 # 502 + an HTML body, and write the chosen port to PORT_FILE so the shell can
@@ -76,8 +83,6 @@ fi
 # shellcheck source=lib/download.sh
 . "$ROOT/lib/download.sh"
 _fail=0
-# shellcheck source=tests/lib-assert.sh
-. "$ROOT/tests/lib-assert.sh"
 export DISTDIR
 
 _archive="gmp-6.3.0.tar.xz"

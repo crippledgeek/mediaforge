@@ -48,7 +48,8 @@ _stubs=""
 # is also why _stub_repo assigns STUB_DIR in this shell -- an assignment inside
 # $( ) lands in a subshell, the parent's $_stubs stays empty, and the trap
 # cleans nothing while every assertion still passes.
-trap 'rm -rf "$BAD_SYNTAX" "$BAD_LINT" $_stubs' EXIT INT TERM
+trap 'rm -rf "$BAD_SYNTAX" "$BAD_LINT" $_stubs' EXIT
+_cleanup_on_signal
 
 # Both fixtures must be EXECUTABLE or the gate will not look at them: it filters
 # .githooks by the bit git itself uses to decide what is a hook.

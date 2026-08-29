@@ -66,7 +66,8 @@ fi
 # Scratch repo holding only this tree's .gitignore. core.excludesFile is pointed
 # at nothing so a developer's global ignores cannot answer for the repo's.
 _scratch=$(mktemp -d) || exit 1
-trap 'rm -rf "$_scratch"' EXIT INT TERM
+trap 'rm -rf "$_scratch"' EXIT
+_cleanup_on_signal
 git init -q "$_scratch" 2>/dev/null || { printf 'SKIP: cannot init a scratch repo\n'
   printf 'DONE: gitignore-artifacts\n'; exit 0; }
 cp .gitignore "$_scratch/.gitignore" 2>/dev/null || true

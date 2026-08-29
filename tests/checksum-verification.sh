@@ -39,7 +39,8 @@ _require_fn() {
 
 _fx=$(mktemp -d)
 SRV_PID=''
-trap 'kill "$SRV_PID" 2>/dev/null; rm -rf "$_fx"; _scratch_cleanup' EXIT INT TERM
+trap 'kill "$SRV_PID" 2>/dev/null; rm -rf "$_fx"; _scratch_cleanup' EXIT
+_cleanup_on_signal
 
 # Known-answer vector: sha256("test") is a published constant.
 printf 'test' > "$_fx/kat.txt"

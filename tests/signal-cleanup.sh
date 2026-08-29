@@ -36,12 +36,16 @@ _fail=0
 . "$ROOT/tests/lib-assert.sh"
 
 # --- static: every EXIT cleanup is paired with a signal handler --------------
-# The pairing, not the spelling. A file satisfies this by handling INT and TERM
-# somehow -- `_cleanup_on_signal`, its own `trap 'exit 130' INT`, or a combined
-# `trap ... EXIT INT TERM` -- because all three end with the temporary
-# directory gone, which is the property. Pinning one spelling would fail the two
-# files that got there first (tests/hash-comment-grammar.sh,
-# tests/signing-keys.sh) and were the model for the helper.
+# ONE spelling, now that there is one. This began tolerant -- any of three forms
+# counted, since all three end with the temporary directory gone -- and the
+# combined form turned out not to end the RUN, which is a second property and the
+# one a person pressing Ctrl-C is asking for. Measured, both shells:
+#
+#     trap '...' EXIT INT TERM, SIGINT -> cleaned up and KEPT RUNNING (dash, bash)
+#
+# So a file using it deletes its own fixtures and carries on against them. All 23
+# now call the helper, which exits; asserting the exact call is therefore both
+# possible and stronger than asserting the property loosely.
 #
 # Only files that REGISTER an EXIT trap are examined: a test with no temporary
 # state has nothing to clean up and is not an offender for saying so.
@@ -51,14 +55,14 @@ for _f in tests/*.sh .githooks/*; do
   [ -f "$_f" ] || continue
   grep -qE '^[[:space:]]*trap .*[[:space:]]EXIT' "$_f" || continue
   _examined=$((_examined + 1))
-  # The signal names in SIGNAL POSITION, and the helper as a CALL. Both halves
-  # over-matched before: `INT` and `TERM` were bare substrings, so a handler
-  # removing "$_PRINT_TMP" reported itself paired on the letters in the variable
-  # name; and the helper alternative was unanchored, so a COMMENT naming it was
-  # enough. Both were demonstrated against synthetic files. That matters more
-  # here than in most greps -- this assertion's whole job is to catch a file
-  # nobody has written yet, and it cannot be caught by the behavioural half.
-  grep -qE "^[[:space:]]*trap .*[[:space:]](INT|TERM)([[:space:]]|\$)|^[[:space:]]*_cleanup_on_signal([[:space:]]|\$)" "$_f" ||
+  # The helper as a CALL, anchored. An earlier, looser pattern matched `INT` and
+  # `TERM` as bare substrings anywhere on a trap line -- so a handler removing
+  # "$_PRINT_TMP" reported itself paired on the letters inside a variable name --
+  # and matched the helper unanchored, so a COMMENT naming it was enough. Both
+  # were demonstrated against synthetic files. It matters more here than in most
+  # greps: this assertion's whole job is to catch a file nobody has written yet,
+  # which the behavioural half structurally cannot see.
+  grep -qE "^[[:space:]]*_cleanup_on_signal([[:space:]]|\$)" "$_f" ||
     _unpaired="$_unpaired ${_f##*/}"
 done
 # The floor. Every clause above is "grep found nothing", which an empty tests/
@@ -71,6 +75,23 @@ elif [ -n "$_unpaired" ]; then
   _bad exit-cleanup-is-paired-with-signals "cleanup runs only when nothing goes wrong in:$_unpaired"
 else
   _pass exit-cleanup-is-paired-with-signals
+fi
+
+# The combined form, forbidden rather than merely not-preferred. `trap '...' EXIT
+# INT TERM` looks like it covers the signals and does clean up, but POSIX resumes
+# execution after a signal handler rather than exiting -- measured on this host
+# under both dash and bash: a subject sent SIGINT ran on for the rest of its loop
+# with its temporary directory already deleted. Twelve files here used it, so
+# Ctrl-C on the suite removed their fixtures and kept going against them.
+#
+# Separate from the assertion above rather than folded into it, because they fail
+# for different reasons and a reader of the failure should not have to guess
+# which: one says cleanup is unguarded, this one says the run does not stop.
+_combined=$(grep -lE "^[[:space:]]*trap .*[[:space:]]EXIT[[:space:]]+(INT|TERM)" tests/*.sh 2>/dev/null || true)
+if [ -n "$_combined" ]; then
+  _bad signal-ends-the-run "cleans up but keeps running, so Ctrl-C leaves the run going without its fixtures:$(printf '%s' "$_combined" | tr '\n' ' ')"
+else
+  _pass signal-ends-the-run
 fi
 
 # How many entries a directory holds. find rather than ls, because ls's output
@@ -98,8 +119,7 @@ _entries() { # dir
 # tests/oracle-baseline.sh counts assertions rather than expecting a fixed set.
 _tmp=$(mktemp -d) || { printf 'FAIL [tmpdir]\n' >&2; exit 1; }
 trap 'rm -rf "$_tmp"' EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+_cleanup_on_signal
 
 # Its own TMPDIR, so what the subject creates is separable from everything else
 # on the host. mktemp(1) reads TMPDIR, which is how the subject's temporary
