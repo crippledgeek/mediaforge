@@ -323,14 +323,14 @@ load_recipe() {
 run_recipe() {
   load_recipe "$1"
 
-  # Queue this recipe's .pc files for removal if it's a transitive utility.
-  # We do this BEFORE check_guards / stamp_check so the queue is populated
-  # even when the recipe is already-built or skipped. Default PKG_PC_FILES
-  # to "$PKG_NAME" when the recipe didn't override.
+  # Queue this recipe's .pc files as not-for-install if it's a transitive
+  # utility. We do this BEFORE check_guards / stamp_check so the queue is
+  # populated even when the recipe is already-built or skipped — that is what
+  # makes the answer a property of the build rather than of the subset of it
+  # that recompiled. Default PKG_PC_FILES to "$PKG_NAME" when the recipe
+  # didn't override. See lib/pc-exclusions.sh.
   if [ "$PKG_TRANSITIVE_UTIL" = true ]; then
-    for _pc in ${PKG_PC_FILES:-$PKG_NAME}; do
-      printf '%s.pc\n' "$_pc" >> "$PREFIX/.pc-skip-queue"
-    done
+    pc_exclusions_queue "${PKG_PC_FILES:-$PKG_NAME}"
   fi
 
   # Check guards

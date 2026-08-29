@@ -102,30 +102,13 @@ log "  ffmpeg:  $PREFIX/bin/ffmpeg"
 log "  ffprobe: $PREFIX/bin/ffprobe"
 log "  ffplay:  $PREFIX/bin/ffplay"
 
-# Process the recipe-declared pc-skip queue. Each transitive-utility recipe
-# (PKG_TRANSITIVE_UTIL=true) appended its .pc filenames during the build
-# pass. FFmpeg's configure has now consumed them to bake transitive link
-# flags inline into libav*.pc, so the source .pc files can be removed.
-# do_install then copies a workspace that already excludes them, with no
-# install-layer filtering logic needed.
-if [ -f "$PREFIX/.pc-skip-queue" ]; then
-  # rm -f is a no-op on missing files, so no [ -f ] gate is needed. This also
-  # handles the case where a .pc name is actually a symlink whose target was
-  # already removed in an earlier queue iteration (libpng.pc → libpng16.pc on
-  # the libpng recipe): [ -f symlink ] follows the link and reports false when
-  # the target is gone, leaving a dangling symlink behind. Unconditional
-  # rm -f removes the symlink itself.
-  _pcs=$(sort -u "$PREFIX/.pc-skip-queue")
-  printf '%s\n' "$_pcs" | while IFS= read -r _pc; do
-    [ -z "$_pc" ] && continue
-    # Path-traversal guard: queue entries are recipe-supplied constants but
-    # a typo like `PKG_PC_FILES="../../something"` would silently rm outside
-    # the pkgconfig dir. Reject any entry containing a slash or starting
-    # with a dot-segment.
-    case "$_pc" in */*|.*) warn "Skipping suspicious queue entry: $_pc"; continue ;; esac
-    rm -f "$PREFIX/lib/pkgconfig/$_pc"
-  done
-  _pc_skip_count=$(printf '%s\n' "$_pcs" | grep -c .)
-  log "  removed $_pc_skip_count transitive-util .pc file(s) declared by recipes"
-  rm -f "$PREFIX/.pc-skip-queue"
-fi
+# Finalize the recipe-declared pc-skip queue. Each transitive-utility recipe
+# (PKG_TRANSITIVE_UTIL=true) appended its .pc filenames during the build pass.
+# FFmpeg's configure has now consumed them to bake transitive link flags inline
+# into libav*.pc, so the names can be recorded as not-for-install.
+#
+# Recorded, not deleted. Deleting them here made the workspace single-use
+# (GH-60): the recipes that own them are stamped, so a second build never
+# reinstalls them and its configure resolves the names from the system instead.
+# do_install reads the list; see lib/pc-exclusions.sh for the whole argument.
+pc_exclusions_finalize

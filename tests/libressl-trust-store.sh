@@ -26,6 +26,8 @@ _fail=0
 
 # shellcheck source=tests/lib-assert.sh
 . "$_root/tests/lib-assert.sh"
+# shellcheck source=tests/lib-install-driver.sh
+. "$_root/tests/lib-install-driver.sh"
 # shellcheck source=tests/lib-scratch.sh
 . "$_root/tests/lib-scratch.sh"
 _scratch_init "$_root"
@@ -120,18 +122,14 @@ printf "STORED_OPENSSLDIR='%s'\n" "$_dest/custom/trust" >> "$_stage/.mediaforge-
 # injecting it is what previously let both install tests pass while the real
 # workflow shipped no bundle at all.
 
-# A separate `sh` process rather than a ( ) subshell: install.sh's do_install
-# reads PREFIX/AUTOINSTALL from the environment, and shadowing this script's own
-# PREFIX inside a subshell would both confuse the reader and leak install.sh's
-# functions into the assertions that follow.
+# The separate `sh` process is tests/lib-install-driver.sh's doing and its
+# header gives the reason.
+# Not _install_sh: this runs two entry points in ONE process with a probe
+# between them, which is the point -- the manifest is read back while
+# do_install's own process is still the one that wrote it. The source list is
+# still shared; only the body is this site's own.
 PREFIX="$_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-  sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    # resolve.sh too: install.sh calls resolve_openssldir from that file.
-    # mediaforge.sh sources it at :23, ahead of every install.sh source site,
-    # so this mirrors the real load order.
-    . "$SCRIPT_DIR/lib/resolve.sh"
-    . "$SCRIPT_DIR/lib/install.sh"
+  sh -c "$_MF_INSTALL_SOURCES"'
     do_install "$1"
     # `|| true`, not `|| echo 0`: grep -c already PRINTS 0 on no match and then
     # exits 1, so the fallback would append a second line and yield "0\n0".
@@ -179,13 +177,7 @@ printf "STORED_OPENSSLDIR='%s'\n" "$_sym_dest/escape/etc/ssl" >> "$_sym_stage/.m
 ln -s "$_sym_out" "$_sym_dest/escape"
 
 _sym_log=$(
-  PREFIX="$_sym_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-  sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    . "$SCRIPT_DIR/lib/resolve.sh"
-    . "$SCRIPT_DIR/lib/install.sh"
-    do_install "$1"
-  ' _ "$_sym_dest" 2>&1
+  _install_sh "$_sym_stage" do_install "$_sym_dest"
 ) || true
 
 if [ -f "$_sym_out/etc/ssl/cert.pem" ]; then
@@ -212,13 +204,7 @@ _bp=$(mktemp -d) || exit 1
 mkdir -p "$_bp/bin" "$_bp/.logs"
 printf 'FFMPEG-BINARY\n' > "$_bp/bin/ffmpeg"
 _bp_out=$(
-  PREFIX="$_bp" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-  sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    . "$SCRIPT_DIR/lib/resolve.sh"
-    . "$SCRIPT_DIR/lib/install.sh"
-    do_install "$1"
-  ' _ "$_bp" 2>&1
+  _install_sh "$_bp" do_install "$_bp"
 ) || true
 if [ "$(cat "$_bp/bin/ffmpeg" 2>/dev/null)" != "FFMPEG-BINARY" ]; then
   _bad install-into-build-prefix-refused \
@@ -243,13 +229,7 @@ mkdir -p "$_ap/real/bin" "$_ap/real/.logs"
 printf 'FFMPEG-BINARY\n' > "$_ap/real/bin/ffmpeg"
 ln -s "$_ap/real" "$_ap/alias"
 _ap_out=$(
-  PREFIX="$_ap/real" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-  sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    . "$SCRIPT_DIR/lib/resolve.sh"
-    . "$SCRIPT_DIR/lib/install.sh"
-    do_install "$1"
-  ' _ "$_ap/alias" 2>&1
+  _install_sh "$_ap/real" do_install "$_ap/alias"
 ) || true
 if [ "$(cat "$_ap/real/bin/ffmpeg" 2>/dev/null)" != "FFMPEG-BINARY" ]; then
   _bad aliased-prefix-resolved-and-refused \
@@ -288,13 +268,7 @@ else
   chmod 500 "$_cf_dest/locked/trust"
 
   _cf_out=$(
-    PREFIX="$_cf_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-    sh -c '
-      . "$SCRIPT_DIR/lib/utils.sh"
-      . "$SCRIPT_DIR/lib/resolve.sh"
-      . "$SCRIPT_DIR/lib/install.sh"
-      do_install "$1"
-    ' _ "$_cf_dest" 2>&1
+    _install_sh "$_cf_stage" do_install "$_cf_dest"
   ) || true
   chmod 700 "$_cf_dest/locked/trust" 2>/dev/null
 
@@ -330,13 +304,7 @@ printf "STORED_OPENSSLDIR='%s'\n" "$_leaf_dest/etc/ssl" >> "$_leaf_stage/.mediaf
 mkdir -p "$_leaf_dest/etc/ssl"
 ln -s "$_leaf_sentinel" "$_leaf_dest/etc/ssl/cert.pem"
 
-PREFIX="$_leaf_stage" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-  sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    . "$SCRIPT_DIR/lib/resolve.sh"
-    . "$SCRIPT_DIR/lib/install.sh"
-    do_install "$1"
-  ' _ "$_leaf_dest" >/dev/null 2>&1 || true
+_install_sh "$_leaf_stage" do_install "$_leaf_dest" >/dev/null || true
 
 # BOTH halves, because either alone is satisfiable by doing nothing: an
 # untouched sentinel proves only that no write escaped, which is trivially true

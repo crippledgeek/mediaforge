@@ -37,6 +37,8 @@ cd "$_root" || exit 1
 _fail=0
 # shellcheck source=tests/lib-assert.sh
 . "$_root/tests/lib-assert.sh"
+# shellcheck source=tests/lib-install-driver.sh
+. "$_root/tests/lib-install-driver.sh"
 
 # One temp root for the whole file, removed on exit however we leave. Each case
 # takes a fresh subdirectory of it, so a `exit 1` on a later mktemp cannot strand
@@ -62,23 +64,11 @@ _case() {
 # Both merge stderr internally, so call sites need no redirection of their own —
 # the output is captured and several assertions read it.
 _run_install() {
-  PREFIX="$1" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-  sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    . "$SCRIPT_DIR/lib/resolve.sh"
-    . "$SCRIPT_DIR/lib/install.sh"
-    do_install "$1"
-  ' _ "$2" 2>&1
+  _install_sh "$1" do_install "$2"
 }
 
 _run_uninstall() {
-  PREFIX="$1" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-  sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    . "$SCRIPT_DIR/lib/resolve.sh"
-    . "$SCRIPT_DIR/lib/install.sh"
-    do_uninstall "$1"
-  ' _ "$2" 2>&1
+  _install_sh "$1" do_uninstall "$2"
 }
 
 # A staging prefix holding one file of each class this file exercises, plus the
@@ -288,13 +278,11 @@ _run_with_damaged_helper() {
   else
     : > "$_fake_root/lib/remove-listed-files.sh"
   fi
-  _damaged_out=$(PREFIX="$_s" INSTALL_MANPAGES=0 AUTOINSTALL=yes \
-    SCRIPT_DIR="$_fake_root" VERBOSE=0 sh -c '
-      . "$SCRIPT_DIR/lib/utils.sh"
-      . "$SCRIPT_DIR/lib/resolve.sh"
-      . "$SCRIPT_DIR/lib/install.sh"
-      do_uninstall "$1"
-    ' _ "$_d" 2>&1)
+  # The subshell is what keeps MF_SCRIPT_DIR off the rest of this file: an
+  # assignment prefixing a FUNCTION call persists in the caller's shell, unlike
+  # one prefixing a command, so every later _run_install would load the damaged
+  # tree too.
+  _damaged_out=$( MF_SCRIPT_DIR="$_fake_root" _install_sh "$_s" do_uninstall "$_d" )
 }
 
 # Paired with "the tree is untouched" throughout: a caller that aborts for the
@@ -396,13 +384,14 @@ SHIM
 chmod +x "$_shim/sudo"
 _sudo_log="$_out_dir/sudo.log"
 : > "$_sudo_log"
+# Not _install_sh: this drives one internal helper with _priv forced, not an
+# entry point, and it needs the sudo shim on PATH.
 PATH="$_shim:$PATH" SUDO_LOG="$_sudo_log" \
-PREFIX="$_s" SCRIPT_DIR="$_root" VERBOSE=0 sh -c '
-  . "$SCRIPT_DIR/lib/utils.sh"
-  . "$SCRIPT_DIR/lib/install.sh"
+PREFIX="$_s" SCRIPT_DIR="$_root" VERBOSE=0 \
+sh -c "$_MF_INSTALL_SOURCES
   _priv=sudo
-  _remove_manifest_entries files "$1/.mediaforge-manifest" "$1"
-' _ "$_d" >/dev/null 2>&1
+  _remove_manifest_entries files \"\$1/.mediaforge-manifest\" \"\$1\"
+" _ "$_d" >/dev/null 2>&1
 _exec_count=$(wc -l < "$_sudo_log" | tr -d ' ')
 _entry_count=$(wc -l < "$_d/.mediaforge-manifest" | tr -d ' ')
 if [ "$_exec_count" = 1 ] && [ "$_entry_count" -gt 1 ] && [ ! -e "$_d/bin/ffmpeg" ]; then
@@ -503,13 +492,7 @@ _make_stage "$_s"
 _run_install "$_s" "$_d" >/dev/null
 mkdir -p "$_d/lib/orphan/nested" || exit 1
 _absent_prefix="$_out_dir/never-built"
-PREFIX="$_absent_prefix" INSTALL_MANPAGES=0 AUTOINSTALL=yes SCRIPT_DIR="$_root" VERBOSE=0 \
-  sh -c '
-    . "$SCRIPT_DIR/lib/utils.sh"
-    . "$SCRIPT_DIR/lib/resolve.sh"
-    . "$SCRIPT_DIR/lib/install.sh"
-    do_uninstall "$1"
-  ' _ "$_d" >/dev/null 2>&1
+_install_sh "$_absent_prefix" do_uninstall "$_d" >/dev/null 2>&1
 if [ ! -e "$_absent_prefix" ] && [ ! -d "$_d/lib/orphan" ]; then
   _pass uninstall-creates-nothing-outside-prefix
 else

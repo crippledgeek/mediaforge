@@ -113,7 +113,7 @@ pkg_configure() {
 | `PKG_HASH_FILE` | No | Digest sidecar path, when it is not `<recipe>.hash` |
 | `PKG_MUTEX_GROUP` | No | Names the selector group this recipe competes in (tls, aac, h264, ...) |
 | `PKG_PC_FILES` | No | The .pc files this recipe drops, when they are not named after it |
-| `PKG_TRANSITIVE_UTIL` | No | Set `true` if its .pc files are transitive utilities to strip after FFmpeg configure |
+| `PKG_TRANSITIVE_UTIL` | No | Set `true` if its .pc files are transitive utilities: kept in the workspace, excluded from the install prefix |
 | `PKG_CMAKE_BUILD_TYPE` | No | cmake build type (e.g. `Release`). Empty means none is passed — do NOT write `-DCMAKE_BUILD_TYPE` yourself |
 | `PKG_MESON_BUILDTYPE` | No | meson buildtype; defaults to `release` when unset |
 | `PKG_C_STD` | No | C standard this source needs (e.g. `gnu11`). The framework appends `-std=` for this recipe only |
