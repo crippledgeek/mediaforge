@@ -278,7 +278,14 @@ fi
 _scratch_init "$ROOT"
 case "$(mf_fs_type "$_MF_SCRATCH")" in
   tmpfs | ramfs | devtmpfs)
-    _dry=$( _mf build --dry-run --yes 2>&1 ); _dry_rc=$?
+    # `|| _dry_rc=$?` rather than a bare assignment plus `$?`: this file runs
+    # under `set -e`, where a command substitution that fails takes the script
+    # with it BEFORE the case below can report why -- so the diagnostic branch
+    # was unreachable in precisely the case it exists for. Found by mutation:
+    # a die() planted at the top of cmd_build aborted this test with no
+    # assertion at all rather than failing it.
+    _dry_rc=0
+    _dry=$( _mf build --dry-run --yes 2>&1 ) || _dry_rc=$?
     # The STATUS as well as the text. "did not say RAM-backed" is satisfied by a
     # dry run that died of something else entirely before ever reaching the
     # guard -- mutation-verified: a die() planted at the top of cmd_build left
