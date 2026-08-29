@@ -142,6 +142,10 @@ fi
 # fixture: measured, that fork-bombs the machine until nothing can spawn. The
 # guard is on the inner run, so the outer one still asserts.
 if [ -n "${MF_CITATIONS_FIXTURE:-}" ]; then
+  # Announced, not silent, matching tests/pc-exclusions-durable.sh's root
+  # branch: a run that quietly drops an assertion looks identical to one that
+  # made it.
+  printf 'SKIP: scanner fixture (this run IS the fixture)\n'
   printf 'DONE:\n'
   exit "$_fail"
 fi
@@ -160,8 +164,20 @@ _fx=$(mktemp -d) || exit 1
 mkdir -p "$_fx/lib" "$_fx/tests" "$_fx/recipes/sub" "$_fx/patches" "$_fx/profiles"
 cp "$ROOT/tests/comment-citations.sh" "$ROOT/tests/lib-assert.sh" "$_fx/tests/"
 # Two citations naming a file that exists in the fixture tree, one in each
-# spelling, plus one naming a file that does not -- an external reference, which
-# must NOT be reported however it is spelled.
+# spelling, plus one negative case for EACH predicate that can reject a
+# candidate. They have to be different shapes, because they are rejected at
+# different stages and a case that dies at the first one says nothing about the
+# second: ltmain.sh carries an extension the scanner matches and a name the
+# fixture tree lacks, so only the tree-name check can reject it, and
+# libavcodec.c EXISTS in the fixture tree and is rejected by the extension
+# class alone -- it has to exist, or the tree-name check rejects it first and
+# the extension class goes untested. Measured: with a .c file absent from the
+# tree, widening the class to accept .c leaves this assertion green.
+#
+# The first draft used only the .c case and called it "an external reference".
+# It was rejected by the regex, so the tree-name membership check -- the thing
+# the SCOPE paragraph above spends a paragraph justifying -- had no coverage at
+# all: deleting it left this assertion green.
 #
 # The hash comes from a variable so that the line WRITING these citations
 # carries none itself. The scanner reads from the first hash on a line onward,
@@ -169,19 +185,20 @@ cp "$ROOT/tests/comment-citations.sh" "$ROOT/tests/lib-assert.sh" "$_fx/tests/"
 # citation would be reported -- this file failing its own gate, over a fixture.
 # The header makes the same point about the pattern a few lines up.
 _hash='#'
-printf '%s!/bin/sh\n%s see utils.sh:17\n%s and utils.sh (:26)\n%s and libavcodec.c:99\n' \
-  "$_hash" "$_hash" "$_hash" "$_hash" > "$_fx/lib/probe.sh"
+printf '%s!/bin/sh\n%s see utils.sh:17\n%s and utils.sh (:26)\n%s and ltmain.sh:42\n%s and libavcodec.c:99\n' \
+  "$_hash" "$_hash" "$_hash" "$_hash" "$_hash" > "$_fx/lib/probe.sh"
 printf '%s!/bin/sh\n' "$_hash" > "$_fx/lib/utils.sh"
+: > "$_fx/lib/libavcodec.c"
 for _stub in mediaforge.sh recipes/stub.sh recipes/sub/stub.sh; do
   printf '%s!/bin/sh\n' "$_hash" > "$_fx/$_stub"
 done
 _fx_out=$( cd "$_fx" && MF_CITATIONS_FIXTURE=1 sh tests/comment-citations.sh 2>&1 )
 _fx_rc=$?
-# Exactly two: both utils.sh spellings, and not the .c file.
+# Exactly two: both utils.sh spellings, and neither negative case.
 if [ "$_fx_rc" -ne 0 ] && printf '%s\n' "$_fx_out" | grep -q '2 comment(s) cite'; then
-  _pass the-scanner-reports-both-spellings-and-not-an-external-reference
+  _pass the-scanner-reports-both-spellings-and-neither-negative-case
 else
-  _bad the-scanner-reports-both-spellings-and-not-an-external-reference \
+  _bad the-scanner-reports-both-spellings-and-neither-negative-case \
     "rc=$_fx_rc, said: $(printf '%s' "$_fx_out" | tr '\n' ' ')"
 fi
 rm -rf "$_fx"

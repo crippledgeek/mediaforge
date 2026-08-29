@@ -17,8 +17,7 @@
 # workspace in a state from which the next build produces the same result. Most
 # checks here drive the real production path -- finalize, or one step of it,
 # then do_install against a staging prefix -- and one derived check says no code
-# anywhere deletes from the workspace pkgconfig dir again. Kinds, not counts:
-# the sentence this replaced said "two" and there were eleven.
+# anywhere deletes from the workspace pkgconfig dir again. Kinds, not counts.
 #
 # The behavioural checks are COMPOUND, deliberately. "freetype2.pc is still in
 # the workspace" is true on the merge base too — the base only deletes it from
@@ -279,8 +278,8 @@ _refuses an-empty-queue-refuses-and-keeps-the-previous-record 'exists but is emp
 # PATH is set and restored around the call rather than exported into a subshell,
 # because _refuses reports through _bad and a subshell would swallow the result.
 # The shim directory holds nothing but `wc`, and nothing else on this path calls
-# it -- lib/install.sh's two uses are inside do_install, which _pc_step does not
-# run.
+# it -- lib/install.sh's two uses are inside do_install and do_uninstall, and
+# _pc_step runs neither.
 _wcshim="$_tmp/wcshim"
 mkdir -p "$_wcshim" || exit 1
 cat > "$_wcshim/wc" <<'SHIM'
