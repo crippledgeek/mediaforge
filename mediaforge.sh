@@ -345,10 +345,34 @@ cmd_build() {
   validate_pkg_names "$DISABLE_PKGS $ENABLE_PKGS"
   validate_pkg_names "$SKIP_CHECKSUM_PKGS" ffmpeg
 
+  # Hoisted out of the menu block below so that a contradiction in the ARGUMENTS
+  # is reported before anything about the environment. A user who typed two
+  # flags that cannot combine should be told which two, not told about their
+  # filesystem -- and the storage guard sits between the two for exactly that
+  # reason.
+  if [ "$USE_MENU" = true ] && [ "$AUTOINSTALL" = "yes" ]; then
+    die "--menu and --yes are mutually exclusive"
+  fi
+
+  # Storage before anything is created or written, which means HERE rather than
+  # beside the tool pre-flight further down: save_stored_choices and the
+  # .debug-level write both mkdir $PREFIX first, so a guard placed with the
+  # other checks refuses a /tmp build only after having created a directory in
+  # tmpfs -- and after run_menu has taken the operator through a full selection
+  # to tell them no. The option loop above is all this needs: $TOPDIR is fixed
+  # at startup and $MF_ALLOW_TMPFS is settled by the parse.
+  #
+  # A dry run is exempt because it writes nothing -- it prints the plan and
+  # stops. Guarding it would refuse an operation that cannot cause the problem,
+  # and would refuse it in the ordinary case rather than an exotic one: every
+  # test that exercises the parser runs mediaforge from a mktemp -d scratch
+  # TOPDIR (tests/lib-scratch.sh), and mktemp answers under /tmp, which is
+  # tmpfs on Linux.
+  if [ "${DRY_RUN:-false}" != true ]; then
+    mf_storage_guard "$TOPDIR" "$MF_ALLOW_TMPFS"
+  fi
+
   if [ "$USE_MENU" = true ]; then
-    if [ "$AUTOINSTALL" = "yes" ]; then
-      die "--menu and --yes are mutually exclusive"
-    fi
     run_menu
   fi
 
@@ -483,22 +507,6 @@ cmd_build() {
   setup_traps
 
   # Pre-flight checks
-  #
-  # Storage first, and before anything is downloaded or written: the working
-  # directories are derived from the invocation directory, so a build started
-  # from /tmp writes tens of gigabytes into RAM. Refusing after the first recipe
-  # has fetched would refuse having already spent the thing being protected.
-  #
-  # A dry run is exempt because it writes nothing -- it prints the plan and
-  # stops. Guarding it would refuse an operation that cannot cause the problem,
-  # and it would refuse it in the ordinary case rather than an exotic one: every
-  # test that exercises the parser runs mediaforge from a mktemp -d scratch
-  # TOPDIR (tests/lib-scratch.sh), and mktemp answers with a directory under
-  # /tmp, which is tmpfs on Linux.
-  if [ "${DRY_RUN:-false}" != true ]; then
-    mf_storage_guard "$TOPDIR" "$MF_ALLOW_TMPFS"
-  fi
-
   command_exists "make" || die "make not installed"
   command_exists "g++"  || die "g++ not installed"
   command_exists "curl" || die "curl not installed"
@@ -747,6 +755,7 @@ cmd_makesum() {
     shift
     _mk_argc=$((_mk_argc - 1))
     case "$_mk_arg" in
+      --allow-tmpfs) MF_ALLOW_TMPFS=true ;;
       --profile=*) PROFILE_NAME="${_mk_arg#--profile=}" ;;
       --profile)
         _need_arg "$_mk_argc" --profile
@@ -818,6 +827,28 @@ cmd_makesum() {
   # Same validation cmd_build's --enable=/--disable= go through, so a typo
   # fails fast with a suggestion instead of silently matching nothing.
   validate_pkg_names "$_mk_pkgs"
+
+  # The fetch-only path downloads every tarball in _order.conf into $DISTDIR --
+  # the same directory, the same filesystem and the same failure a build has, so
+  # it gets the same guard. The --build path above does not need one here:
+  # cmd_build applies it before writing anything. install writes to the chosen
+  # prefix rather than $TOPDIR, and check-updates only talks to the network, so
+  # neither is in scope.
+  #
+  # After the name validation, not before it, for the reason cmd_build hoists
+  # its mutex check: a typo in an argument is the operator's to fix and must be
+  # reported as itself, rather than masked by a complaint about the filesystem.
+  # tests/checksum-verification.sh pins that both subcommands answer a bad name
+  # identically, which is what caught the first ordering.
+  #
+  # And only for the DISTDIR mediaforge derived. An overridden DISTDIR is a
+  # deliberate redirect -- the operator has already said where the bytes go, and
+  # it is usually somewhere small and specific rather than a whole tree. Guarding
+  # it would refuse that choice on the operator's behalf while measuring a
+  # directory they did not ask us to fill.
+  if [ "$DISTDIR" = "$TOPDIR/packages" ]; then
+    mf_storage_guard "$DISTDIR" "$MF_ALLOW_TMPFS"
+  fi
 
   while IFS= read -r _recipe || [ -n "$_recipe" ]; do
     case "$_recipe" in

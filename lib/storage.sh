@@ -32,14 +32,26 @@
 # far less, and refusing one would be wrong.
 MF_MIN_FREE_KB=41943040
 
+# 1 GiB in the 1K blocks df -Pk reports, for turning that figure into something
+# an operator reads. Named because the message is the guard's whole output and a
+# bare 1048576 beside a second bare number is unreadable.
+MF_KB_PER_GIB=1048576
+
 # The filesystem type under $1, or empty when it cannot be determined.
 #
-# Two probes, both GNU: `df -T` and `stat -f -c %T`. Neither exists in that form
-# on macOS, whose df has no -T and whose stat -f takes a format string with an
-# entirely different meaning -- so on macOS this returns empty and the caller
-# treats the type as unknown. That is the correct answer there rather than a
-# gap: /tmp on macOS is disk-backed, so the RAM case this guards against does
-# not arise, and the free-space floor below still applies.
+# Two probes, both GNU: `df -T` (a column selector) and `stat -f -c %T`.
+#
+# macOS has neither, though not for the reason it first appears: BSD df DOES
+# take -T, but it is a type FILTER taking a comma-separated list, and BSD stat
+# -f takes a format string. So on macOS `df -PT -- "$1"` reads `--` as the type
+# list -- which also means the end-of-options guard is not in force there, and a
+# directory named like an option would be read as one. Harmless as called, since
+# $TOPDIR is always absolute.
+#
+# Either way the probe yields nothing on macOS and the caller treats the type as
+# unknown, which is the right answer there rather than a gap: /tmp on macOS is
+# disk-backed, so the RAM case does not arise, and the free-space floor still
+# applies.
 mf_fs_type() { # dir
   _mf_fs_ty=$(df -PT -- "$1" 2>/dev/null | awk 'NR==2 {print $2}') || _mf_fs_ty=''
   if [ -z "$_mf_fs_ty" ]; then
@@ -50,12 +62,20 @@ mf_fs_type() { # dir
 
 # Available 1K blocks under $1, or empty when df cannot say.
 #
-# `df -P` rather than plain df: -P is the POSIX output format, which guarantees
-# the entry is on ONE line. Without it a long device name wraps and field 4 of
-# "line 2" is the mount point rather than the available blocks -- a number that
-# looks plausible and means nothing.
+# `-P` is the POSIX output format, which guarantees the entry is on ONE line.
+# Without it a long device name wraps and field 4 of "line 2" is the mount
+# point rather than the available blocks -- a number that looks plausible and
+# means nothing.
+#
+# `-k` is what makes "1K blocks" true rather than a hope. POSIX specifies
+# 512-byte units for df; GNU coreutils defaults to 1024 but switches to 512
+# under POSIXLY_CORRECT, and BSD (so macOS) is 512 natively. Measured on this
+# host: `df -P /tmp` reports 8133104 and `POSIXLY_CORRECT=1 df -P /tmp` reports
+# 16266208 for the same filesystem. Without -k the guard reads twice the free
+# space it has and the warning never fires -- and it fails that way on macOS,
+# the platform this file leans on the free-space check to cover.
 mf_free_kb() { # dir
-  df -P -- "$1" 2>/dev/null | awk 'NR==2 {print $4}'
+  df -Pk -- "$1" 2>/dev/null | awk 'NR==2 {print $4}'
 }
 
 # The guard itself. $2 is the operator's --allow-tmpfs answer, so the refusal
@@ -81,6 +101,9 @@ mf_storage_guard() { # dir  allow_ram(true|false)
     '' | *[!0-9]*) return 0 ;;
   esac
   if [ "$_mf_free" -lt "$MF_MIN_FREE_KB" ]; then
-    warn "$((_mf_free / 1048576))GB free under $1; a full tree measures about 34GB. A smaller selection fits, but a full build will not."
+    # GiB throughout, and the floor named: truncating division put "39GB free"
+    # beside "measures about 34GB" one block under the limit, which reads as a
+    # warning contradicting itself.
+    warn "$((_mf_free / MF_KB_PER_GIB))GiB free under $1; mediaforge warns below $((MF_MIN_FREE_KB / MF_KB_PER_GIB))GiB because a full tree measures about 34GiB. A smaller selection fits; a full build will not."
   fi
 }

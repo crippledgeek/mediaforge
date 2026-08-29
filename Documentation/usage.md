@@ -40,6 +40,8 @@ Build options:
   -q, --quiet               Errors only
   -n, --dry-run             Show what would build
   -k, --keep-going          Continue on recipe failure
+      --allow-tmpfs         Build even when the working directory is on a
+                            RAM-backed filesystem (refused by default)
 
 Codec / backend selectors (mutually exclusive within each group):
   --tls=BACKEND             TLS backend: openssl|gnutls|mbedtls|libressl|none
@@ -194,10 +196,11 @@ Pass `--allow-tmpfs` if the mount really is large enough; it warns and proceeds.
 On a disk-backed directory with less than 40GB free, mediaforge warns and builds
 anyway -- a smaller selection genuinely fits, so that one is your call.
 
-The filesystem type is read with `df -T`, falling back to `stat -f`. Neither
-exists in that form on macOS, where the type is simply unknown and only the
-free-space warning applies -- macOS keeps `/tmp` on disk, so the RAM case does
-not arise there.
+The filesystem type is read with `df -T`, falling back to `stat -f`. macOS has
+neither in that form -- its `df -T` is a type *filter* taking a list rather than
+a column selector, and its `stat -f` takes a format string -- so there the type
+is simply unknown and only the free-space warning applies. macOS keeps `/tmp` on
+disk, so the RAM case does not arise there.
 
 ## Compiler cache
 
