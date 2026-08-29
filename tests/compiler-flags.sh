@@ -250,8 +250,7 @@ printf '%s\n' "$_clobber" | while IFS= read -r _line; do
   [ -n "$_line" ] || continue
   _f=${_line%%:*}
   _helper=$(printf '%s' "$_line" | grep -oE "CFLAGS=\"[${_d}]\(_[a-z0-9_]+\)" | sed 's/[^_a-z0-9]//g')
-  if [ -n "$_helper" ] && [ -f "$_f" ] &&
-     _fn_body "$_f" "$_helper" | grep -qF "${_d}CFLAGS"; then
+  if [ -n "$_helper" ] && [ -f "$_f" ] && _uses_composed_cflags "$_f" "$_helper"; then
     continue
   fi
   printf '%s\n' "$_line"

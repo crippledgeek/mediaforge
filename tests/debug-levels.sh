@@ -469,7 +469,7 @@ $(_fn_body "$_r" "$_mf_h")"
   if [ -z "$_mf_composed" ]; then
     for _mf_h in $(printf '%s\n' "$_mf_eff" | grep -oE 'FLAGS="?[$]\(_[a-z0-9_]+\)' |
                    sed 's/[^_a-z0-9]//g' | sort -u); do
-      _fn_body "$_r" "$_mf_h" | grep -qE '[$]CFLAGS' || continue
+      _uses_composed_cflags "$_r" "$_mf_h" || continue
       _mf_composed="via $_mf_h"
       break
     done
