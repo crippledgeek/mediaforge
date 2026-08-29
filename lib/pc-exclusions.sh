@@ -151,8 +151,10 @@ pc_exclusions_finalize() {
     die "Every entry in $_pcf_queue was rejected; refusing to replace the .pc exclusion record with an empty one"
   fi
 
-  mv "$_pcf_tmp" "$PREFIX/$PC_EXCLUDE_NAME" ||
+  mv "$_pcf_tmp" "$PREFIX/$PC_EXCLUDE_NAME" || {
+    rm -f "$_pcf_tmp"
     die "Cannot install the .pc exclusion list at $PREFIX/$PC_EXCLUDE_NAME"
+  }
   rm -f "$_pcf_queue"
   log "  recorded $_pcf_count transitive-util .pc file(s) as not-for-install"
 }

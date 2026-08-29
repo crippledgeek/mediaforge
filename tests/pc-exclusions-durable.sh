@@ -14,10 +14,11 @@
 # cost a whole session.
 #
 # The invariant under test is the one the issue asks for: a build must leave the
-# workspace in a state from which the next build produces the same result. Two
-# behavioural checks drive the real production path (finalize, then do_install
-# against a staging prefix) and one derived check says no code anywhere deletes
-# from the workspace pkgconfig dir again.
+# workspace in a state from which the next build produces the same result. Most
+# checks here drive the real production path -- finalize, or one step of it,
+# then do_install against a staging prefix -- and one derived check says no code
+# anywhere deletes from the workspace pkgconfig dir again. Kinds, not counts:
+# the sentence this replaced said "two" and there were eleven.
 #
 # The behavioural checks are COMPOUND, deliberately. "freetype2.pc is still in
 # the workspace" is true on the merge base too — the base only deletes it from
@@ -322,7 +323,9 @@ if [ "$(id -u)" = "0" ]; then
 else
   _unreadable_log=$(_pc_step "$_ws4" pc_exclusions_finalize)
   _unreadable_rc=$?
-  if [ "$_unreadable_rc" -ne 0 ] && [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ]; then
+  if [ "$_unreadable_rc" -ne 0 ] &&
+     [ "$(cat "$_ws4/.pc-exclude" 2>/dev/null)" = "$_good_record" ] &&
+     printf '%s\n' "$_unreadable_log" | grep -q 'Cannot read the .pc exclusion queue'; then
     _pass an-unreadable-queue-refuses-and-keeps-the-previous-record
   else
     _bad an-unreadable-queue-refuses-and-keeps-the-previous-record \

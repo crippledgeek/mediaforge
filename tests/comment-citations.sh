@@ -64,12 +64,18 @@ _tree_names=$( { find ./lib ./recipes ./tests ./patches ./profiles -type f -prin
 # considered, so a filename appearing in code (a path being built, an argument)
 # is not a comment and is not this rule's business.
 #
-# The colon does not have to touch the filename. `utils.sh (:17)` is the same
-# citation with the same rot profile, and it went stale in-tree while this gate
-# read past it -- the commit that wrote it inserted a source line above the line
-# it named. Optional blanks and an optional opening paren are allowed between
-# the two halves for that reason; measured against the whole tree, widening it
-# added those hits and no others.
+# The colon does not have to touch the filename. A citation that puts blanks or
+# an opening paren between the two halves has the same rot profile, and one went
+# stale in-tree while this gate read past it -- the commit that wrote it had
+# inserted a source line above the line it named. Both are allowed between the
+# halves for that reason.
+#
+# Widening the pattern was not enough on its own, and shipped inert once: the
+# match succeeded and the name check then threw it away, because the text
+# between the halves is still attached to the name at that point. See the strip
+# below. That is also why the fixture assertion exists -- a scanner is not
+# exercised by a clean tree, so "the tree is clean" passes identically whether
+# it works or does nothing at all.
 #
 # The scanner cannot trip over its own source: the pattern below is written as
 # a regex, whose characters are not the literal shape it looks for, and it
@@ -99,6 +105,12 @@ for _rec in $_candidates; do
   [ -n "$_rec" ] || continue
   _cite=${_rec##*|}
   _name=${_cite%%:*}
+  # The widened match keeps whatever sits between the filename and the colon,
+  # so a paren spelling arrives here as "utils.sh (" and matches no tree name.
+  # Stripping it is what makes the widening do anything at all: without this
+  # line the scanner finds the candidate and silently discards it, and the gate
+  # reports the same clean tree it reported before the pattern changed.
+  _name=${_name%%[ (]*}
   _name=${_name##*/}
   for _known in $_tree_names; do
     if [ "$_known" = "$_name" ]; then
@@ -123,6 +135,56 @@ else
   # keeps one offender per line.
   printf '%s\n' "$_offenders" | sed '/^[[:space:]]*$/d' >&2
 fi
+
+# ─── the scanner detects, on a tree that is not clean ───────────────────────
+# Skipped when this file is the one under test. The fixture RUNS the scanner,
+# and a scanner that runs its own fixture runs a scanner that runs its own
+# fixture: measured, that fork-bombs the machine until nothing can spawn. The
+# guard is on the inner run, so the outer one still asserts.
+if [ -n "${MF_CITATIONS_FIXTURE:-}" ]; then
+  printf 'DONE:\n'
+  exit "$_fail"
+fi
+# ─── the scanner detects, on a tree that is not clean ───────────────────────
+# The assertion above is about the repository; this one is about the gate. They
+# fail for opposite reasons and neither implies the other: a scanner that
+# matched nothing at all would pass the first one on every tree forever, which
+# is exactly what happened when the pattern was widened without this.
+#
+# Both spellings, because the widening is the part with no other coverage.
+_fx=$(mktemp -d) || exit 1
+# Every directory and glob the scanner names has to exist and match something:
+# it passes ./mediaforge.sh ./lib/*.sh ./recipes/*.sh ./recipes/*/*.sh
+# ./tests/*.sh to awk, and an unmatched glob reaches awk as a literal path it
+# dies on. A fixture that cannot run the scanner proves nothing about it.
+mkdir -p "$_fx/lib" "$_fx/tests" "$_fx/recipes/sub" "$_fx/patches" "$_fx/profiles"
+cp "$ROOT/tests/comment-citations.sh" "$ROOT/tests/lib-assert.sh" "$_fx/tests/"
+# Two citations naming a file that exists in the fixture tree, one in each
+# spelling, plus one naming a file that does not -- an external reference, which
+# must NOT be reported however it is spelled.
+#
+# The hash comes from a variable so that the line WRITING these citations
+# carries none itself. The scanner reads from the first hash on a line onward,
+# it scans this file like any other, and a line holding both a hash and a
+# citation would be reported -- this file failing its own gate, over a fixture.
+# The header makes the same point about the pattern a few lines up.
+_hash='#'
+printf '%s!/bin/sh\n%s see utils.sh:17\n%s and utils.sh (:26)\n%s and libavcodec.c:99\n' \
+  "$_hash" "$_hash" "$_hash" "$_hash" > "$_fx/lib/probe.sh"
+printf '%s!/bin/sh\n' "$_hash" > "$_fx/lib/utils.sh"
+for _stub in mediaforge.sh recipes/stub.sh recipes/sub/stub.sh; do
+  printf '%s!/bin/sh\n' "$_hash" > "$_fx/$_stub"
+done
+_fx_out=$( cd "$_fx" && MF_CITATIONS_FIXTURE=1 sh tests/comment-citations.sh 2>&1 )
+_fx_rc=$?
+# Exactly two: both utils.sh spellings, and not the .c file.
+if [ "$_fx_rc" -ne 0 ] && printf '%s\n' "$_fx_out" | grep -q '2 comment(s) cite'; then
+  _pass the-scanner-reports-both-spellings-and-not-an-external-reference
+else
+  _bad the-scanner-reports-both-spellings-and-not-an-external-reference \
+    "rc=$_fx_rc, said: $(printf '%s' "$_fx_out" | tr '\n' ' ')"
+fi
+rm -rf "$_fx"
 
 printf 'DONE:\n'
 exit "$_fail"
