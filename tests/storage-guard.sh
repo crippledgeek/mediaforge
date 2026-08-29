@@ -76,13 +76,19 @@ _want_type=no
 for _a in "$@"; do
   case "$_a" in -*T*) _want_type=yes ;; esac
 done
+# An UNSET FREE means "df could not say", and the shim has to answer that the
+# way df does -- by failing -- rather than by printing a default. It printed
+# ${FREE:-0} at first, so the unreadable-free-space assertion was silently
+# exercising "zero bytes free", which is a perfectly readable number: the
+# assertion passed against a mutant that turned unmeasurable into a refusal.
+[ -n "${FREE:-}" ] || exit 1
 if [ "$_want_type" = yes ]; then
   [ -n "${TYPE:-}" ] || exit 1
   printf 'Filesystem     Type 1024-blocks Used Available Capacity Mounted on\n'
-  printf 'stub %s 100 100 %s 50%%%% /stub\n' "$TYPE" "${FREE:-0}"
+  printf 'stub %s 100 100 %s 50%%%% /stub\n' "$TYPE" "$FREE"
 else
   printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
-  printf 'stub 100 100 %s 50%%%% /stub\n' "${FREE:-0}"
+  printf 'stub 100 100 %s 50%%%% /stub\n' "$FREE"
 fi
 DF
 cat > "$_tmp/bin/stat" <<'STAT'
