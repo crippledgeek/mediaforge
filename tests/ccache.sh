@@ -61,10 +61,18 @@ fi
 # Comment lines are dropped first: lib/ccache.sh's header explains why it does
 # NOT use the prefix form, quoting `CC="ccache gcc"` verbatim, and a grep that
 # cannot tell prose from wiring would report that explanation as the defect.
-_launchers=$(grep -rnE 'C(XX)?_COMPILER_LAUNCHER|-Dccache|CC="ccache|CXX="ccache' \
+# The quote form is not fixed either -- CC='ccache gcc' and a bare CC=ccache are
+# the same wiring -- so the pattern allows one optional quote character.
+_launchers=$(grep -rnE 'C(XX)?_COMPILER_LAUNCHER|-Dccache|C(XX)?=.?ccache' \
                lib/ recipes/ mediaforge.sh 2>/dev/null |
              grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)
-if [ -z "$_launchers" ]; then
+if ! grep -q '^mf_ccache_setup()' lib/ccache.sh 2>/dev/null; then
+  # The floor tests/meson-single-entry.sh carries for the same shape of claim:
+  # every clause above is "grep found nothing", which an empty lib/ satisfies
+  # having checked nothing. Note the `! -f lib/ccache.sh` guard further down
+  # does not cover this -- it runs after.
+  _bad one-mechanism "no mf_ccache_setup to be the one mechanism"
+elif [ -z "$_launchers" ]; then
   _pass one-mechanism
 else
   _bad one-mechanism "per-build-system cache wiring in: $(printf '%s' "$_launchers" | tr '\n' ' ')"
@@ -75,7 +83,8 @@ if [ ! -f lib/ccache.sh ]; then
   for _a in masquerade-dir-built only-existing-compilers path-is-prepended \
             auto-uses-cache auto-degrades-without-ccache off-disables-everywhere \
             off-builds-no-masquerade explicit-clears-inherited-disable \
-            unknown-state-dies dies-without-ccache; do
+            auto-respects-inherited-disable unknown-state-dies \
+            dies-without-ccache; do
     _bad "$_a" "lib/ccache.sh absent — claim would be vacuous"
   done
   printf 'DONE: ccache\n'
@@ -113,7 +122,7 @@ mkdir -p "$_tmp/nocache"
 printf '#!/bin/sh\nexit 0\n' > "$_tmp/nocache/cc"; chmod +x "$_tmp/nocache/cc"
 _link_tools "$_tmp/nocache" mkdir rm ln
 
-# One state, one sandbox, one recording. Written as a helper because five of the
+# One state, one sandbox, one recording. Written as a helper because the
 # assertions below differ only in the state they pass and the bin directory they
 # pass it under -- and because what has to be read back is not a return value
 # but what the process LEAVES: its PATH, its CCACHE_DISABLE, and how it exited.
@@ -154,9 +163,22 @@ _recorded() { # tag  what(path|disable)
   if [ -f "$_tmp/$2-$1" ]; then cat "$_tmp/$2-$1"; else printf 'NOTHING-RECORDED\n'; fi
 }
 
+# The failure detail for one run, bounded. _bad flattens newlines, so an
+# unbounded log becomes a single multi-kilobyte line -- the exact failure
+# tests/lib-assert.sh says _evidence exists to prevent. The pattern names the
+# words these logs fail with; _evidence falls back to the last lines when none
+# of them appears.
+_why() { # tag
+  _evidence 3 'ccache|not installed|no mf_ccache_apply|unknown ccache state' < "$_tmp/log-$1"
+}
+
 # --- state: explicit --ccache -----------------------------------------------
 _apply on "$_tmp/bin" true
-[ "$_ap_rc" -eq 0 ] || _bad setup-ran "exited $_ap_rc: $(tr '\n' ' ' < "$_tmp/log-on")"
+if [ "$_ap_rc" -eq 0 ]; then
+  _pass setup-ran
+else
+  _bad setup-ran "exited $_ap_rc: $(_why on)"
+fi
 
 _dir="$_tmp/prefix-on/.ccache-bin"
 if [ -L "$_dir/cc" ] && [ "$(readlink "$_dir/cc")" = "$_tmp/bin/ccache" ]; then
@@ -201,17 +223,18 @@ _apply auto-yes "$_tmp/bin" auto
 if [ "$_ap_rc" -eq 0 ] && [ -L "$_tmp/prefix-auto-yes/.ccache-bin/cc" ]; then
   _pass auto-uses-cache
 else
-  _bad auto-uses-cache "rc=$_ap_rc, no masquerade dir: $(tr '\n' ' ' < "$_tmp/log-auto-yes")"
+  _bad auto-uses-cache "rc=$_ap_rc, no masquerade dir: $(_why auto-yes)"
 fi
 
 # With no cache installed, `auto` is not an error. A host without ccache is the
 # ordinary case, and the default state may not refuse to build on one -- which is
 # the one thing separating `auto` from simply defaulting the flag to on.
 _apply auto-no "$_tmp/nocache" auto
-if [ "$_ap_rc" -eq 0 ] && [ "$(_recorded auto-no disable)" != "NOTHING-RECORDED" ]; then
+_degraded=$(_recorded auto-no disable)
+if [ "$_ap_rc" -eq 0 ] && [ "$_degraded" = "1" ]; then
   _pass auto-degrades-without-ccache
 else
-  _bad auto-degrades-without-ccache "rc=$_ap_rc: $(tr '\n' ' ' < "$_tmp/log-auto-no")"
+  _bad auto-degrades-without-ccache "rc=$_ap_rc, CCACHE_DISABLE=[$_degraded]: $(_why auto-no)"
 fi
 
 # --- state: --no-ccache -----------------------------------------------------
@@ -231,7 +254,7 @@ fi
 # cache in and disables it again is two mechanisms disagreeing, which is the
 # defect this file's header describes.
 if [ "$_ap_rc" -ne 0 ]; then
-  _bad off-builds-no-masquerade "the off state exited $_ap_rc: $(tr '\n' ' ' < "$_tmp/log-off")"
+  _bad off-builds-no-masquerade "the off state exited $_ap_rc: $(_why off)"
 elif [ -e "$_tmp/prefix-off/.ccache-bin" ]; then
   _bad off-builds-no-masquerade "built a masquerade directory while the cache is off"
 else
@@ -258,6 +281,29 @@ else
   _bad explicit-clears-inherited-disable "rc=$_ap_rc, CCACHE_DISABLE=[$_inherited]"
 fi
 
+# The same variable, the same host, the other state -- and the opposite answer.
+# An operator who exported CCACHE_DISABLE has configured ccache the way ccache
+# documents; the default state did not ask for a cache and may not overrule
+# that. Before this pair existed the `unset` lived in mf_ccache_setup, which
+# BOTH states reach, so the default silently re-enabled a cache the operator had
+# turned off host-wide.
+CCACHE_DISABLE=1; export CCACHE_DISABLE
+_apply defer "$_tmp/bin" auto
+unset CCACHE_DISABLE
+_deferred=$(_recorded defer disable)
+if [ "$_ap_rc" -ne 0 ]; then
+  _bad auto-respects-inherited-disable "exited $_ap_rc: $(_why defer)"
+elif [ "$_deferred" != "1" ]; then
+  _bad auto-respects-inherited-disable "CCACHE_DISABLE=[$_deferred], not the inherited 1"
+elif [ -e "$_tmp/prefix-defer/.ccache-bin" ]; then
+  # Left alone means left alone: wiring the masquerade directory in anyway would
+  # route every compile through a ccache the environment has disabled, which is
+  # the silent no-op in its third disguise.
+  _bad auto-respects-inherited-disable "built a masquerade directory over an inherited CCACHE_DISABLE"
+else
+  _pass auto-respects-inherited-disable
+fi
+
 # --- refusals ---------------------------------------------------------------
 # Asking for a cache that is not installed is an error, not a silent no-op: the
 # operator asked for a faster build and would otherwise get a slower one with no
@@ -268,7 +314,7 @@ if [ "$_ap_rc" -eq 0 ]; then
 else
   case "$(cat "$_tmp/log-die")" in
     *"not installed"*) _pass dies-without-ccache ;;
-    *) _bad dies-without-ccache "died without naming the cause: $(tr '\n' ' ' < "$_tmp/log-die")" ;;
+    *) _bad dies-without-ccache "died without naming the cause: $(_why die)" ;;
   esac
 fi
 
@@ -283,7 +329,7 @@ else
   # at all.
   case "$(cat "$_tmp/log-bogus")" in
     *maybe*) _pass unknown-state-dies ;;
-    *) _bad unknown-state-dies "died without naming the state: $(tr '\n' ' ' < "$_tmp/log-bogus")" ;;
+    *) _bad unknown-state-dies "died without naming the state: $(_why bogus)" ;;
   esac
 fi
 

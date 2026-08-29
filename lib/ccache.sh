@@ -1,8 +1,10 @@
 #!/bin/sh
 # shellcheck shell=sh
 # The compiler cache, in three states: auto (the default), true (--ccache) and
-# false (--no-ccache). ONE of them answers for all five build systems, which is
-# the whole point -- see the meson paragraph below.
+# false (--no-ccache). ONE of them answers for every build system in the tree --
+# autotools, cmake, meson and bare make -- which is the whole point; see the
+# meson paragraph below. (Cargo is the fifth and is excluded on purpose, for the
+# reason at the bottom of this header.)
 #
 # Wired as a MASQUERADE DIRECTORY on PATH -- a directory of symlinks named after
 # the compilers, each pointing at ccache -- rather than by prefixing CC/CXX.
@@ -34,8 +36,12 @@
 # compiles with "/usr/bin/ccache cc" whether or not this ran (measured, meson
 # 1.12.0). meson only does so when the compiler is NOT named in the environment
 # or a machine file -- mesonbuild/compilers/detect.py calls detect_compiler_cache
-# only on the branch where lookup_binary_entry found nothing -- but mediaforge
-# exports no CC, so that is the branch every recipe takes.
+# only on the branch where lookup_binary_entry found nothing -- and mediaforge
+# exports no CC, so that is the branch C compilation takes everywhere. The one
+# exception is C++ on Apple Silicon, where mediaforge.sh exports CXX=clang++
+# (search for OS_MACOS_ARM): meson then takes the other branch and adds no cache
+# of its own. Harmless, because that export happens AFTER mf_ccache_apply, so
+# the name still resolves through the masquerade directory.
 #
 # So the flag makes the tree CONSISTENT rather than introducing the cache, and
 # the nested case the combination produces -- ccache invoking a cc that is itself
@@ -64,9 +70,30 @@
 mf_ccache_apply() { # auto|true|false
   case "$1" in
     false) mf_ccache_off; return 0 ;;
-    auto)  command_exists ccache || { mf_ccache_off; return 0; } ;;
-    true)  ;;
-    *)     die "internal: unknown ccache state '$1'" ;;
+    auto)
+      # An operator who exported CCACHE_DISABLE has configured ccache the way
+      # ccache documents, and `auto` -- which nobody typed -- has no standing to
+      # overrule that. Presence is the test, not the value: ccache 4.13.6 reads
+      # any set CCACHE_DISABLE as true, empty included, and rejects "0" outright
+      # ("did you mean to set CCACHE_NODISABLE=true?"). CCACHE_NODISABLE can
+      # still flip it back to enabled, in which case this defers to an
+      # environment that wanted the cache after all -- meson caches, we do not
+      # wire the rest, and the tree is split the way GH-61 describes. Nobody has
+      # hit that combination; it is named rather than handled.
+      if [ -n "${CCACHE_DISABLE+set}" ]; then
+        log "ccache left to the environment (CCACHE_DISABLE is set)"
+        return 0
+      fi
+      command_exists ccache || { mf_ccache_off; return 0; }
+      ;;
+    true)
+      # Only the explicit flag clears it. An inherited CCACHE_DISABLE would
+      # otherwise leave every compile running through ccache and caching
+      # nothing -- the silent no-op that the die in mf_ccache_setup refuses to
+      # allow from the other direction.
+      unset CCACHE_DISABLE
+      ;;
+    *) die "internal: unknown ccache state '$1'" ;;
   esac
   mf_ccache_setup
 }
@@ -95,12 +122,8 @@ mf_ccache_setup() {
     _mf_cc_names="$_mf_cc_names $_mf_cc_name"
   done
   [ -n "$_mf_cc_names" ] ||
-    die "--ccache requested but no C/C++ compiler was found on PATH"
+    die "ccache is enabled but no C/C++ compiler was found on PATH"
   PATH="$_mf_cc_dir:$PATH"
   export PATH
-  # An inherited CCACHE_DISABLE would leave every compile running through ccache
-  # and caching nothing -- the flag's silent no-op, which is exactly what the
-  # die above refuses to allow in the other direction.
-  unset CCACHE_DISABLE
   log "ccache enabled ($_mf_cc_bin) for:$_mf_cc_names"
 }

@@ -189,9 +189,15 @@ before relying on it:
 
   * meson recipes find ccache by themselves, whichever way the flag is set.
     That is why the default is on: it was never "no cache" -- it was ccache for
-    the meson recipes and not for the other four build systems. `--no-ccache`
-    therefore exports CCACHE_DISABLE, which is what reaches a ccache mediaforge
-    did not put there.
+    the meson recipes and not for the rest (autotools, cmake and bare make;
+    cargo is not cached either way, since ccache does not cache rustc).
+    `--no-ccache` therefore exports CCACHE_DISABLE, which is what reaches a
+    ccache mediaforge did not put there.
+  * an exported CCACHE_DISABLE wins over the default. If your shell already
+    turns ccache off host-wide, the default leaves it off and says so, rather
+    than re-enabling a cache you disabled. `--ccache` is the one thing that
+    overrides it: an explicit flag beats an inherited variable, in that
+    direction only.
   * ccache hashes the compiler flags, so a debug build shares nothing with a
     non-debug one. The first build at a given level populates the cache and
     the second is fast. A full -O0 -g3 tree is large; raise the cache ceiling
