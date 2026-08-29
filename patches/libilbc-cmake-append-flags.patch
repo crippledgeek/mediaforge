@@ -12,7 +12,7 @@ Appending instead keeps upstream's warning set exactly as it was and lets the
 environment's flags follow, where last-wins settles the optimization level.
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -53,7 +53,7 @@
+@@ -53,12 +53,12 @@
  if((CMAKE_C_COMPILER_ID STREQUAL "GNU") OR
     (CMAKE_C_COMPILER_ID MATCHES "Clang" AND CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "GNU"))
 -    set(CMAKE_C_FLAGS "-Wall -Wextra -Wmissing-prototypes -Wstrict-prototypes -Wno-unused-parameter -fno-strict-aliasing")

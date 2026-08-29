@@ -107,11 +107,19 @@ fi
 
 # Prepended, not appended: an appended entry is shadowed by the real compiler
 # and caches nothing, which looks identical to working.
-_first=$(cut -d: -f1 < "$_tmp/path")
-if [ "$_first" = "$_dir" ]; then
-  _pass path-is-prepended
+# Guarded rather than read blind: if the subshell above failed, this file was
+# aborting on a missing $_tmp/path under `set -e`, BEFORE the DONE sentinel --
+# and tests/oracle-baseline.sh reads a missing sentinel as a crashed test rather
+# than as a failed assertion, which is a worse report of the same fact.
+if [ -f "$_tmp/path" ]; then
+  _first=$(cut -d: -f1 < "$_tmp/path")
+  if [ "$_first" = "$_dir" ]; then
+    _pass path-is-prepended
+  else
+    _bad path-is-prepended "PATH starts with [$_first]"
+  fi
 else
-  _bad path-is-prepended "PATH starts with [$_first]"
+  _bad path-is-prepended "mf_ccache_setup did not run to completion — no PATH recorded"
 fi
 
 # Asking for a cache that is not installed is an error, not a silent no-op: the

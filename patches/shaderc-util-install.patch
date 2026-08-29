@@ -1,6 +1,6 @@
 --- a/libshaderc_util/CMakeLists.txt
 +++ b/libshaderc_util/CMakeLists.txt
-@@ -87,3 +87,8 @@ if(${SHADERC_ENABLE_TESTS})
+@@ -87,3 +87,9 @@ if(${SHADERC_ENABLE_TESTS})
    add_dependencies(shaderc_util_file_finder_test testdata)
    add_dependencies(shaderc_util_io_shaderc_test testdata)
  endif()

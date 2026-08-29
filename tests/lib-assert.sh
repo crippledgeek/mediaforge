@@ -126,3 +126,33 @@ _wired() { # name  file  needle
     _bad "$1" "$2 never mentions $3"
   fi
 }
+
+# Reading shell SOURCE: fold continuations, then extract one function's body.
+#
+# Two tests need this and had one copy between them, which was about to become
+# two: tests/debug-levels.sh scans recipes for the make macro that carries the
+# composed flags, and tests/compiler-flags.sh has to tell a recipe that DERIVES
+# CFLAGS from one that replaces it -- both of which mean following a value into
+# the helper that produces it.
+#
+# Fold first: gsm, bzip2 and librtmp put the flags macro on the line AFTER
+# `run make`, and a line-oriented grep reads those as a bare make.
+_logical_lines() { # file
+  awk '{ if (sub(/\\$/, "")) { buf = buf $0; next } print buf $0; buf = "" }' "$1"
+}
+
+# Terminates on a `}` at COLUMN ZERO, not on any line ending in one. Any other
+# rule is not brace matching: an ordinary body line ending in a close brace --
+# `_v=${SOMEVAR}`, a brace group, an inline awk program -- ends the extraction
+# early and everything below it becomes invisible, which reads as a passing
+# scan rather than an unread file. A phase written on ONE line closes where it
+# opens, so it is finished at the start line instead of swallowing the file.
+_fn_body() { # file  function-name
+  _logical_lines "$1" | awk -v fn="$2" '
+    $0 ~ "^[[:space:]]*" fn "\\(\\)" {
+      f = 1
+      if ($0 ~ /\}[[:space:]]*$/) { print; f = 0; next }
+    }
+    f { print }
+    f && /^\}/ { f = 0 }'
+}

@@ -14,9 +14,20 @@ sh tests/menu-stdin.sh
 sh tests/fetch-fail-no-cache.sh
 # Was never wired in, which is why dry-run-matrix.sh's contradicting lcevc row
 # went unnoticed: the accurate test did not run and the inaccurate one did.
-# Dry-run only, so it needs no built workspace — unlike lcevc-static-link.sh,
-# oapv-static-link.sh, no-nested-archives.sh and avs2-reorder-dts.sh, which
-# assert against $PREFIX and stay manual.
+# Dry-run only, so it needs no built workspace — unlike the four named on the
+# NOT-IN-SUITE line below, which assert against $PREFIX and stay manual.
+#
+# That line is read by tests/debug-levels.sh, which fails if any tests/*.sh is
+# neither invoked here nor named there: a test file nothing runs cannot fail,
+# and two had already reached that state (tests/ccache.sh, found by a security
+# review, and tests/compiler-flags.sh, which was red at the time). Keeping the
+# list machine-readable means the exemption and the prose cannot drift apart.
+# NOT-IN-SUITE: lcevc-static-link.sh oapv-static-link.sh no-nested-archives.sh avs2-reorder-dts.sh
+# Pins flag OWNERSHIP in lib/flags.sh -- the rule that a recipe may set CFLAGS
+# but not without deriving from the composed one. Was never wired in either, and
+# it FAILED silently against a branch that had already shipped: giflib's derived
+# macro read as a clobber because the check could not see through the helper.
+sh tests/compiler-flags.sh
 sh tests/lcevc-default-off.sh
 sh tests/libressl-pin-asm.sh
 sh tests/libressl-trust-store.sh
@@ -90,6 +101,7 @@ sh tests/hash-comment-grammar.sh
 # exactly what oracle-baseline below counts. Nothing else asserts on that
 # output, and since #48 every test in this file routes through it, bar the two
 # gates (shellcheck, oracle-baseline) that format their own output.
+sh tests/ccache.sh
 sh tests/assert-reporter.sh
 # Runs the unmerged test files against the merge base and fails if any assertion
 # passes there. Catches the oracle that drifted into matching an error message,
