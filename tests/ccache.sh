@@ -1,5 +1,6 @@
 #!/bin/sh
-# Pins --ccache: the flag, its default, and the masquerade directory it builds.
+# Pins the compiler cache: the tri-state flag, its default, and the ONE mechanism
+# that answers for all five build systems.
 #
 # The MECHANISM is the part worth pinning. ccache can be wired either by
 # prefixing CC/CXX or by putting a directory of compiler-named symlinks ahead of
@@ -15,6 +16,13 @@
 # A future change from the directory to the prefix form is therefore a
 # regression, and these assertions are what says so.
 #
+# The SECOND half is the one GH-61 was filed about. meson finds ccache by itself
+# and compiles through it whether or not mediaforge asked for a cache, so a tree
+# whose flag is merely absent is cached for meson recipes and uncached for the
+# other four. Both directions of the flag are therefore asserted here: "on"
+# builds the masquerade directory, and "off" exports CCACHE_DISABLE, which is
+# what reaches the ccache that meson invokes without our help.
+#
 # lib/ccache.sh is sourced conditionally for the same reason tests/debug-levels.sh
 # guards lib/flags.sh: on the merge base the file does not exist, and an
 # unguarded source under `set -e` aborts before the DONE sentinel, which
@@ -29,18 +37,55 @@ _fail=0
 _wired flag-parsed     mediaforge.sh '--ccache)'
 _wired flag-off-parsed mediaforge.sh '--no-ccache)'
 _wired flag-documented mediaforge.sh '--ccache              Compile through ccache'
-_wired setup-called    mediaforge.sh 'mf_ccache_setup'
-# Default off. Asserted against the assignment: a default that flips is a build
-# that silently changes its toolchain.
-if grep -qE '^MF_CCACHE=false' mediaforge.sh; then
-  _pass default-is-off
+_wired apply-called    mediaforge.sh 'mf_ccache_apply'
+# The default is the part a reader has to be TOLD. tests/debug-levels.sh already
+# checks that every flag appears in some document; which way an unpassed flag
+# resolves appears in none of them unless it is written down, and this change
+# moved it.
+_wired default-documented Documentation/usage.md 'default is to use ccache when it is installed'
+# The default is the third state, not either flag: `auto` uses the cache when one
+# is installed and disables it when none is. Asserted against the assignment,
+# because a default that flips is a build that silently changes its toolchain.
+if grep -qE '^MF_CCACHE=auto' mediaforge.sh; then
+  _pass default-is-auto
 else
-  _bad default-is-off "MF_CCACHE does not default to false"
+  _bad default-is-auto "MF_CCACHE does not default to auto"
+fi
+
+# One mechanism, not one per build system. The masquerade directory and
+# CCACHE_DISABLE are both process-wide, so a per-build-system launcher option
+# added later would be a second answer that agrees with the first only by
+# inspection -- the split GH-61 was filed about, reintroduced from the other
+# side. Same shape as tests/meson-single-entry.sh: a grep for the wiring that
+# must not appear.
+# Comment lines are dropped first: lib/ccache.sh's header explains why it does
+# NOT use the prefix form, quoting `CC="ccache gcc"` verbatim, and a grep that
+# cannot tell prose from wiring would report that explanation as the defect.
+# The quote form is not fixed either -- CC='ccache gcc' and a bare CC=ccache are
+# the same wiring -- so the pattern allows one optional quote character.
+_launchers=$(grep -rnE 'C(XX)?_COMPILER_LAUNCHER|-Dccache|C(XX)?=.?ccache' \
+               lib/ recipes/ mediaforge.sh 2>/dev/null |
+             grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)
+if ! grep -q '^mf_ccache_setup()' lib/ccache.sh 2>/dev/null; then
+  # The floor tests/meson-single-entry.sh carries for the same shape of claim:
+  # every clause above is "grep found nothing", which an empty lib/ satisfies
+  # having checked nothing. Note the `! -f lib/ccache.sh` guard further down
+  # does not cover this -- it runs after.
+  _bad one-mechanism "no mf_ccache_setup to be the one mechanism"
+elif [ -z "$_launchers" ]; then
+  _pass one-mechanism
+else
+  _bad one-mechanism "per-build-system cache wiring in: $(printf '%s' "$_launchers" | tr '\n' ' ')"
 fi
 
 # --- the mechanism ----------------------------------------------------------
 if [ ! -f lib/ccache.sh ]; then
-  for _a in masquerade-dir-built only-existing-compilers path-is-prepended dies-without-ccache; do
+  for _a in masquerade-dir-built only-existing-compilers path-is-prepended \
+            auto-uses-cache auto-degrades-without-ccache off-disables-everywhere \
+            off-builds-no-masquerade explicit-clears-inherited-disable \
+            auto-respects-inherited-disable auto-defers-on-empty-disable \
+            unknown-state-dies \
+            dies-without-ccache; do
     _bad "$_a" "lib/ccache.sh absent — claim would be vacuous"
   done
   printf 'DONE: ccache\n'
@@ -72,19 +117,71 @@ mkdir -p "$_tmp/bin"
 printf '#!/bin/sh\nexit 0\n' > "$_tmp/bin/ccache"; chmod +x "$_tmp/bin/ccache"
 printf '#!/bin/sh\nexit 0\n' > "$_tmp/bin/cc";     chmod +x "$_tmp/bin/cc"
 _link_tools "$_tmp/bin" mkdir rm ln
+# The same sandbox WITHOUT a ccache, for the two states whose whole subject is a
+# host that has none.
+mkdir -p "$_tmp/nocache"
+printf '#!/bin/sh\nexit 0\n' > "$_tmp/nocache/cc"; chmod +x "$_tmp/nocache/cc"
+_link_tools "$_tmp/nocache" mkdir rm ln
 
-(
-  PATH="$_tmp/bin"; export PATH
-  PREFIX="$_tmp/prefix"; export PREFIX
-  # shellcheck source=lib/utils.sh
-  . "$ROOT/lib/utils.sh"
-  # shellcheck source=lib/ccache.sh
-  . "$ROOT/lib/ccache.sh"
-  mf_ccache_setup > "$_tmp/log" 2>&1
-  printf '%s\n' "$PATH" > "$_tmp/path"
-) || { printf 'FAIL [setup-ran] exited non-zero: %s\n' "$(tr '\n' ' ' < "$_tmp/log")" >&2; _fail=1; }
+# One state, one sandbox, one recording. Written as a helper because the
+# assertions below differ only in the state they pass and the bin directory they
+# pass it under -- and because what has to be read back is not a return value
+# but what the process LEAVES: its PATH, its CCACHE_DISABLE, and how it exited.
+# Each tag gets its own PREFIX so a masquerade directory built by one state can
+# never be mistaken for one built by another.
+_apply() { # tag  bindir  state
+  _ap_tag="$1"
+  rm -f "$_tmp/path-$_ap_tag" "$_tmp/disable-$_ap_tag"
+  set +e
+  (
+    PATH="$2"; export PATH
+    PREFIX="$_tmp/prefix-$_ap_tag"; export PREFIX
+    # shellcheck source=lib/utils.sh
+    . "$ROOT/lib/utils.sh"
+    # shellcheck source=lib/ccache.sh
+    . "$ROOT/lib/ccache.sh"
+    # Exit rather than run on: without this, a tree where mf_ccache_apply does
+    # not exist prints "command not found", carries on to the recordings, and
+    # leaves the subshell at 0 -- so every assertion phrased as "nothing
+    # happened" passes on precisely the tree that has none of this.
+    command -v mf_ccache_apply >/dev/null 2>&1 || { echo "no mf_ccache_apply"; exit 127; }
+    mf_ccache_apply "$3"
+    printf '%s\n' "$PATH" > "$_tmp/path-$_ap_tag"
+    # `-` not `:-`: an exported empty CCACHE_DISABLE is a different fact from an
+    # unset one, and collapsing them would let "exported as empty" pass a check
+    # for "not exported".
+    printf '%s\n' "${CCACHE_DISABLE-UNSET}" > "$_tmp/disable-$_ap_tag"
+  ) > "$_tmp/log-$_ap_tag" 2>&1
+  _ap_rc=$?
+  set -e
+}
 
-_dir="$_tmp/prefix/.ccache-bin"
+# Reading one recording back, with the "the subshell died before writing it"
+# case reported as the failure it is rather than as an abort: this file runs
+# under `set -e`, and a bare read of a missing file would exit before the DONE
+# sentinel that tests/oracle-baseline.sh requires.
+_recorded() { # tag  what(path|disable)
+  if [ -f "$_tmp/$2-$1" ]; then cat "$_tmp/$2-$1"; else printf 'NOTHING-RECORDED\n'; fi
+}
+
+# The failure detail for one run, bounded. _bad flattens newlines, so an
+# unbounded log becomes a single multi-kilobyte line -- the exact failure
+# tests/lib-assert.sh says _evidence exists to prevent. The pattern names the
+# words these logs fail with; _evidence falls back to the last lines when none
+# of them appears.
+_why() { # tag
+  _evidence 3 'ccache|not installed|no mf_ccache_apply|unknown ccache state' < "$_tmp/log-$1"
+}
+
+# --- state: explicit --ccache -----------------------------------------------
+_apply on "$_tmp/bin" true
+if [ "$_ap_rc" -eq 0 ]; then
+  _pass setup-ran
+else
+  _bad setup-ran "exited $_ap_rc: $(_why on)"
+fi
+
+_dir="$_tmp/prefix-on/.ccache-bin"
 if [ -L "$_dir/cc" ] && [ "$(readlink "$_dir/cc")" = "$_tmp/bin/ccache" ]; then
   _pass masquerade-dir-built
 else
@@ -99,7 +196,12 @@ _linked=""
 for _n in gcc c++ g++ clang clang++; do
   if [ -e "$_dir/$_n" ]; then _linked="$_linked $_n"; fi
 done
-if [ -z "$_linked" ]; then
+if [ ! -d "$_dir" ]; then
+  # "none of the five were linked" is true of a directory that does not exist,
+  # so on a tree that builds no masquerade at all this claim would pass having
+  # checked nothing.
+  _bad only-existing-compilers "no masquerade directory to inspect"
+elif [ -z "$_linked" ]; then
   _pass only-existing-compilers
 else
   _bad only-existing-compilers "linked names that do not resolve:$_linked"
@@ -107,48 +209,150 @@ fi
 
 # Prepended, not appended: an appended entry is shadowed by the real compiler
 # and caches nothing, which looks identical to working.
-# Guarded rather than read blind: if the subshell above failed, this file was
-# aborting on a missing $_tmp/path under `set -e`, BEFORE the DONE sentinel --
-# and tests/oracle-baseline.sh reads a missing sentinel as a crashed test rather
-# than as a failed assertion, which is a worse report of the same fact.
-if [ -f "$_tmp/path" ]; then
-  _first=$(cut -d: -f1 < "$_tmp/path")
-  if [ "$_first" = "$_dir" ]; then
-    _pass path-is-prepended
-  else
-    _bad path-is-prepended "PATH starts with [$_first]"
-  fi
+_first=$(_recorded on path | cut -d: -f1)
+if [ "$_first" = "$_dir" ]; then
+  _pass path-is-prepended
 else
-  _bad path-is-prepended "mf_ccache_setup did not run to completion — no PATH recorded"
+  _bad path-is-prepended "PATH starts with [$_first]"
 fi
 
+# --- state: auto (the default) ----------------------------------------------
+# With a cache installed, `auto` is `true`. Asserted on the masquerade directory
+# rather than on a log line, because the directory is what the build resolves
+# its compiler names through.
+_apply auto-yes "$_tmp/bin" auto
+if [ "$_ap_rc" -eq 0 ] && [ -L "$_tmp/prefix-auto-yes/.ccache-bin/cc" ]; then
+  _pass auto-uses-cache
+else
+  _bad auto-uses-cache "rc=$_ap_rc, no masquerade dir: $(_why auto-yes)"
+fi
+
+# With no cache installed, `auto` is not an error. A host without ccache is the
+# ordinary case, and the default state may not refuse to build on one -- which is
+# the one thing separating `auto` from simply defaulting the flag to on.
+_apply auto-no "$_tmp/nocache" auto
+_degraded=$(_recorded auto-no disable)
+if [ "$_ap_rc" -eq 0 ] && [ "$_degraded" = "1" ]; then
+  _pass auto-degrades-without-ccache
+else
+  _bad auto-degrades-without-ccache "rc=$_ap_rc, CCACHE_DISABLE=[$_degraded]: $(_why auto-no)"
+fi
+
+# --- state: --no-ccache -----------------------------------------------------
+# The assertion GH-61 exists for. Our masquerade directory is not what meson
+# uses -- meson finds ccache itself -- so "off" can only be made true for meson
+# by an environment variable the ccache it invokes reads. Anything weaker leaves
+# the default tree cached for meson recipes and uncached for the other four.
+_apply off "$_tmp/bin" false
+_disable=$(_recorded off disable)
+if [ "$_disable" = "1" ]; then
+  _pass off-disables-everywhere
+else
+  _bad off-disables-everywhere "CCACHE_DISABLE=[$_disable], not 1"
+fi
+
+# And it must not ALSO build the masquerade directory: a state that wires the
+# cache in and disables it again is two mechanisms disagreeing, which is the
+# defect this file's header describes.
+if [ "$_ap_rc" -ne 0 ]; then
+  _bad off-builds-no-masquerade "the off state exited $_ap_rc: $(_why off)"
+elif [ -e "$_tmp/prefix-off/.ccache-bin" ]; then
+  _bad off-builds-no-masquerade "built a masquerade directory while the cache is off"
+else
+  _pass off-builds-no-masquerade
+fi
+
+# --- inherited environment --------------------------------------------------
+# An operator whose shell already exports CCACHE_DISABLE=1 and who then asks for
+# --ccache must get a cache. Without this the flag builds the masquerade
+# directory, every compile runs through ccache, and none of them caches -- the
+# silent no-op that dies-without-ccache below refuses to allow from the other
+# direction.
+#
+# Exported around the call rather than given its own sandbox: the difference
+# from every other state here is exactly one inherited variable, and _apply's
+# subshell inherits it.
+CCACHE_DISABLE=1; export CCACHE_DISABLE
+_apply inherit "$_tmp/bin" true
+unset CCACHE_DISABLE
+_inherited=$(_recorded inherit disable)
+if [ "$_ap_rc" -eq 0 ] && [ "$_inherited" = "UNSET" ]; then
+  _pass explicit-clears-inherited-disable
+else
+  _bad explicit-clears-inherited-disable "rc=$_ap_rc, CCACHE_DISABLE=[$_inherited]"
+fi
+
+# The same variable, the same host, the other state -- and the opposite answer.
+# An operator who exported CCACHE_DISABLE has configured ccache the way ccache
+# documents; the default state did not ask for a cache and may not overrule
+# that. Before this pair existed the `unset` lived in mf_ccache_setup, which
+# BOTH states reach, so the default silently re-enabled a cache the operator had
+# turned off host-wide.
+CCACHE_DISABLE=1; export CCACHE_DISABLE
+_apply defer "$_tmp/bin" auto
+unset CCACHE_DISABLE
+_deferred=$(_recorded defer disable)
+if [ "$_ap_rc" -ne 0 ]; then
+  _bad auto-respects-inherited-disable "exited $_ap_rc: $(_why defer)"
+elif [ "$_deferred" != "1" ]; then
+  _bad auto-respects-inherited-disable "CCACHE_DISABLE=[$_deferred], not the inherited 1"
+elif [ -e "$_tmp/prefix-defer/.ccache-bin" ]; then
+  # Left alone means left alone: wiring the masquerade directory in anyway would
+  # route every compile through a ccache the environment has disabled, which is
+  # the silent no-op in its third disguise.
+  _bad auto-respects-inherited-disable "built a masquerade directory over an inherited CCACHE_DISABLE"
+else
+  _pass auto-respects-inherited-disable
+fi
+
+# The same claim one state over, and the reason the presence test is spelled
+# `+` rather than `:-`. ccache reads an exported-but-empty CCACHE_DISABLE as
+# disabled just like `1` (measured, 4.13.6), so an implementation testing the
+# VALUE would build the masquerade directory over an operator who had disabled
+# the cache -- and every other assertion in this file would stay green, because
+# each of them exports the value 1.
+CCACHE_DISABLE=; export CCACHE_DISABLE
+_apply defer-empty "$_tmp/bin" auto
+unset CCACHE_DISABLE
+_empty=$(_recorded defer-empty disable)
+if [ "$_ap_rc" -ne 0 ]; then
+  _bad auto-defers-on-empty-disable "exited $_ap_rc: $(_why defer-empty)"
+elif [ "$_empty" != "" ]; then
+  # _recorded prints UNSET for a variable that is not set, so exported-empty and
+  # never-set are distinguishable here -- which is what makes the claim testable.
+  _bad auto-defers-on-empty-disable "CCACHE_DISABLE=[$_empty], not the inherited empty value"
+elif [ -e "$_tmp/prefix-defer-empty/.ccache-bin" ]; then
+  _bad auto-defers-on-empty-disable "built a masquerade directory over an empty CCACHE_DISABLE"
+else
+  _pass auto-defers-on-empty-disable
+fi
+
+# --- refusals ---------------------------------------------------------------
 # Asking for a cache that is not installed is an error, not a silent no-op: the
 # operator asked for a faster build and would otherwise get a slower one with no
-# explanation. Run with the tools present but no ccache.
-# `sh` is in this list because env resolves the interpreter through PATH too:
-# without it the probe dies with "env: 'sh': No such file or directory", which
-# is a death for the wrong reason -- caught by the else-branch below, which
-# refuses to accept any failure that does not name the missing cache.
-mkdir -p "$_tmp/nocache"
-_link_tools "$_tmp/nocache" mkdir rm ln sh
-# Written to a file rather than passed to `sh -c`: an inline script would carry
-# a positional parameter inside single quotes, which the linter reads as a
-# failed expansion (SC2016) and which a reader has to decode.
-cat > "$_tmp/probe.sh" <<'PROBE'
-. "$1/lib/utils.sh"
-. "$1/lib/ccache.sh"
-mf_ccache_setup
-PROBE
-set +e
-_out=$(env "PATH=$_tmp/nocache" "PREFIX=$_tmp/prefix2" sh "$_tmp/probe.sh" "$ROOT" 2>&1)
-_rc=$?
-set -e
-if [ "$_rc" -eq 0 ]; then
+# explanation. This is the one thing `true` still does that `auto` does not.
+_apply die "$_tmp/nocache" true
+if [ "$_ap_rc" -eq 0 ]; then
   _bad dies-without-ccache "exited 0 with no ccache on PATH"
 else
-  case "$_out" in
+  case "$(cat "$_tmp/log-die")" in
     *"not installed"*) _pass dies-without-ccache ;;
-    *) _bad dies-without-ccache "died without naming the cause: $(printf '%s' "$_out" | tr '\n' ' ')" ;;
+    *) _bad dies-without-ccache "died without naming the cause: $(_why die)" ;;
+  esac
+fi
+
+# A state that is none of the three is a caller bug -- a flag added without a
+# case arm -- and must stop the build rather than pick a policy on its own.
+_apply bogus "$_tmp/bin" maybe
+if [ "$_ap_rc" -eq 0 ]; then
+  _bad unknown-state-dies "accepted the state 'maybe'"
+else
+  # Named, not merely non-zero: the sandbox's own missing-function guard exits
+  # non-zero too, so "it died" is satisfied by a tree that has no ccache support
+  # at all.
+  case "$(cat "$_tmp/log-bogus")" in
+    *maybe*) _pass unknown-state-dies ;;
+    *) _bad unknown-state-dies "died without naming the state: $(_why bogus)" ;;
   esac
 fi
 
