@@ -131,6 +131,15 @@ mkdir -p "$_tree/workspace/.stamps"
 printf 'full' > "$_tree/workspace/.debug-level"
 : > "$_tree/workspace/.stamps/poison-1"
 
+# Snapshotted rather than enumerated. The first draft listed the artifacts a
+# coupled test would leave -- .logs, .pc-skip-queue, .mediaforge-choices -- and
+# was wrong on the day it was written: mediaforge also writes .extra_cflags,
+# .extra_ldflags and .debug-level at the top of $PREFIX, and a new file under
+# .stamps is exactly what tests/negative.sh plants. A list of names here is the
+# same hand-maintained list this file's header declines to keep for its
+# population, for the same reason: it rots with nothing to say so.
+_wsbefore=$(find "$_tree/workspace" | sort)
+
 _broken=''
 for _f in $_invokers; do
   if ! sh "$_tree/$_f" >/dev/null 2>&1; then
@@ -161,18 +170,27 @@ fi
 #
 # packages/ is the sharper half. Neither farm links it, so its existence is
 # unambiguously a test having run mediaforge with the farm as TOPDIR.
+# The pick is bound to the derived population rather than merely named. If
+# tests/negative.sh is renamed, split or dropped, `sh` fails, nothing is ever
+# written into the clean farm, and `|| true` swallows the only signal -- the
+# assertion would pass having run nothing, which is the vacuity the floor above
+# exists to prevent.
 _writer=tests/negative.sh
-sh "$_clean/$_writer" >/dev/null 2>&1 || true
 _wrote=''
-for _d in "$_clean" "$_tree"; do
-  [ -e "$_d/packages" ] && _wrote="$_wrote $_d/packages"
-done
+case " $_invokers " in
+  *" $_writer "*)
+    sh "$_clean/$_writer" >/dev/null 2>&1 || true
+    ;;
+  *)
+    _wrote="$_wrote ($_writer left the derived population, so nothing was run)"
+    ;;
+esac
+[ -e "$_clean/packages" ] && _wrote="$_wrote $_clean/packages"
 [ -e "$_clean/workspace" ] && _wrote="$_wrote $_clean/workspace"
-# The poisoned farm's workspace/ is ours, so only what was ADDED to it counts.
-for _p in "$_tree"/workspace/.logs "$_tree"/workspace/.pc-skip-queue \
-          "$_tree"/workspace/.mediaforge-choices; do
-  [ -e "$_p" ] && _wrote="$_wrote $_p"
-done
+[ -e "$_tree/packages" ] && _wrote="$_wrote $_tree/packages"
+# The poisoned farm's workspace/ is ours, so only a CHANGE to it counts.
+[ "$(find "$_tree/workspace" | sort)" = "$_wsbefore" ] ||
+  _wrote="$_wrote $_tree/workspace(modified)"
 if [ -z "$_wrote" ]; then
   _pass suite-writes-nothing-into-the-tree-it-runs-from
 else

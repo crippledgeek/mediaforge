@@ -65,9 +65,9 @@ _scratch_cleanup() {
 # The missing-directory case is reported rather than left to `cd` — an early
 # _scratch_cleanup, or a /tmp reaper on a long run, and `cd` fails, mediaforge
 # never runs, and this returns EMPTY OUTPUT with a non-zero status that every
-# caller here discards with `|| true`. Empty output satisfies each of the
-# thirty-odd `_run_no`/`grep -q`-negated assertions in tests/dry-run-matrix.sh
-# and tests/negative.sh, so the failure mode is a green suite that ran nothing.
+# caller here discards with `|| true`. Empty output satisfies every `_run_no` in
+# tests/dry-run-matrix.sh and each of the stamp-leak checks in tests/negative.sh,
+# so the failure mode is a green suite that ran nothing.
 # 127 rather than 1 so a caller that does look at the status sees "could not
 # execute" rather than "mediaforge said no".
 _mf() {
