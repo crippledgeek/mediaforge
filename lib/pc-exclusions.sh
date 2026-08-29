@@ -88,11 +88,12 @@ pc_exclusions_finalize() {
   # shadowing .pc. The name carries the pid because two builds sharing one
   # workspace is a thing a user can do, not a thing we prevent.
   _pcf_tmp="$PREFIX/$PC_EXCLUDE_NAME.$$"
-  # printf, not `: >`. `:` is a POSIX SPECIAL built-in, and a redirection error
-  # on one aborts a non-interactive shell outright — so `: > f || die` never
-  # reaches its die, and the operator gets the shell's message instead of ours.
-  # Measured on dash 0.5.12 and bash 5.3 in POSIX mode; plain bash differs,
-  # which is exactly why this cannot be checked by running it under bash.
+  # printf, not `: >`. `:` is a POSIX SPECIAL built-in, and POSIX XCU 2.8.1
+  # makes a redirection error on one fatal to a non-interactive shell — so
+  # `: > f || die` never reaches its die, and the operator gets the shell's
+  # message instead of ours. Confirmed here on dash and on bash in POSIX mode;
+  # plain bash runs the `||` arm, which is exactly why this cannot be found by
+  # running it under bash.
   printf '' > "$_pcf_tmp" || die "Cannot write the .pc exclusion list at $_pcf_tmp"
 
   _pcf_count=0
@@ -101,8 +102,10 @@ pc_exclusions_finalize() {
   # Checked, because a redirection creates the target before the command runs:
   # an unchecked failure here yields an EMPTY input, a zero-entry list, and an
   # install that shadows every system library this mechanism protects.
-  sort -u "$_pcf_queue" > "$_pcf_tmp.in" ||
+  sort -u "$_pcf_queue" > "$_pcf_tmp.in" || {
+    rm -f "$_pcf_tmp" "$_pcf_tmp.in"
     die "Cannot read the .pc exclusion queue at $_pcf_queue"
+  }
   while IFS= read -r _pcf_name; do
     [ -z "$_pcf_name" ] && continue
     # Path-traversal guard. Entries are recipe-supplied constants, but a typo

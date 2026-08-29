@@ -1,13 +1,18 @@
 # shellcheck shell=sh
 # One definition of "run something with the install layer loaded".
 #
-# Fifteen call sites across five test files opened a fresh `sh -c` and repeated
-# the same three source lines, and ten of them repeated the same environment
-# prefix around `do_install` / `do_uninstall` verbatim. The lines do not rot
-# quietly -- a wrong order fails loudly -- but the file's DEPENDENCIES are a
-# real thing to keep in step: lib/install.sh calls resolve_openssldir from
-# lib/resolve.sh, and two of the fifteen did not source it. Having one place
-# say what the install layer needs is what makes that answerable.
+# Every install-layer `sh -c` in tests/ opened a fresh shell and repeated the
+# same three source lines, and most of them repeated the same environment prefix
+# around `do_install` / `do_uninstall` verbatim. No census is written down here:
+# the first draft of this paragraph counted the call sites and was wrong by one
+# before it was committed -- lib/install.sh's own header declines to count its
+# sourcers for exactly that reason.
+#
+# The lines do not rot quietly -- a wrong order fails loudly -- but the file's
+# DEPENDENCIES are a real thing to keep in step: lib/install.sh calls
+# resolve_openssldir from lib/resolve.sh, and two of these sites did not source
+# it. Having one place say what the install layer needs is what makes that
+# answerable.
 #
 # A separate `sh` process rather than a ( ) subshell, which is the reason every
 # one of those call sites gave: do_install reads PREFIX/AUTOINSTALL from the

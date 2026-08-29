@@ -122,10 +122,8 @@ printf "STORED_OPENSSLDIR='%s'\n" "$_dest/custom/trust" >> "$_stage/.mediaforge-
 # injecting it is what previously let both install tests pass while the real
 # workflow shipped no bundle at all.
 
-# A separate `sh` process rather than a ( ) subshell: install.sh's do_install
-# reads PREFIX/AUTOINSTALL from the environment, and shadowing this script's own
-# PREFIX inside a subshell would both confuse the reader and leak install.sh's
-# functions into the assertions that follow.
+# The separate `sh` process is tests/lib-install-driver.sh's doing and its
+# header gives the reason.
 # Not _install_sh: this runs two entry points in ONE process with a probe
 # between them, which is the point -- the manifest is read back while
 # do_install's own process is still the one that wrote it. The source list is

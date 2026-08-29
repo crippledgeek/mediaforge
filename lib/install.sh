@@ -13,9 +13,10 @@
 # Sourced here rather than left to the caller: the exclusion record is an
 # implementation detail of the pkgconfig loop below, and mediaforge.sh and every
 # install test driver source this file by hand. A dependency none of them names
-# is one none of them can forget. No count is written down — this file gained a
-# sourcer on the very commit that introduced this comment, and tests/lib-assert.sh
-# records the same census drifting twice in three commits.
+# is one none of them can forget. No count is written down: the count this
+# paragraph replaced was already false on the commit that wrote it, which added
+# a sourcer while asserting the old total, and tests/lib-assert.sh records the
+# same census drifting twice in three commits.
 # shellcheck source=lib/pc-exclusions.sh
 . "$SCRIPT_DIR/lib/pc-exclusions.sh"
 
