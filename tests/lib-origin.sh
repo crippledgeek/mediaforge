@@ -30,8 +30,10 @@
 # A MALFORMED script is diagnosable but points the wrong way, so it is worth
 # knowing here: an empty SEQFILE indexes an empty list and a line with no space
 # fails to split, both of which kill the handler and close the connection. The
-# caller then reports "Failed to download ... after 3 attempts" -- a
-# network-shaped message for a fixture-shaped bug. socketserver prints the
+# caller then reports a download failure after exhausting its attempts -- a
+# network-shaped message for a fixture-shaped bug. (The message quotes an
+# attempt count; it is not repeated here, so this line cannot go stale when
+# that count changes.) socketserver prints the
 # traceback, so it is recoverable from a test that captures the origin's
 # stderr; a test that discards it sees only the download failure.
 #

@@ -11,35 +11,45 @@
 #   * PKG_URL / PKG_FILENAME / PKG_DIRNAME, which fetch() reads as the
 #     defaults for its three positional arguments.
 #
-# Which of those three actually bites is worth knowing, because the answer is
-# not "all of them" and this comment said so before it was measured:
+# The duplication that justified this file is the LAST of those, and it is the
+# knowledge rather than the four assignments: retyping them is trivial, and the
+# reason they are there is not. Both callers carried that reason in prose, in
+# two spellings, and NEITHER was accurate about which variable mattered. One
+# home means one account, and one chance for it to be wrong -- which is how the
+# corrections below came to be found at all.
 #
-#     _url="${1:-$PKG_URL}"                    bare  -- unset aborts, but only
-#                                                       when no URL is passed
-#     _file="${2:-${PKG_FILENAME:-...}}"       NESTED `:-` -- unset is always
-#                                                       safe, `set -u` or not
-#     _dir="${3:-$PKG_DIRNAME}"                bare  -- unset aborts whenever
-#                                                       the caller omits $3
+# Which of the three actually bites, measured rather than reasoned:
 #
-# So PKG_DIRNAME is the load-bearing one for a caller that passes fewer than
-# three arguments. All three are set here anyway: which expansion is bare is a
-# property of fetch()'s defaults, not of this helper, and a test should not go
-# red the day one of them changes shape.
+#     _url="${1:-$PKG_URL}"                bare -- aborts only when no URL is
+#                                                  passed, which no caller does
+#     _file="${2:-${PKG_FILENAME:-...}}"   NESTED `:-` -- unset is always safe,
+#                                                  `set -u` or not
+#     _dir="${3:-$PKG_DIRNAME}"            bare -- aborts when $3 is omitted OR
+#                                                  EMPTY, since `:-` substitutes
+#                                                  for null as well as unset
 #
-# The failure it prevents is worth naming exactly, because it is silent in one
-# direction. A test asserting that fetch FAILS -- tests/fetch-fail-no-cache.sh
-# runs `( fetch ... )` and checks for a non-zero status -- cannot tell an abort
-# on an unbound variable from the die() it is asserting: the status is non-zero
-# either way, so the test goes green having never reached a download. Measured,
-# by deleting each assignment in turn: dropping PKG_DIRNAME leaves that test
-# PASSING and makes tests/download-retry-verify.sh (which passes all three
-# arguments, and asserts a SUCCESS) fail loudly. The quiet direction is the one
-# this helper exists for.
+# That last distinction is the one worth having written down: a caller passing
+# `fetch "$url" "$file" ""` has NOT omitted $3 and still reaches $PKG_DIRNAME.
+# tests/download-retry-verify.sh passes exactly that. Verified in sh, dash and
+# bash, which agree.
 #
-# Written out in both callers before this existed, and the comment explaining
-# it had already drifted into two spellings -- neither of which was accurate
-# about which variable mattered. The prose is the part that drifts first, and
-# it is the part a reader relies on.
+# So PKG_DIRNAME is the load-bearing one for any caller without a non-empty
+# third argument -- which is both of them. All three are set here anyway:
+# which expansion is bare is a property of fetch()'s defaults, not of this
+# helper, and a test should not go red the day one of them changes shape.
+#
+# The failure mode this guards against was for a time SILENT in one direction,
+# and the history is kept because the shape recurs. A test asserting that fetch
+# FAILS -- tests/fetch-fail-no-cache.sh runs `( fetch ... )` and checks for a
+# non-zero status -- could not tell an abort on an unbound variable from the
+# die() it was asserting: non-zero either way, no file written either way, so it
+# went green having never reached a download. Dropping PKG_DIRNAME left it
+# passing.
+#
+# It does not any more: the request-count assertion in that same test now says
+# the origin served nothing, and both tests fail loudly. The quiet direction is
+# closed, so what remains justifying this helper is the prose above -- not the
+# false pass, which is now guarded.
 #
 # $_fail is deliberately NOT set here: it belongs to the reporter contract at
 # the head of tests/lib-assert.sh, which asks each test to initialise it, and a

@@ -80,14 +80,20 @@ if [ -f "$DISTDIR/$_archive" ]; then
 fi
 
 # ...and (c) the origin was actually REACHED. Connection-refused satisfies both
-# halves above exactly as a 502 does, so without this the claim passes against a
-# fixture that never started or died early -- measured: killing the origin after
-# the port is read leaves this test green having never seen a 502, which is the
-# thing it exists to guard. download_file makes three attempts before it dies.
+# halves above exactly as a 502 does -- measured: killing the origin after the
+# port is read left this test green having never seen a 502, which is the thing
+# it exists to guard.
+#
+# How MANY requests is download_file's retry policy, not this test's claim, so
+# this asserts only that the fixture answered at all. Pinning the attempt count
+# here would put that literal in a sixth place under an unrelated assertion
+# name, and a legitimate change to it would fail this test with "the 502 path
+# was not exercised" -- false, and a misdiagnosis in the one file whose whole
+# subject is a misdiagnosed failure. Both cases this catches (a dead origin, an
+# abort before the download) serve zero.
 _reqs=$(_origin_requests "$COUNT_FILE")
-if [ "$_reqs" -ne 3 ]; then
-  _wrong="$_wrong the origin served $_reqs request(s), expected 3 --"
-  _wrong="$_wrong the 502 path may not have been exercised at all;"
+if [ "$_reqs" -lt 1 ]; then
+  _wrong="$_wrong the origin served no requests -- the 502 path was not exercised;"
 fi
 
 _verdict failed-fetch-caches-no-error-body "$_wrong"
