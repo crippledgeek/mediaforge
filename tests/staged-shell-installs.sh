@@ -77,6 +77,27 @@ else
   _verdict dest-prefix-defined "$_reasons"
 fi
 
+# The directory step has to FAIL THE BUILD when it cannot create the directory.
+# That is the whole reason mf_dest_mkdir exists: the call sites it replaced
+# spelled this four ways, and five of them could not tell you their mkdir had
+# failed. A non-zero return is not enough on its own -- no recipe checks the
+# status -- so what is asserted is that die() is reached.
+if ! command -v mf_dest_mkdir >/dev/null 2>&1; then
+  _bad dest-mkdir-fails-loudly "lib/stage.sh defines no mf_dest_mkdir, so an install phase whose mkdir fails carries on to write nothing, quietly"
+else
+  _blocked="$_tmp/a-file-where-a-directory-is-wanted"
+  : > "$_blocked"
+  _reasons=""
+  if ( PREFIX="$_blocked/prefix"; unset DESTDIR
+       die() { printf 'DIED\n'; exit 3; }
+       mf_dest_mkdir lib ) >"$_tmp/mkdir-out" 2>&1; then
+    _reasons=" it reported success though mkdir could not create the directory."
+  elif ! grep -q DIED "$_tmp/mkdir-out"; then
+    _reasons=" it failed without calling die, and no recipe checks the status, so the build would carry on."
+  fi
+  _verdict dest-mkdir-fails-loudly "$_reasons"
+fi
+
 # --- fixtures ---------------------------------------------------------------
 # The minimum each pkg_install reads. Enough for the phase to run to completion
 # on a tree it did not build; not a substitute for building the real thing.
