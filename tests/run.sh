@@ -120,6 +120,20 @@ sh tests/ccache.sh
 # gigabytes into tmpfs; filling that exhausts memory rather than disk, and the
 # OOM killer's SIGKILL cannot be trapped, so the half-written tree stays.
 sh tests/storage-guard.sh
+# Pins which directory `clean` may remove (#71). The two are not
+# interchangeable: workspace/ costs CPU to rebuild, packages/ costs an upstream
+# still being willing to serve the same bytes -- and #70 is what the second one
+# costs when it goes as a side effect of "remove all build artifacts". Nothing
+# else in the suite runs the clean subcommand at all.
+sh tests/clean-modes.sh
+# Pins that mediaforge's own output cannot be rewritten by the values it prints,
+# and that it refuses to run when `pwd` fails (#71 review). die() prints
+# operator-supplied argv verbatim, and lib/download.sh already carried the same
+# printable filter inline for text an origin chose -- so the rule now exists once
+# as mf_printable and this asserts BOTH callers. The startup half matters because
+# an empty $TOPDIR makes $DISTDIR "/packages", and the default clean now deletes
+# under $DISTDIR rather than only the flagged form.
+sh tests/output-and-startup-hygiene.sh
 # Pins that a build stamp is EVIDENCE and not a claim (#59). A stamp used to be
 # an empty file, so nothing noticed when one outlived the artifact it vouched
 # for -- and the next build then skips a recipe it never built, failing at

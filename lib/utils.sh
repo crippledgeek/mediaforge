@@ -1,10 +1,92 @@
 #!/bin/sh
 # Core utility functions for mediaforge
 
+# Reduce a string to characters that can only ADD to the terminal, never
+# rewrite it. LC_ALL=C keeps the classes byte-defined so the filter cannot vary
+# with the operator's locale; `[:print:]` already includes space, so
+# `[:blank:]` is here for TAB alone.
+#
+# The three reporters below interpolate values mediaforge did not choose --
+# paths, filenames, tool output, and the operator's own command line. An ESC or
+# a CR inside one of those rewrites the very line being read to diagnose a
+# problem, which is a diagnostic that lies rather than merely a cosmetic one.
+# lib/download.sh's describe_payload had this filter inline for exactly that
+# reason (the payload there is chosen by whoever answers the request); it now
+# calls this, so the rule exists once.
+#
+# NEWLINE IS RETAINED. `[:print:]` does not include it, and `tr -d` deletes
+# rather than replaces, so stripping it does not merely join two lines -- it
+# jams the last word of one against the first of the next ("hash file X:line two
+# here"). Nineteen calls across lib/ pass deliberately multi-line text, among
+# them fetch_git's three-line tag-vs-commit instruction, and the first version of
+# this helper mangled every one of them: a hardening that damaged the operator
+# surface it was added to protect. A newline cannot move the cursor back over
+# what is already printed, which is the threat here, so it is not the character
+# to spend that on. CR and ESC stay deleted.
+#
+# One `tr` per reported line, and log() is the hot caller rather than run(). A
+# full build reports a few thousand lines against hours of compilation, so the
+# cost is not measurable -- but it is this function's own cost, not one already
+# being paid elsewhere.
+#
+# The `command -v` is not defensive decoration: tests/ccache.sh runs mediaforge
+# under a sandbox PATH holding only the binaries the case is about, and without
+# this the filter produced NOTHING there -- so `die` printed "FATAL: " with the
+# reason stripped off, and two assertions that read the reason failed. A
+# reporter that loses its message is worse than one that prints an unfiltered
+# character: die() is what runs when everything else has already gone wrong, and
+# a PATH without `tr` is a broken environment rather than an attacker. So the
+# message wins, and the filter applies wherever it can. `command -v` is a shell
+# builtin, so asking costs no fork.
+mf_printable() {
+  if command -v tr >/dev/null 2>&1; then
+    printf '%s' "$*" | LC_ALL=C tr -dc '[:print:][:blank:]\n'
+  else
+    printf '%s' "$*"
+  fi
+}
+
+# The same filter for text whose author is not us -- what an origin served, or
+# what a remote API answered. A retained newline there would let that text forge
+# a line of its own, a convincing `[mediaforge] ...` one, inside the very
+# diagnostic an operator is reading to decide whether to trust a download. Our
+# own messages keep their newlines, because for those the newline is formatting
+# and the author is the reader.
+#
+# FAILS CLOSED, and that is the whole difference from mf_printable. Without `tr`
+# this returns nothing rather than the raw string: mf_printable's fail-open trade
+# is sound because there the author and the reader are the same local operator,
+# and losing a die() message is worse than an unfiltered byte they typed
+# themselves. Here the author is remote, so returning raw bytes would drop every
+# protection this function was split out to provide -- newline, ESC and CR -- in
+# exactly the adversarial case it exists for. The cost of failing closed is one
+# missing diagnostic line in an environment with no `tr`, and callers already
+# handle empty: describe_payload's `[ -n "$_dp_full" ] || return 0` is the same
+# silence-over-a-wrong-answer trade its cap logic already makes.
+mf_printable_line() {
+  command -v tr >/dev/null 2>&1 || return 0
+  mf_printable "$*" | tr -d '\n'
+}
+
+# "Is this directory a git clone?" -- asked by fetch_git before it decides a
+# destination is reusable, and by lib/cleanup.sh before it decides one is
+# prunable. Those two answers MUST agree: a directory cleanup keeps is one
+# fetch_git will reuse, and one cleanup prunes is one fetch_git would have
+# replaced anyway. They agreed by coincidence while the test was written out at
+# three call sites, and a review found the third had already drifted out of
+# reach of the assertion meant to watch it.
+#
+# `-d` and not `-e`: a worktree or submodule checkout has .git as a FILE, which
+# this reads as "not a clone". That is deliberate rather than overlooked --
+# fetch_git replaces any destination failing this same test, so answering
+# otherwise would keep a directory only until the next build, at the cost of the
+# two answers disagreeing. Nothing lib/download.sh creates has that shape.
+mf_is_git_clone() { [ -d "$1/.git" ]; }
+
 # Logging
-log()  { printf '[mediaforge] %s\n' "$*"; }
-warn() { printf '[mediaforge] WARNING: %s\n' "$*" >&2; }
-die()  { printf '[mediaforge] FATAL: %s\n' "$*" >&2; exit 1; }
+log()  { printf '[mediaforge] %s\n' "$(mf_printable "$*")"; }
+warn() { printf '[mediaforge] WARNING: %s\n' "$(mf_printable "$*")" >&2; }
+die()  { printf '[mediaforge] FATAL: %s\n' "$(mf_printable "$*")" >&2; exit 1; }
 
 # Run a command, capturing output to a log file.
 # On success the log is removed. On failure it is printed to stderr.

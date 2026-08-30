@@ -9,7 +9,17 @@ PROGNAME=$(basename "$0")
 # Resolve script's own directory (portable)
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
-TOPDIR=$(pwd)
+# `pwd` fails when the working directory has been removed from under the shell
+# -- `mkdir d; cd d; rmdir d` is enough. Unguarded, $TOPDIR is then empty and
+# both directories below become absolute paths at the filesystem root, which
+# every later `rm -rf` would take literally. Checked here rather than at each
+# use: this is the one place the value is produced, and lib/utils.sh (with
+# die()) is not sourced yet.
+TOPDIR=$(pwd) || TOPDIR=""
+if [ -z "$TOPDIR" ]; then
+  printf '[mediaforge] FATAL: cannot determine the working directory (was it removed?)\n' >&2
+  exit 1
+fi
 DISTDIR="$TOPDIR/packages"
 PREFIX="$TOPDIR/workspace"
 
@@ -92,7 +102,7 @@ cmd_help() {
   printf 'Usage: %s <command> [options]\n\n' "$PROGNAME"
   printf 'Commands:\n'
   printf '  build              Build FFmpeg and dependencies\n'
-  printf '  clean              Remove all build artifacts\n'
+  printf '  clean              Remove the build tree and unpacked sources; keep downloads\n'
   printf '  install            Install built binaries and libraries\n'
   printf '  uninstall          Remove installed files\n'
   printf '  check-updates      Check for newer dependency versions\n'
@@ -156,6 +166,9 @@ cmd_help() {
   printf '\nChecksum verification (loud; never persisted to the stored choice matrix):\n'
   printf '      --skip-checksum       Disable verification for EVERY recipe\n'
   printf '      --skip-checksum=PKG   Disable verification for one recipe, by recipe filename or "ffmpeg" (repeatable, comma-separated ok)\n'
+  printf '\nClean options (used by the clean subcommand):\n'
+  printf '      --all                 Also remove the downloaded archives and git clones in\n'
+  printf '                            packages/, which only an upstream can serve again\n'
   printf '\nInstall / uninstall options (used by the install and uninstall subcommands):\n'
   printf '      --prefix=PATH         Install/uninstall location (default: interactive prompt)\n'
   printf '  -y, --yes                 Non-interactive mode\n'
@@ -705,7 +718,37 @@ cmd_build() {
 # ─── Clean ───────────────────────────────────────────────────────────
 
 cmd_clean() {
-  full_cleanup
+  _all=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --all) _all=true ;;
+      # Anything else dies: a bare operand, and `--` too. `clean` accepted no
+      # options at all before GH-71, so every argument handed to it was
+      # silently ignored -- and the one argument it now takes decides whether
+      # the cache survives. A typo'd --all falling through to the default
+      # would keep the cache the operator asked to discard.
+      #
+      # No `--) shift; break` arm, unlike cmd_install and cmd_uninstall. Those
+      # take a --prefix value and need a way to end option parsing; `clean`
+      # takes no operands, so the arm could only ever mean "ignore the rest",
+      # and `clean -- --all` then keeps the cache and exits 0. It did, until a
+      # review ran it.
+      *)     die "Unknown argument for clean: $1 (use --all to also remove $DISTDIR)" ;;
+    esac
+    shift
+  done
+
+  if [ "$_all" = true ]; then
+    full_cleanup
+  else
+    # The prune is called HERE rather than from workspace_cleanup, which would
+    # be a function reaching into $DISTDIR behind a name that says it does not
+    # -- and would have full_cleanup carefully pruning trees one at a time
+    # immediately before removing the whole directory they sit in.
+    workspace_cleanup
+    prune_extracted_sources
+    report_kept_cache
+  fi
 }
 
 # ─── Install ─────────────────────────────────────────────────────────

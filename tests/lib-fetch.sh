@@ -6,7 +6,10 @@
 #
 #   * SCRIPT_DIR, because lib/utils.sh locates lib/stage.sh through it (GH-59).
 #     mediaforge.sh sets it from $0; a test sourcing the library supplies it.
-#   * lib/utils.sh before lib/download.sh, for log/warn/die/command_exists.
+#   * lib/utils.sh before lib/download.sh, for log/warn/die/command_exists --
+#     and, since GH-71, for mf_is_git_clone, which fetch_git calls to decide
+#     whether a destination is reusable. That one is shared with lib/cleanup.sh
+#     so the two cannot drift; sourcing download.sh alone leaves it undefined.
 #   * DISTDIR, which fetch() reads as the download directory.
 #   * PKG_URL / PKG_FILENAME / PKG_DIRNAME, which fetch() reads as the
 #     defaults for its three positional arguments.

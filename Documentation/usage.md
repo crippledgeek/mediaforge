@@ -9,7 +9,7 @@ Usage: mediaforge.sh <command> [options]
 
 Commands:
   build              Build FFmpeg and dependencies
-  clean              Remove all build artifacts
+  clean              Remove the build tree and unpacked sources; keep downloads
   install            Install built binaries and libraries
   uninstall          Remove installed files
   check-updates      Check for newer dependency versions
@@ -79,6 +79,10 @@ Checksum verification (loud; never persisted to the stored choice matrix):
   --skip-checksum           Disable verification for EVERY recipe
   --skip-checksum=PKG       Disable verification for one recipe by name
                             (repeatable, comma-separated ok)
+
+Clean options (used by the clean subcommand):
+  --all                     Also remove the downloaded archives and git clones
+                            in packages/, which only an upstream can serve again
 
 Install/uninstall options:
   --prefix=PATH             Install/uninstall location (default: interactive prompt)
@@ -180,8 +184,63 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 ./mediaforge.sh makesum --update             # overwrite a digest that no longer matches
 
 # Clean
-./mediaforge.sh clean
+./mediaforge.sh clean                        # build tree + unpacked sources
+./mediaforge.sh clean --all                  # also the downloads and git clones
 ```
+
+### What `clean` removes, and what it does not
+
+`clean` removes the build tree (`workspace/`) and the source trees unpacked
+under `packages/`, and keeps the downloaded archives and git clones that also
+live there. `--all` removes `packages/` outright, naming what it is about to
+discard first.
+
+The dividing line is not the directory --- it is whether getting something back
+needs an upstream to answer:
+
+| | Restored by | Removed by |
+|---|---|---|
+| `workspace/` | rebuilding; CPU time only | `clean` |
+| `packages/<dir>/` (unpacked sources) | re-extracting an archive we still hold | `clean` |
+| `packages/<file>` (downloaded archives) | **downloading again** | `clean --all` |
+| `packages/<dir>/.git` (git clones) | **cloning again** | `clean --all` |
+
+One exception, stated rather than glossed: the five cloned recipes are built
+*inside* their clone, so a default `clean` leaves their object files and build
+directories in place --- locally reconstructible state that by the rule above
+belongs on the `clean` side, and aom's is the largest of them. They are left
+alone because the clone and its build output share a directory, and removing the
+second means running `git clean` inside a tree the operator may have touched.
+`clean --all` removes both along with everything else.
+
+GH-71 records what discarding the bottom two as a side effect costs: a full
+clean dropped the cache, one archive host answered with a bot challenge that
+minute, and the run was blocked on a file it had held a verified copy of ten
+minutes earlier. It recovered only because a copy happened to survive outside
+`packages/`. x264 is cloned from that same host, which is why the clones sit on
+the keep side. (GH-70 is the fetch-retry defect from the same incident.)
+
+Keeping bytes for longer is not a trust decision: a cached archive is verified
+against its `.hash` sidecar on *every* reuse, not only when it was first
+fetched, so surviving a `clean` does not make a bad file more reachable.
+`--skip-checksum` disables that verification, which is why the output says
+"cached" rather than "verified".
+
+This is where every other build system draws the line, including which side the
+unpacked sources fall on. FreeBSD's `ports(7)` has `clean` "remove the expanded
+source code" and `distclean` additionally remove the distfiles; MacPorts' `port
+clean` defaults to `--work` and takes `--dist` explicitly; `makepkg` has no
+option that touches `SRCDEST` at all.
+
+The flag is `--all` rather than `--dist` because MacPorts' `--dist` selects the
+distfiles *alone*, while its `--all` is the union of every category --- and a
+union is what this flag is. The systems that express the union as a verb reach
+for `distclean` (ports, OpenWrt) or `cleanall` (Yocto).
+
+Anything `clean` does not recognise is an error rather than a fallback to the
+default --- a typo'd `--all` must not silently keep the cache you asked to
+discard. That includes `--`: `clean` takes no operands, so it has nothing to
+introduce, and an arm that accepted it could only mean "ignore the rest".
 
 ## Build stamps and reconcile
 

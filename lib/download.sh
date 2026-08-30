@@ -164,7 +164,7 @@ fetch_git() {
     die "fetch_git: '$_commit' is not a 40-character commit SHA. Pin a commit, not a tag or branch — a tag is mutable server-side and authenticates nothing."
   fi
 
-  if [ -d "$_dest/.git" ]; then
+  if mf_is_git_clone "$_dest"; then
     _have=$(git -C "$_dest" rev-parse HEAD 2>/dev/null || printf '')
     if [ "$_have" = "$_commit" ]; then
       log "$_dest already at $_commit"
@@ -470,13 +470,11 @@ describe_payload() {
   # payload here is whatever an origin chose to serve. Printed raw, an ANSI
   # escape inside a "description" rewrites the very line the operator is
   # reading to diagnose the failure. So it is reduced to printable characters
-  # and capped -- a diagnosis is one line, and a crafted one is otherwise as
-  # long as the attacker likes. LC_ALL=C keeps the classes byte-defined, so the
-  # filter cannot vary with the operator's locale; `[:print:]` already includes
-  # space, so `[:blank:]` is there for TAB alone -- kept so a tab inside a
-  # description reads as the whitespace it is rather than closing the gap
-  # between two words.
-  _dp_full=$(file -b "$_dp_file" 2>/dev/null | LC_ALL=C tr -dc '[:print:][:blank:]')
+  # by mf_printable_line -- the single-line form, because unlike our own
+  # messages this text could otherwise forge a line of its own -- and capped
+  # -- a diagnosis is one line, and a crafted one is otherwise as long as the
+  # attacker likes.
+  _dp_full=$(mf_printable_line "$(file -b "$_dp_file" 2>/dev/null)")
   [ -n "$_dp_full" ] || return 0
 
   # The cap is MARKED. A description cut at 160 characters otherwise ends
