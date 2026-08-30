@@ -1,16 +1,16 @@
 
-# Locally calculated 2026-08-25
-sha256  cbe212b02faf8c6eed5b6d55ef8a6e363aaab83f15112e960701a9c3df813686  dav1d-1.5.3.tar.gz
-size    1713950  dav1d-1.5.3.tar.gz
+# Locally calculated 2026-08-30
+sha256  732010aa5ef461fa93355ed2c6c5fedb48ddc4b74e697eaabe8907eaeb943011  dav1d-1.5.3.tar.xz
+size    1022836  dav1d-1.5.3.tar.xz
 
-# Locally calculated 2026-08-25
-sha256  1b3e75433dd69eb88ff3190ed1b1707ca5b9f43260b6348c551455c885eaab3a  dav1d-1.3.0.tar.gz
-size    1494299  dav1d-1.3.0.tar.gz
+# Locally calculated 2026-08-30
+sha256  6d8be2741c505c47f8f1ced3c9cc427759243436553d01d1acce201f87b39e71  dav1d-1.3.0.tar.xz
+size    885220  dav1d-1.3.0.tar.xz
 
-# Locally calculated 2026-08-25
-sha256  04da7689748a3501d00b6796b6de0596177019709ecc6095c667b7964895dd8c  dav1d-1.4.1.tar.gz
-size    1595517  dav1d-1.4.1.tar.gz
+# Locally calculated 2026-08-30
+sha256  8d407dd5fe7986413c937b14e67f36aebd06e1fa5cfec679d10e548476f2d5f8  dav1d-1.4.1.tar.xz
+size    948044  dav1d-1.4.1.tar.xz
 
-# Locally calculated 2026-08-25
-sha256  88a023e58d955e0886faf49c72940e0e90914a948a8e60c1326ce3e09e7a6099  dav1d-1.4.3.tar.gz
-size    1630254  dav1d-1.4.3.tar.gz
+# Locally calculated 2026-08-30
+sha256  42fe524bcc82ea3a830057178faace22923a79bad3d819a4962d8cfc54c36f19  dav1d-1.4.3.tar.xz
+size    970088  dav1d-1.4.3.tar.xz

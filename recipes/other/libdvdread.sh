@@ -5,8 +5,15 @@
 # built earlier in _order.conf so dvdnav's configure resolves dvdread.pc).
 PKG_NAME="libdvdread"
 PKG_VERSION="${PKG_VERSION_LIBDVDREAD:-7.0.1}"
-PKG_URL="https://code.videolan.org/videolan/libdvdread/-/archive/${PKG_VERSION}/libdvdread-${PKG_VERSION}.tar.gz"
-PKG_FILENAME="libdvdread-${PKG_VERSION}.tar.gz"
+# VideoLAN's release server, not the generated GitLab archive (GH-69):
+# that endpoint is Anubis-fronted and serves a challenge page as HTTP 200.
+# The extension is version-dependent on the release server (6.1.x is
+# .tar.bz2, 7.0.x is .tar.xz), which is what the '6.*' argument selects --
+# see videolan_release_url in lib/download.sh.
+# No PKG_FILENAME: fetch() falls back to the URL basename, which is already
+# the name wanted, and a second copy of the extension is a second place to
+# get it wrong.
+PKG_URL="$(videolan_release_url libdvdread "$PKG_VERSION" '6.*')"
 PKG_GPL=true
 
 # --enable-libdvdread requires FFmpeg >= 7.0 (FFmpeg probes pkg-config dvdread).

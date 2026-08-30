@@ -189,6 +189,30 @@ fetch_git() {
   # --depth 1 on the commit itself: no history is needed, and the SHA is the
   # thing being verified, so a shallow fetch loses nothing here.
   run git -C "$_dest" fetch -q --depth 1 origin "$_commit"
+
+  # 40 hex digits names an OBJECT, not necessarily a commit. `git ls-remote`
+  # prints an annotated tag twice -- the tag object under refs/tags/<v>, and the
+  # commit it points to under refs/tags/<v>^{} -- so resolving a pin by reading
+  # the first line yields the tag object. The shape check at the top of this
+  # function cannot see the difference (both are 40 hex), and the fetch above
+  # succeeds because the object genuinely exists; `checkout FETCH_HEAD` then
+  # silently PEELS the tag and lands HEAD on a SHA nobody asked for.
+  #
+  # librist arrived that way: PKG_COMMIT held 27460636 (refs/tags/v0.2.11)
+  # rather than c5268580 (the commit it peels to), and the build died 86
+  # recipes in. The assertion below the checkout did catch it -- but only after
+  # the working tree had been written from the wrong object, and it reported a
+  # bare SHA mismatch, which reads as a corrupted checkout rather than as a
+  # mis-resolved pin. Asking git what the object IS costs one cheap local call
+  # and turns that into an instruction.
+  _type=$(git -C "$_dest" cat-file -t "$_commit" 2>/dev/null || printf '')
+  if [ "$_type" != commit ]; then
+    _peel=$(git -C "$_dest" rev-parse "${_commit}^{commit}" 2>/dev/null || printf '')
+    die "fetch_git: $_commit is a git ${_type:-unreadable} object, not a commit.${_peel:+
+Pin the commit it points to instead: $_peel}
+'git ls-remote <url> <tag>' prints the tag object first and the commit under <tag>^{} -- pin the second."
+  fi
+
   run git -C "$_dest" checkout -q FETCH_HEAD
 
   # Belt-and-braces: confirm what actually landed. A remote that served a
@@ -282,6 +306,58 @@ Run './mediaforge.sh makesum' to record it, or --skip-checksum to bypass (loudly
 
   log "$_vname: verified ($_vchecked)"
   return 0
+}
+
+# videolan_release_url NAME VERSION [LEGACY_BZ2_GLOB]
+# A tarball URL on VideoLAN's release server, which every recipe repointed by
+# GH-69 fetches from:
+#
+#   https://download.videolan.org/pub/videolan/<name>/<version>/<name>-<version>.<ext>
+#
+# NAME appears twice and VERSION three times in that shape, which is why it is
+# a function rather than three copies of the string: dav1d, libdvdread and
+# libdvdnav all build it, and a correction to the layout belongs to all three.
+#
+# LEGACY_BZ2_GLOB is the version pattern published as .tar.bz2; everything else
+# is .tar.xz. It is a PARAMETER and not a constant because the cutoff is a
+# per-project fact, not a VideoLAN-wide one. VideoLAN did move from bzip2 to xz
+# across its projects, but each crossed at its own version number -- x264's
+# snapshots are still .tar.bz2 today -- so a shared "6.x means bz2" rule would
+# be right for libdvdread and libdvdnav and quietly wrong for the next caller.
+# Omit it when a project has only ever published .tar.xz, as dav1d has.
+#
+# THE BUG THIS EXISTS FOR. The generated GitLab archives these recipes used
+# before GH-69 were extension-uniform across every tag -- always .tar.gz,
+# because the forge built them per request from the tag name. The release server
+# is not, and a hardcoded extension breaks only the profiles pinning the other
+# format, which is why a full 8.0.1 build stayed green while three profiles
+# could not fetch at all:
+#
+#   --profile=7.0 / 7.1 pin libdvdread 6.1.3 and libdvdnav 6.1.1
+#   .../libdvdread/6.1.3/libdvdread-6.1.3.tar.xz  -> 404 (verified 2026-08-30)
+#   .../libdvdread/6.1.3/libdvdread-6.1.3.tar.bz2 -> 200
+#
+# Called at recipe-source time, which is already how a recipe reaches
+# ffmpeg_version_ge.
+videolan_release_url() {
+  _vr_name="$1"
+  _vr_ver="$2"
+  _vr_legacy="${3:-}"
+
+  _vr_ext=tar.xz
+  if [ -n "$_vr_legacy" ]; then
+    # $_vr_legacy is a GLOB by design, so it is deliberately unquoted here --
+    # quoting it would match the pattern literally and no version could ever
+    # select .tar.bz2. Same reason tests/lib-assert.sh's _glob leaves its
+    # pattern unquoted, and the same suppression it carries.
+    # shellcheck disable=SC2254
+    case "$_vr_ver" in
+      $_vr_legacy) _vr_ext=tar.bz2 ;;
+    esac
+  fi
+
+  printf 'https://download.videolan.org/pub/videolan/%s/%s/%s-%s.%s' \
+    "$_vr_name" "$_vr_ver" "$_vr_name" "$_vr_ver" "$_vr_ext"
 }
 
 # ffmpeg_tarball_filename / ffmpeg_tarball_url

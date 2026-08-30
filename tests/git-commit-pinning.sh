@@ -1,7 +1,8 @@
 #!/bin/sh
-# Commit-pinning regression tests for the three git-sourced recipes
+# Commit-pinning regression tests for the git-sourced recipes
 # (recipes/other/librtmp.sh, recipes/hwaccel/libplacebo.sh,
-# recipes/video/av1.sh).
+# recipes/video/av1.sh, and since GH-69 recipes/video/x264.sh and
+# recipes/other/librist.sh).
 #
 # THE BUG THIS PINS. librtmp cloned with `--branch "v${PKG_VERSION}"`, which
 # accepts only branches and tags. Every profile sets PKG_VERSION_LIBRTMP to a
@@ -20,14 +21,30 @@
 # network, so these run in tests/run.sh with the rest of the suite.
 #
 # ORACLE EVIDENCE, RECORDED BY HAND. tests/oracle-baseline.sh only gates test
-# files a branch ADDED; this one is MODIFIED by the av1 work, so that gate SKIPs
-# it (its own header documents the gap). Verified manually instead by exporting
-# the merge base and running this file against it:
-#   base a806750 -> 24 PASS, 13 FAIL, DONE printed.
-# The 13 failures are this branch's real oracles: the non-clone-DEST and
-# dangling-symlink cases, the two av1 fetch assertions, PKG_COMMIT_AV1 unset in
-# all four profiles, and PKG_VERSION_AV1 holding a SHA in all four (the #28
-# shape, on the base).
+# files a branch ADDED; this one is MODIFIED, so that gate SKIPs it (its own
+# header documents the gap). Verified manually instead by exporting the merge
+# base, dropping THIS file and tests/lib-assert.sh into the export, and running
+# it there -- so the assertions are the branch's and the code under test is the
+# base's:
+#   git archive <base> | tar -x -C "$T"
+#   cp tests/git-commit-pinning.sh tests/lib-assert.sh "$T/tests/"
+#   ( cd "$T" && sh tests/git-commit-pinning.sh )
+#
+# GH-69, base d8f670d -> 40 PASS, 14 FAIL, DONE printed. The 14 are this
+# branch's real oracles:
+#   * tag-object-pin-refused-before-checkout -- the librist defect (below, 5b).
+#   * PKG_COMMIT_X264 and PKG_COMMIT_LIBRIST unset in all four profiles (8),
+#     since both recipes were tarball-sourced on the base.
+#   * the librist peeled-commit pin, in the recipe and all four profiles (5).
+#
+# The earlier record here (base a806750 -> 24 PASS, 13 FAIL, from the av1 work)
+# described a different merge base and a smaller file; it is superseded, not
+# merely re-counted.
+#
+# Two assertions here deliberately pass on the base and are NOT oracles:
+# peeled-commit-of-a-tag-still-fetches is the control that stops an over-broad
+# guard from satisfying 5b, and fixture-annotated-tag speaks only when the
+# fixture itself stops posing the question.
 #
 # Usage: tests/git-commit-pinning.sh
 # Exit 0 = pass, 1 = regression.
@@ -188,6 +205,52 @@ if command -v fetch_git > /dev/null 2>&1; then
   else
     _pass unreachable-commit-fails-loudly
   fi
+
+  # -- 5b. An ANNOTATED TAG's object name is refused, naming the peel. -------
+  # THE BUG THIS PINS. `git ls-remote <url> v0.2.11` prints TWO lines for an
+  # annotated tag: the tag object, then the commit it peels to under
+  # `refs/tags/v0.2.11^{}`. librist's pin was taken from the first, so
+  # PKG_COMMIT held 27460636 (the tag object) instead of c5268580 (the commit).
+  #
+  # Nothing upstream of the checkout could see it. The 40-hex guard passes --
+  # a tag object name is 40 hex like any other -- and `git fetch --depth 1
+  # origin <tag-object>` succeeds, because the object really does exist. Only
+  # `checkout FETCH_HEAD` reveals it, by silently PEELING the tag and landing
+  # HEAD on a SHA that is not the one that was asked for.
+  #
+  # The base tree does detect that mismatch, via the post-checkout assertion --
+  # which is why this is asserted as a COMPOUND: "it failed" alone passes on
+  # the base and guards nothing. What the base cannot do is say WHY, or stop
+  # before the working tree has been populated from the wrong object. Both of
+  # those are what the third and second clauses below measure.
+  _TAGOBJ=$(git -C "$_repo" rev-parse v9.9.9)
+  _TAGCOMMIT=$(git -C "$_repo" rev-parse 'v9.9.9^{commit}')
+  if [ "$_TAGOBJ" = "$_TAGCOMMIT" ]; then
+    _bad fixture-annotated-tag "v9.9.9 is not an annotated tag; the fixture cannot pose the question"
+  fi
+  _d7="$_fx/c7"
+  _out=$( ( fetch_git "$_repo" "$_d7" "$_TAGOBJ" ) 2>&1 )
+  _rc=$?
+  _head7=$(git -C "$_d7" rev-parse HEAD 2>/dev/null || printf '')
+  if [ "$_rc" -ne 0 ] &&
+     printf '%s' "$_out" | grep -qF 'tag object' &&
+     [ "$_head7" != "$_TAGCOMMIT" ]; then
+    _pass tag-object-pin-refused-before-checkout
+  else
+    _bad tag-object-pin-refused-before-checkout \
+      "rc=$_rc head=[$_head7] peel=[$_TAGCOMMIT] out=$(printf '%s\n' "$_out" | _evidence 2 'fetch_git')"
+  fi
+
+  # The complement, and the reason the clause above greps for a TYPE rather
+  # than just any failure: a real commit must still go through. A guard that
+  # refuses everything would satisfy 5b and break every git-sourced recipe.
+  _d8="$_fx/c8"
+  if ( fetch_git "$_repo" "$_d8" "$_TAGCOMMIT" ) > /dev/null 2>&1 &&
+     [ "$(git -C "$_d8" rev-parse HEAD 2>/dev/null)" = "$_TAGCOMMIT" ]; then
+    _pass peeled-commit-of-a-tag-still-fetches
+  else
+    _bad peeled-commit-of-a-tag-still-fetches "the commit a tag points to was refused"
+  fi
 else
   _bad fetch-git-helper-exists "no fetch_git helper in lib/download.sh"
 fi
@@ -196,8 +259,8 @@ fi
 # Comment lines are stripped first: both recipes now DESCRIBE the removed
 # `--branch "v${PKG_VERSION}"` shape in a comment explaining the pin, and an
 # oracle that matched prose would fail on the fixed tree for the wrong reason.
-for _r in recipes/other/librtmp.sh recipes/hwaccel/libplacebo.sh; do
-  if sed 's/[[:space:]]*#.*$//' "$_r" | grep -qE 'branch[^|]*\$\{?PKG_VERSION'; then
+for _r in recipes/other/librtmp.sh recipes/hwaccel/libplacebo.sh recipes/video/x264.sh recipes/other/librist.sh; do
+  if _code_only "$_r" | grep -qE 'branch[^|]*\$\{?PKG_VERSION'; then
     _bad "no-branch-from-version-$_r" "still builds a ref from PKG_VERSION"
   else
     _pass "no-branch-from-version-$_r"
@@ -217,25 +280,26 @@ done
 # Asserted as PRESENCE of the fetch_git call rather than mere absence of the
 # string '+archive': absence alone stays green if PKG_URL is repointed at some
 # other unpinned mirror, or if fetch_git is dropped entirely.
-if sed 's/[[:space:]]*#.*$//' recipes/video/av1.sh \
+if _code_only recipes/video/av1.sh \
    | grep -qE 'fetch_git[^#]*PKG_COMMIT'; then
   _pass av1-fetches-via-fetch-git-at-commit
 else
   _bad av1-fetches-via-fetch-git-at-commit "no fetch_git call using PKG_COMMIT"
 fi
-if sed 's/[[:space:]]*#.*$//' recipes/video/av1.sh | grep -q '+archive'; then
+if _code_only recipes/video/av1.sh | grep -q '+archive'; then
   _bad av1-not-a-gitiles-archive-tarball "PKG_URL still uses +archive"
 else
   _pass av1-not-a-gitiles-archive-tarball
 fi
 
-# -- 7. Every profile supplies a 40-hex commit for all three recipes. --------
+# -- 7. Every profile supplies a 40-hex commit for all five recipes. ---------
 # The regression test for the reported failure: a profile value that is not a
 # commit is what produced `v<sha>`, and a MISSING one silently reintroduces the
 # tag-pinning the rest of this file removes.
 for _p in profiles/ffmpeg-*.conf; do
-  for _v in PKG_COMMIT_LIBRTMP PKG_COMMIT_LIBPLACEBO PKG_COMMIT_AV1; do
-    _val=$(awk -F'"' -v k="^$_v=" '$0 ~ k { print $2; exit }' "$_p")
+  for _v in PKG_COMMIT_LIBRTMP PKG_COMMIT_LIBPLACEBO PKG_COMMIT_AV1 \
+            PKG_COMMIT_X264 PKG_COMMIT_LIBRIST; do
+    _val=$(_shell_var "$_p" "$_v")
     _hex=$(printf '%s' "$_val" | tr -d '0-9a-f')
     _len=${#_val}
     if [ -z "$_val" ]; then
@@ -248,6 +312,34 @@ for _p in profiles/ffmpeg-*.conf; do
   done
 done
 
+# -- 7c. librist pins the COMMIT v0.2.11 peels to, not the tag object. ------
+# The value regression, in every place that carries it: the recipe default and
+# all four profiles. 27460636 is `refs/tags/v0.2.11`, the annotated tag object;
+# c5268580 is `refs/tags/v0.2.11^{}`, the commit. Both are 40 hex, so 7's shape
+# check above cannot separate them and this has to name the value.
+#
+# Hardcoded deliberately. Deciding which of the two a SHA is requires asking the
+# remote (`git cat-file -t` needs the object), and this file is hermetic by
+# design -- so the choice is a literal here or no offline guard at all. A
+# version bump must update this line, which is the intent: re-resolving the pin
+# is exactly when the peel gets dropped again.
+_RIST_COMMIT=c526858020ce14c1ef156c0c68a655ba8dfe8b00
+_rist_default=$(_shell_var recipes/other/librist.sh PKG_COMMIT | grep -oE '[0-9a-f]{40}')
+if [ "$_rist_default" = "$_RIST_COMMIT" ]; then
+  _pass librist-recipe-pins-the-peeled-commit
+else
+  _bad librist-recipe-pins-the-peeled-commit "got=[$_rist_default] want=[$_RIST_COMMIT]"
+fi
+for _p in profiles/ffmpeg-*.conf; do
+  _val=$(_shell_var "$_p" PKG_COMMIT_LIBRIST)
+  if [ "$_val" = "$_RIST_COMMIT" ]; then
+    _pass "librist-profile-pins-the-peeled-commit-$(basename "$_p")"
+  else
+    _bad "librist-profile-pins-the-peeled-commit-$(basename "$_p")" \
+      "got=[$_val] want=[$_RIST_COMMIT]"
+  fi
+done
+
 # -- 7b. A profile must not put a COMMIT where a VERSION belongs. -----------
 # PKG_VERSION_* and PKG_COMMIT_* are now independent knobs and nothing couples
 # them. A profile that sets only PKG_VERSION_* to a SHA -- the exact #28 shape
@@ -256,7 +348,7 @@ done
 # records the lie.
 for _p in profiles/ffmpeg-*.conf; do
   for _v in PKG_VERSION_LIBRTMP PKG_VERSION_LIBPLACEBO PKG_VERSION_AV1; do
-    _val=$(awk -F'"' -v k="^$_v=" '$0 ~ k { print $2; exit }' "$_p")
+    _val=$(_shell_var "$_p" "$_v")
     _hex=$(printf '%s' "$_val" | tr -d '0-9a-f')
     if [ "${#_val}" -eq 40 ] && [ -z "$_hex" ]; then
       _bad "version-var-is-not-a-sha-$(basename "$_p")-$_v" "holds a SHA: $_val"

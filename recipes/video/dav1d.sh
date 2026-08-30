@@ -2,7 +2,14 @@
 # PKG_* variables are consumed by lib/framework.sh after this recipe is sourced.
 PKG_NAME="dav1d"
 PKG_VERSION="${PKG_VERSION_DAV1D:-1.5.3}"
-PKG_URL="https://code.videolan.org/videolan/dav1d/-/archive/${PKG_VERSION}/dav1d-${PKG_VERSION}.tar.gz"
+# VideoLAN's release server, NOT code.videolan.org's generated archive
+# (GH-69). A `/-/archive/<ref>/` tarball is computed on demand, which is why
+# that host fronts it with Anubis bot protection -- intermittently serving a
+# 7KB challenge page with HTTP 200, which reads as a successful download and
+# fails checksum verification. Generated archives are also not a stable thing
+# to pin: GitHub's 2023 codeload change invalidated every checksum recorded
+# against one. This is a static release artifact on a plain file server.
+PKG_URL="$(videolan_release_url dav1d "$PKG_VERSION")"
 PKG_FFMPEG_OPT="--enable-libdav1d"
 PKG_REQUIRES_CMD="python3"
 PKG_REQUIRES_MESON=true

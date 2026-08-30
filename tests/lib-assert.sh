@@ -142,6 +142,62 @@ _glob_not() { # name  actual  glob  detail-prefix
   esac
 }
 
+# A file's CODE, with its prose removed: everything from an unquoted `#` to end
+# of line, plus the leading whitespace before it.
+#
+# Every caller wants it for one reason. A recipe that stopped doing X almost
+# always gains a COMMENT explaining that it used to do X and why it no longer
+# does -- so an assertion grepping for X matches the explanation and fails on
+# the fixed tree, reporting the fix as the defect. Stripping comments first is
+# what makes "this file does not do X" mean the code rather than the prose.
+#
+# Extracted once there were six character-identical copies across two files
+# (three in tests/git-commit-pinning.sh, three in tests/generated-archive-urls.sh,
+# the latter added by GH-69). They agreed only by inspection.
+#
+# KNOWN LIMIT, inherited unchanged from those copies: this is a text strip, not
+# a shell parser, so a `#` inside a quoted value truncates the line early -- a
+# URL fragment (`.../x.tar.gz#sha=...`) or a literal `#` in a flag would lose
+# everything after it. That direction is safe for the assertions in-tree, which
+# all ask "does the code contain X": losing trailing text can only produce a
+# false NEGATIVE on the match, never a false positive that passes a file the
+# grep should have caught. A caller asking the opposite question -- "the code
+# must CONTAIN this" -- has to consider it, which is why it is stated here
+# rather than left to be rediscovered.
+_code_only() { # file
+  sed 's/[[:space:]]*#.*$//' "$1"
+}
+
+# The value of a top-level shell assignment, read out of a file rather than by
+# sourcing it. `_shell_var profiles/ffmpeg-8.0.1.conf PKG_COMMIT_X264`.
+#
+# Sourcing is what this exists to avoid: a profile or a recipe is shell, so
+# reading it that way executes it, and a recipe additionally expects framework
+# state a test does not have. Reading the text answers the narrower question a
+# test actually asks -- "what does the FILE say" -- and a value the file never
+# sets comes back empty, which every caller already distinguishes.
+#
+# Extracted once there were FIVE call sites in two files, in THREE spellings:
+# the keyword-parameterised form twice in tests/git-commit-pinning.sh, a
+# hardcoded `/^PKG_COMMIT_LIBRIST=/` beside them, a hardcoded `/^PKG_NAME=/` in
+# tests/recipe-identity.sh, and -- the one an earlier count of this note missed
+# -- a `/^PKG_COMMIT=/` that printed `$0` rather than `$2`.
+#
+# That fifth is the interesting one, because it is the only site whose semantics
+# the extraction CHANGED: whole line to first quoted field. Its caller (the
+# librist pin assertion) therefore still greps the SHA out of the result, and
+# would be wrong if it did not.
+#
+# Returns the FIRST double-quoted field, so the answer for a defaulted
+# assignment (`PKG_COMMIT="${PKG_COMMIT_LIBRIST:-<sha>}"`) is the whole
+# `${...:-...}` expression rather than the SHA inside it. That is the honest
+# answer to "what does the file say"; a caller wanting the default extracts it
+# from the result. NAME is used as an ERE, which every caller in-tree satisfies
+# by being an ordinary `[A-Z_]+` variable name.
+_shell_var() { # file  name
+  awk -F'"' -v k="^$2=" '$0 ~ k { print $2; exit }' "$1"
+}
+
 # "Is this wiring present in that file?" -- a literal grep reported as a named
 # assertion. Defined here after being written twice: tests/debug-levels.sh and
 # tests/ccache.sh had character-identical copies that already disagreed on the
