@@ -9,7 +9,7 @@ Usage: mediaforge.sh <command> [options]
 
 Commands:
   build              Build FFmpeg and dependencies
-  clean              Remove the build tree; keep the verified tarball cache
+  clean              Remove the build tree and unpacked sources; keep downloads
   install            Install built binaries and libraries
   uninstall          Remove installed files
   check-updates      Check for newer dependency versions
@@ -79,6 +79,10 @@ Checksum verification (loud; never persisted to the stored choice matrix):
   --skip-checksum           Disable verification for EVERY recipe
   --skip-checksum=PKG       Disable verification for one recipe by name
                             (repeatable, comma-separated ok)
+
+Clean options (used by the clean subcommand):
+  --all                     Also remove the downloaded archives and git clones
+                            in packages/, which only an upstream can serve again
 
 Install/uninstall options:
   --prefix=PATH             Install/uninstall location (default: interactive prompt)
@@ -180,32 +184,50 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 ./mediaforge.sh makesum --update             # overwrite a digest that no longer matches
 
 # Clean
-./mediaforge.sh clean                        # remove workspace/, keep the verified tarballs
-./mediaforge.sh clean --all                  # also remove packages/
+./mediaforge.sh clean                        # build tree + unpacked sources
+./mediaforge.sh clean --all                  # also the downloads and git clones
 ```
 
 ### What `clean` removes, and what it does not
 
-`clean` removes the build tree (`workspace/`) and leaves the tarball cache
-(`packages/`) alone. `--all` removes both, and says so before it does.
+`clean` removes the build tree (`workspace/`) and the source trees unpacked
+under `packages/`, and keeps the downloaded archives and git clones that also
+live there. `--all` removes `packages/` outright, naming what it is about to
+discard first.
 
-The two directories do not cost the same to replace. `workspace/` is rebuildable
-from local state at the price of CPU time. `packages/` holds tarballs that have
-each already been verified against their `.hash` sidecar, and refilling it
-depends on every upstream still serving the same bytes at that minute --- which
-mediaforge neither controls nor can retry its way out of. GH-70 records what
-that costs: a full clean discarded the cache, one archive host answered with a
-bot challenge, and the run was blocked on a file it had held a verified copy of
-ten minutes earlier.
+The dividing line is not the directory --- it is whether getting something back
+needs an upstream to answer:
 
-This is where every other build system draws the line. FreeBSD's `ports(7)` has
-`clean` remove the expanded source and `distclean` remove the distfiles as a
-separate request; MacPorts' `port clean` defaults to `--work` and takes `--dist`
-explicitly; `makepkg` has no option that touches `SRCDEST` at all.
+| | Restored by | Removed by |
+|---|---|---|
+| `workspace/` | rebuilding; CPU time only | `clean` |
+| `packages/<dir>/` (unpacked sources) | re-extracting an archive we still hold | `clean` |
+| `packages/<file>` (downloaded archives) | **downloading again** | `clean --all` |
+| `packages/<dir>/.git` (git clones) | **cloning again** | `clean --all` |
+
+GH-71 records what discarding the bottom two as a side effect costs: a full
+clean dropped the cache, one archive host answered with a bot challenge that
+minute, and the run was blocked on a file it had held a verified copy of ten
+minutes earlier. It recovered only because a copy happened to survive outside
+`packages/`. x264 is cloned from that same host, which is why the clones sit on
+the keep side. (GH-70 is the fetch-retry defect from the same incident.)
+
+Keeping bytes for longer is not a trust decision: a cached archive is verified
+against its `.hash` sidecar on *every* reuse, not only when it was first
+fetched, so surviving a `clean` does not make a bad file more reachable.
+`--skip-checksum` disables that verification, which is why the output says
+"cached" rather than "verified".
+
+This is where every other build system draws the line, including which side the
+unpacked sources fall on. FreeBSD's `ports(7)` has `clean` "remove the expanded
+source code" and `distclean` additionally remove the distfiles; MacPorts' `port
+clean` defaults to `--work` and takes `--dist` explicitly; `makepkg` has no
+option that touches `SRCDEST` at all.
 
 Anything `clean` does not recognise is an error rather than a fallback to the
 default --- a typo'd `--all` must not silently keep the cache you asked to
-discard.
+discard. That includes `--`: `clean` takes no operands, so it has nothing to
+introduce, and an arm that accepted it could only mean "ignore the rest".
 
 ## Build stamps and reconcile
 

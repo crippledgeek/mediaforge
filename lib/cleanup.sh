@@ -34,31 +34,110 @@ on_exit() {
 
 # User cleanup (clean subcommand).
 #
-# Two functions because the two directories cost different things to replace,
-# and only one of them is ours to reconstruct (GH-71). $PREFIX is rebuildable
-# from local state at the price of CPU time. $DISTDIR is a set of tarballs each
-# already checked against its .hash sidecar, and refilling it depends on every
-# upstream still serving the same bytes at that minute — which this tool neither
-# controls nor can retry its way out of. GH-70 is what that costs when it is a
-# side effect of a command named "clean".
+# Split because the things under these two directories do not cost the same to
+# replace, and the dividing line is not the directory — it is whether restoring
+# something needs an upstream to answer (GH-71).
 #
-# The split is also the convention everywhere else: ports(7) separates `clean`
-# from `distclean`, port-clean(1) makes --work the default and --dist a separate
-# request, and makepkg(8) has no option that touches SRCDEST at all.
+# Reconstructible here, with no network:
+#   * $PREFIX          — the build tree, rebuildable at the price of CPU time
+#   * $DISTDIR/<dir>/  — sources unpacked from an archive we still hold
+#                        (lib/download.sh extracts each one beside its archive)
+# Needs an upstream to answer:
+#   * $DISTDIR/<file>  — the downloaded archives
+#   * $DISTDIR/<dir>/.git — the git clones (x264, librist, libplacebo, rtmpdump)
+#
+# So the default removes the first group and keeps the second. GH-71 records
+# what the old behaviour cost: a full clean discarded the cache, one archive
+# host answered with a bot challenge that minute, and the run was blocked on a
+# file it had held a verified copy of ten minutes earlier. x264 is cloned from
+# that same host, which is why the clones are on the keep side of the line.
+#
+# This is also the convention everywhere else, including the part that was
+# missing at first: ports(7) `clean` is "Remove the expanded source code" and
+# `distclean` is the one that adds the distfiles; port-clean(1) makes --work the
+# default and --dist a separate request; makepkg(8) has no option that touches
+# SRCDEST at all.
+#
+# KEEPING BYTES LONGER IS NOT A TRUST DECISION. A cached archive is re-verified
+# against its .hash sidecar on every reuse, not merely when it was first
+# fetched — lib/download.sh's fetch() downloads if absent "then verify either
+# way (#19)", and both branches call verify_file. What gates reuse is the
+# sidecar, never the absence of a cache, so surviving longer does not make a bad
+# file more reachable. A refactor that moved verification into the
+# download-only branch would break that, and this default is what makes it
+# load-bearing.
 workspace_cleanup() {
   rm -rf "$PREFIX"
   log "Removed the build tree: $PREFIX"
+  prune_extracted_sources
+}
+
+# The unpacked sources, which live in $DISTDIR beside the archives they came
+# from. A directory carrying .git is a clone rather than an unpacked archive:
+# re-creating it needs the forge, so it stays on the keep side.
+#
+# A shell glob rather than `find -maxdepth 1`, which is not POSIX (CLAUDE.md's
+# first non-negotiable) and would be this repo's first use of it in lib/. An
+# unmatched glob stays literal and fails the -d test, so an empty or absent
+# $DISTDIR needs no special case.
+prune_extracted_sources() {
+  [ -d "$DISTDIR" ] || return 0
+  _pruned=0
+  for _entry in "$DISTDIR"/*; do
+    if [ -d "$_entry" ] && [ ! -d "$_entry/.git" ]; then
+      rm -rf "$_entry"
+      _pruned=$((_pruned + 1))
+    fi
+  done
+  [ "$_pruned" -gt 0 ] || return 0
+  log "Removed $_pruned unpacked source tree(s) from $DISTDIR"
+}
+
+# What is in $DISTDIR that an upstream would have to serve again, as a phrase,
+# or nothing at all when there is none.
+#
+# ONE counter, because two call sites make a claim about the same set: the
+# default says what it kept, and --all says what it is about to discard. Two
+# counters would answer the same question differently the first time either
+# learned about a new kind of entry.
+#
+# "cached" and not "verified": --skip-checksum and --skip-checksum=PKG
+# short-circuit verify_file (lib/download.sh, checksum_skipped), so an archive
+# in here has not necessarily been checked against anything.
+describe_cached_assets() {
+  [ -d "$DISTDIR" ] || return 0
+  _downloads=0
+  _clones=0
+  for _entry in "$DISTDIR"/*; do
+    if [ -f "$_entry" ]; then
+      _downloads=$((_downloads + 1))
+    elif [ -d "$_entry/.git" ]; then
+      _clones=$((_clones + 1))
+    fi
+  done
+  if [ "$_downloads" -gt 0 ] && [ "$_clones" -gt 0 ]; then
+    printf '%s cached download(s) and %s git clone(s)' "$_downloads" "$_clones"
+  elif [ "$_downloads" -gt 0 ]; then
+    printf '%s cached download(s)' "$_downloads"
+  elif [ "$_clones" -gt 0 ]; then
+    printf '%s git clone(s)' "$_clones"
+  fi
 }
 
 # Built on workspace_cleanup rather than beside it: a second `rm -rf "$PREFIX"`
 # here is the copy that stops matching the first one the day either grows a
 # guard.
 full_cleanup() {
-  # Announced BEFORE the removal, following the GNU standards' rule for the one
-  # target that deletes what special tools are needed to rebuild — there, a
-  # mandated echo; here, the upstreams that may not answer next time.
-  warn "Also removing the verified tarball cache: $DISTDIR"
-  warn "Refetching it depends on every upstream still serving the same bytes."
+  # Named BEFORE the removal. The GNU standards ask the one target that deletes
+  # what special tools are needed to rebuild to say so first -- its
+  # maintainer-clean commands "should start with" two @echo lines to that
+  # effect. A convention rather than a mandate, and the right one here: what
+  # this discards is restorable only if an upstream still answers.
+  _discarding=$(describe_cached_assets)
+  if [ -n "$_discarding" ]; then
+    warn "Also removing $_discarding from $DISTDIR"
+    warn "Refetching them depends on every upstream still serving the same bytes."
+  fi
   workspace_cleanup
   rm -rf "$DISTDIR"
   log "Cleanup done."
@@ -67,11 +146,12 @@ full_cleanup() {
 # What the default kept, and how to remove it. The workspace-only default is a
 # behaviour change for anyone who has been running `clean` to reclaim disk, and
 # the output of the command they already run is the only place that reaches
-# them.
+# them. Silent when there is nothing kept, rather than advertising a flag that
+# would remove nothing.
 report_kept_cache() {
-  [ -d "$DISTDIR" ] || return 0
-  _kept=$(find "$DISTDIR" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
-  log "Kept $_kept verified file(s) in $DISTDIR (use 'clean --all' to remove them too)."
+  _kept=$(describe_cached_assets)
+  [ -n "$_kept" ] || return 0
+  log "Kept $_kept in $DISTDIR (use 'clean --all' to remove them too)."
 }
 
 # Register traps
