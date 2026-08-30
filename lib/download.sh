@@ -433,6 +433,94 @@ die_no_record() {
 $2 -- run './mediaforge.sh makesum' to record it."
 }
 
+# describe_payload FILE NAME
+# One line naming what actually landed, printed wherever a download fails
+# verification (#70). DIAGNOSTIC ONLY: verify_file owns the accept/reject
+# decision and nothing here touches it.
+#
+# A host that answers a tarball request with HTTP 200 and an interstitial --
+# an Anubis bot challenge, a captive portal -- produces an ordinary size
+# mismatch, so the first thing the operator reads is "failed verification".
+# That reads as "the sidecar is wrong" or "upstream re-rolled the tarball",
+# which are the two causes a maintainer chases first and both are wrong: no
+# archive was served at all. The 7,438-byte dav1d "tarball" that cost this
+# project a multi-hour build was such a page, and the diagnosis cost far more
+# than the failure.
+#
+# Silent when the payload IS an archive, because a line that prints on every
+# failure says nothing: a truncated tarball is still a tarball, and reporting
+# it here would drown the case worth reading.
+describe_payload() {
+  _dp_file="$1"
+  _dp_name="$2"
+
+  # file(1) is POSIX but absent from minimal containers, and a missing
+  # diagnostic must never perturb the failure path it is describing.
+  command_exists file || return 0
+  [ -f "$_dp_file" ] || return 0
+
+  if [ ! -s "$_dp_file" ]; then
+    warn "$_dp_name is empty -- the host answered with no body"
+    return 0
+  fi
+
+  _dp_desc=$(file -b "$_dp_file" 2>/dev/null) || return 0
+  [ -n "$_dp_desc" ] || return 0
+
+  case "$_dp_desc" in
+    # Anything file(1) recognises as an archive: this failure is about the
+    # bytes, not about what was served, and there is nothing to add.
+    *compressed*|*archive*|*Zip*) return 0 ;;
+    *HTML*|*XML*)
+      warn "$_dp_name is HTML, not an archive -- the host may be serving a bot challenge or a captive portal rather than the file" ;;
+    *)
+      warn "$_dp_name is not an archive: $_dp_desc" ;;
+  esac
+}
+
+# redownload_and_verify URL FILE ORIGIN
+# fetch()'s ONE second chance for a file that failed verification: say what
+# arrived, replace it, verify the replacement, and refuse to build on a second
+# failure with nothing left behind. ORIGIN names where the failed copy came
+# from ("Cached", "Freshly downloaded"), which is the only thing the two call
+# sites differ in.
+#
+# The cached branch has had this since #19; the fresh branch died on the first
+# mismatch instead, reasoning that a fresh mismatch "is a dead end, not a
+# corrupt cache". The asymmetry was backwards (#70). A cached mismatch is bytes
+# that verified once and no longer do -- the more suspicious of the two. A
+# fresh mismatch is the case most likely to be TRANSIENT: a truncation, a 5xx
+# or a challenge page served as 200, one bad edge node. The branch with the
+# second chance needed it less.
+#
+# The cached branch's safety argument carries over verbatim, and is why one
+# retry is enough rather than a loop: the retry is verified too, so a hostile
+# origin simply fails twice.
+redownload_and_verify() {
+  _rd_url="$1"
+  _rd_file="$2"
+  _rd_origin="$3"
+
+  describe_payload "$DISTDIR/$_rd_file" "$_rd_file"
+  warn "$_rd_origin $_rd_file failed verification, re-downloading"
+  rm -f "$DISTDIR/$_rd_file"
+  download_file "$_rd_url" "$DISTDIR/$_rd_file"
+  verify_file "$DISTDIR/$_rd_file" "$_rd_file"
+  # rc 3 (missing record) here means the hash file lost its entry between the
+  # two verify_file calls a few lines apart -- not reachable in practice, but a
+  # plain `||` would delete on rc 3 the same as on rc 2, exactly the
+  # keep-on-missing-record inversion the case shape exists to prevent. A
+  # genuine rc 3 dies with the file kept, as it does everywhere else in fetch().
+  case $? in
+    0) return 0 ;;
+    3) die_no_record "$_rd_file" "The re-downloaded file was left in place" ;;
+    *)
+      describe_payload "$DISTDIR/$_rd_file" "$_rd_file"
+      rm -f "$DISTDIR/$_rd_file"
+      die "$_rd_file failed verification after re-download. Refusing to build." ;;
+  esac
+}
+
 # fetch [URL [FILENAME [DIRNAME]]]
 # Reads PKG_URL, PKG_FILENAME, PKG_DIRNAME by default.
 # Positional args override for non-recipe downloads (ffmpeg.sh, sub-packages).
@@ -485,26 +573,8 @@ fetch() {
           2)
             # A cached file that fails is almost always locally corrupt or
             # truncated. Re-download once and verify the replacement, following
-            # support/download/dl-wrapper. The retry is verified too, so a
-            # hostile origin simply fails twice.
-            warn "Cached $_file failed verification, re-downloading"
-            rm -f "$DISTDIR/$_file"
-            download_file "$_url" "$DISTDIR/$_file"
-            verify_file "$DISTDIR/$_file" "$_file"
-            # A fresh download landing here is rc 3 (missing record) only if the
-            # hash file lost its entry between the two verify_file calls a few
-            # lines apart -- not reachable in practice, but a plain `||` would
-            # delete on rc 3 same as rc 2, exactly the keep-on-missing-record
-            # inversion this task exists to eliminate. Same case shape as every
-            # other verify_file call in fetch(), so a genuine rc 3 here dies with
-            # the file kept, not silently deleted.
-            case $? in
-              0) ;;
-              3) die_no_record "$_file" "The re-downloaded file was left in place" ;;
-              *)
-                rm -f "$DISTDIR/$_file"
-                die "$_file failed verification after re-download. Refusing to build." ;;
-            esac
+            # support/download/dl-wrapper.
+            redownload_and_verify "$_url" "$_file" Cached
             ;;
           3)
             # Keep the file: the hash file is the likely defect, and removing it
@@ -523,10 +593,10 @@ fetch() {
         case $? in
           0) ;;
           2)
-            # No retry here: there is no earlier-good copy to fall back to, so a
-            # mismatched fresh download is a dead end, not a corrupt cache.
-            rm -f "$DISTDIR/$_file"
-            die "$_file failed verification. Refusing to build."
+            # The same second chance the cached branch above takes, through the
+            # same helper: a fresh mismatch is the case most likely to be
+            # transient, not a dead end (#70).
+            redownload_and_verify "$_url" "$_file" "Freshly downloaded"
             ;;
           3)
             # Same reasoning as the cached branch above: the hash file is the
