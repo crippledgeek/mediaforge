@@ -25,7 +25,7 @@
 # against the behaviour that did change -- see tests/oracle-baseline.sh.
 set -u
 
-# python3 and file(1) are optional dependencies of this test, not of mediaforge.
+# python3, file(1) and curl are dependencies of this TEST, not of mediaforge.
 command -v python3 >/dev/null 2>&1 || { echo 'SKIP (no python3)'; exit 0; }
 command -v file >/dev/null 2>&1 || { echo 'SKIP (no file(1))'; exit 0; }
 command -v curl >/dev/null 2>&1 || { echo 'SKIP (no curl)'; exit 0; }
@@ -63,6 +63,14 @@ cat > "$WORK/challenge.html" <<'HTML'
 </head><body><p>Making sure you're not a bot!</p></body></html>
 HTML
 
+# The other body that reaches the same branch, and the reason it does not say
+# "HTML": an object-store denial served as 200. file(1) answers `XML 1.0
+# document` for it, with no "HTML" anywhere.
+cat > "$WORK/denied.xml" <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>
+XML
+
 # A truncated ARCHIVE: fails verification for the same reason the challenge
 # page does, and is still recognisably an archive. The diagnostic must tell
 # these two apart, which is the whole of its value.
@@ -71,6 +79,7 @@ dd if="$WORK/good.tar.gz" of="$WORK/truncated.tar.gz" bs=1 count=100 2>/dev/null
 GOOD="$WORK/good.tar.gz"
 HTML_BODY="$WORK/challenge.html"
 TRUNC="$WORK/truncated.tar.gz"
+XML_BODY="$WORK/denied.xml"
 
 # The sidecar the good archive verifies against, in the grammar lib/download.sh
 # parses (`<keyword>  <value>  <filename>`).
@@ -158,6 +167,8 @@ export PKG_URL PKG_FILENAME PKG_DIRNAME DISTDIR
 # declared one instead of a command-not-found on stderr.
 recipe_key() { return 1; }
 
+SEED=''
+
 # _run SEQUENCE...
 # Point the origin at a fresh scripted sequence, clear the request counter and
 # the download directory, and run one fetch() to completion. die() exits, so
@@ -170,29 +181,83 @@ recipe_key() { return 1; }
 # own defaulted call resolves to, so this changes nothing else: the directory
 # is still auto-derived from the filename and the extraction still strips one
 # component.
+#
+# $SEED names a file to plant in DISTDIR as an already-cached copy before the
+# fetch, or is empty for a fresh one. That is the ONLY thing fetch()'s two
+# branches differ in, so one runner drives both rather than the cached case
+# getting an open-coded copy of this.
 _run() {
   : > "$COUNT"
   printf '%s\n' "$@" > "$SEQ"
-  rm -rf "$DIST"
+  rm -rf "${DIST:?}"
   mkdir -p "$DIST"
+  [ -n "$SEED" ] && cp "$SEED" "$DIST/$ARCHIVE"
   ( fetch "$URL" "$ARCHIVE" "" ) > "$LOG" 2>&1
   RC=$?
   REQ=$(wc -l < "$COUNT" | tr -d ' ')
+  # Cleared HERE, not by each caller. A scenario appended after the cached one
+  # would otherwise inherit the seed silently, become a cached run, and keep
+  # passing -- measuring the branch it does not name.
+  SEED=''
+}
+
+# Did the run leave the archive in DISTDIR? Every scenario below asks it, and
+# it is the load-bearing half of more than one assertion: a refusal that still
+# caches the bad bytes poisons the next build's cache hit.
+_cached() {
+  if [ -f "$DIST/$ARCHIVE" ]; then printf yes; else printf no; fi
 }
 
 PKG_HASH_FILE="$WORK/stub.hash"
 
-# ---- 1. a fresh mismatch is retried, and a good second response builds -----
+# ---- the runs -------------------------------------------------------------
+# Every distinct scenario runs ONCE, here, and the assertions below read what
+# it recorded. Written the other way round first -- each assertion driving its
+# own fetch -- it re-ran the two-bad-payloads scenario five times: slower, and
+# worse, it let two assertions naming the same scenario measure two different
+# runs of it.
+
+# A bad payload, then a good one: the recovery this change exists for.
 _run "$HTML_BODY" "$GOOD"
+_good_rc=$RC; _good_req=$REQ; _good_cached=$(_cached)
+_good_matches=no; cmp -s "$DIST/$ARCHIVE" "$GOOD" 2>/dev/null && _good_matches=yes
+_good_extracted=no; [ -f "$DIST/stub-1.0/file.txt" ] && _good_extracted=yes
+
+# Two bad payloads: the refusal, and the request count that proves ONE retry.
+_run "$HTML_BODY" "$HTML_BODY"
+_html_rc=$RC; _html_req=$REQ; _html_left=$(_cached); _html_log=$(cat "$LOG")
+
+# The same shape with a truncated ARCHIVE instead of a page. It fails
+# verification for the same reason and is still recognisably an archive, which
+# is what makes it the control for the diagnostic.
+_run "$TRUNC" "$TRUNC"
+_trunc_rc=$RC; _trunc_req=$REQ; _trunc_left=$(_cached); _trunc_log=$(cat "$LOG")
+
+# An XML denial rather than a challenge page: same branch of the diagnostic,
+# different wording obligation.
+_run "$XML_BODY" "$XML_BODY"
+_xml_log=$(cat "$LOG")
+
+# No recorded digest at all -- verify_file's rc 3, which keeps the file and
+# must not enter the retry.
+PKG_HASH_FILE="$WORK/empty.hash"
+_run "$HTML_BODY"
+_norec_rc=$RC; _norec_req=$REQ; _norec_left=$(_cached); _norec_log=$(cat "$LOG")
+PKG_HASH_FILE="$WORK/stub.hash"
+
+# A CACHED bad copy: the branch that always had the retry. It is not fetched,
+# so its single retry is one request where the fresh path's is two.
+SEED="$HTML_BODY"
+_run "$HTML_BODY"
+_cached_rc=$RC; _cached_req=$REQ; _cached_left=$(_cached)
+
+# ---- 1. a fresh mismatch is retried, and a good second response builds -----
 _wrong=''
-[ "$RC" -eq 0 ] || _wrong="$_wrong fetch failed (rc=$RC) instead of recovering;"
-[ "$REQ" -eq 2 ] || _wrong="$_wrong made $REQ request(s), expected 2 (one retry);"
-if [ -f "$DIST/$ARCHIVE" ]; then
-  cmp -s "$DIST/$ARCHIVE" "$GOOD" || _wrong="$_wrong the cached copy is not the good archive;"
-else
-  _wrong="$_wrong no $ARCHIVE was left in DISTDIR;"
-fi
-[ -f "$DIST/stub-1.0/file.txt" ] || _wrong="$_wrong the archive was not extracted;"
+[ "$_good_rc" -eq 0 ] || _wrong="$_wrong fetch failed (rc=$_good_rc) instead of recovering;"
+[ "$_good_req" -eq 2 ] || _wrong="$_wrong made $_good_req request(s), expected 2 (one retry);"
+[ "$_good_cached" = yes ] || _wrong="$_wrong no $ARCHIVE was left in DISTDIR;"
+[ "$_good_matches" = yes ] || _wrong="$_wrong the cached copy is not the good archive;"
+[ "$_good_extracted" = yes ] || _wrong="$_wrong the archive was not extracted;"
 if [ -z "$_wrong" ]; then
   _pass fresh-mismatch-retried-once-then-builds
 else
@@ -200,11 +265,10 @@ else
 fi
 
 # ---- 2. two fresh failures still refuse to build, leaving nothing ----------
-_run "$HTML_BODY" "$HTML_BODY"
 _wrong=''
-[ "$RC" -ne 0 ] || _wrong="$_wrong fetch returned 0 on two bad payloads;"
-[ "$REQ" -eq 2 ] || _wrong="$_wrong made $REQ request(s), expected exactly 2;"
-[ -f "$DIST/$ARCHIVE" ] && _wrong="$_wrong the bad payload was left in DISTDIR;"
+[ "$_html_rc" -ne 0 ] || _wrong="$_wrong fetch returned 0 on two bad payloads;"
+[ "$_html_req" -eq 2 ] || _wrong="$_wrong made $_html_req request(s), expected exactly 2;"
+[ "$_html_left" = no ] || _wrong="$_wrong the bad payload was left in DISTDIR;"
 if [ -z "$_wrong" ]; then
   _pass two-fresh-failures-die-after-one-retry-with-nothing-cached
 else
@@ -216,21 +280,15 @@ fi
 # kept" is true of the pre-fix tree too, so on its own it guards nothing; the
 # claim that needed guarding is that the new retry did not widen into the
 # missing-record path.
-PKG_HASH_FILE="$WORK/empty.hash"
-_run "$HTML_BODY"
-_norec_rc="$RC"; _norec_req="$REQ"; _norec_kept=no; _norec_log=$(cat "$LOG")
-[ -f "$DIST/$ARCHIVE" ] && _norec_kept=yes
-PKG_HASH_FILE="$WORK/stub.hash"
-_run "$HTML_BODY" "$HTML_BODY"
 _wrong=''
 [ "$_norec_rc" -ne 0 ] || _wrong="$_wrong a missing record returned 0;"
 [ "$_norec_req" -eq 1 ] || _wrong="$_wrong a missing record made $_norec_req request(s), expected 1 (no retry);"
-[ "$_norec_kept" = yes ] || _wrong="$_wrong a missing record deleted the download instead of keeping it;"
+[ "$_norec_left" = yes ] || _wrong="$_wrong a missing record deleted the download instead of keeping it;"
 case "$_norec_log" in
   *makesum*) ;;
   *) _wrong="$_wrong the missing-record failure never mentions makesum;" ;;
 esac
-[ "$REQ" -eq 2 ] || _wrong="$_wrong a mismatch made $REQ request(s), expected 2 -- the retry it is being contrasted with never happened;"
+[ "$_html_req" -eq 2 ] || _wrong="$_wrong a mismatch made $_html_req request(s), expected 2 -- the retry it is being contrasted with never happened;"
 if [ -z "$_wrong" ]; then
   _pass retry-covers-mismatch-not-missing-record
 else
@@ -238,24 +296,13 @@ else
 fi
 
 # ---- 4. one retry, in BOTH branches -- the cached path is not doubled ------
-# The cached copy is not fetched, so its single retry is one request; the fresh
-# path's is two. Measured together because "the cached branch still retries
-# once" is unchanged behaviour and cannot detect this change alone.
-rm -rf "$DIST"; mkdir -p "$DIST"
-cp "$HTML_BODY" "$DIST/$ARCHIVE"
-: > "$COUNT"
-printf '%s\n' "$HTML_BODY" > "$SEQ"
-( fetch "$URL" "$ARCHIVE" "" ) > "$LOG" 2>&1
-_cached_rc=$?
-_cached_req=$(wc -l < "$COUNT" | tr -d ' ')
-_cached_kept=no
-[ -f "$DIST/$ARCHIVE" ] && _cached_kept=yes
-_run "$HTML_BODY" "$HTML_BODY"
+# Measured together because "the cached branch still retries once" is unchanged
+# behaviour and cannot detect this change on its own.
 _wrong=''
 [ "$_cached_rc" -ne 0 ] || _wrong="$_wrong a cached mismatch returned 0;"
 [ "$_cached_req" -eq 1 ] || _wrong="$_wrong a cached mismatch made $_cached_req request(s), expected exactly 1;"
-[ "$_cached_kept" = no ] || _wrong="$_wrong a cached mismatch left the bad file behind;"
-[ "$REQ" -eq 2 ] || _wrong="$_wrong a fresh mismatch made $REQ request(s), expected 2;"
+[ "$_cached_left" = no ] || _wrong="$_wrong a cached mismatch left the bad file behind;"
+[ "$_html_req" -eq 2 ] || _wrong="$_wrong a fresh mismatch made $_html_req request(s), expected 2;"
 if [ -z "$_wrong" ]; then
   _pass cached-and-fresh-mismatch-each-retry-exactly-once
 else
@@ -263,10 +310,6 @@ else
 fi
 
 # ---- 5. the payload is diagnosed, and only when it is not an archive -------
-_run "$HTML_BODY" "$HTML_BODY"
-_html_log=$(cat "$LOG")
-_run "$TRUNC" "$TRUNC"
-_trunc_log=$(cat "$LOG")
 _wrong=''
 case "$_html_log" in
   *"not an archive"*) ;;
@@ -286,24 +329,22 @@ else
 fi
 
 # ---- 6. the diagnosis is advisory: the verdict is the same either way ------
-# The two runs above differ ONLY in whether the payload earned a diagnostic.
-# If the message reached the accept/reject decision, their verdicts would
-# diverge -- so they are compared directly, with the presence of the message on
-# exactly one of them asserted in the same breath.
-_run "$HTML_BODY" "$HTML_BODY"
-_html_rc="$RC"; _html_req="$REQ"; _html_log=$(cat "$LOG")
-_html_left=no; [ -f "$DIST/$ARCHIVE" ] && _html_left=yes
-_run "$TRUNC" "$TRUNC"
-_trunc_left=no; [ -f "$DIST/$ARCHIVE" ] && _trunc_left=yes
-_trunc_log=$(cat "$LOG")
+# The two runs compared here differ ONLY in whether the payload earned a
+# diagnostic. If the message reached the accept/reject decision, their verdicts
+# would diverge -- so they are compared directly, with the presence of the
+# message on exactly one of them asserted in the same breath, or the comparison
+# would be vacuous on a tree that diagnoses nothing.
 _wrong=''
-[ "$_html_rc" -eq "$RC" ] || _wrong="$_wrong verdicts differ: rc $_html_rc (diagnosed) vs $RC (not);"
-[ "$_html_req" -eq "$REQ" ] || _wrong="$_wrong request counts differ: $_html_req vs $REQ;"
+[ "$_html_rc" -eq "$_trunc_rc" ] || _wrong="$_wrong verdicts differ: rc $_html_rc (diagnosed) vs $_trunc_rc (not);"
+[ "$_html_req" -eq "$_trunc_req" ] || _wrong="$_wrong request counts differ: $_html_req vs $_trunc_req;"
 [ "$_html_left" = "$_trunc_left" ] || _wrong="$_wrong one run left a file behind and the other did not;"
-for _l in "$_html_log" "$_trunc_log"; do
-  case "$_l" in
+# Labelled rather than looped over the two logs: both iterations of that loop
+# appended the same sentence, so a failure said "a run did not reach the
+# post-retry refusal" twice and named neither.
+for _run_log in "diagnosed:$_html_log" "undiagnosed:$_trunc_log"; do
+  case "${_run_log#*:}" in
     *"failed verification after re-download"*) ;;
-    *) _wrong="$_wrong a run did not reach the post-retry refusal;" ;;
+    *) _wrong="$_wrong the ${_run_log%%:*} run did not reach the post-retry refusal;" ;;
   esac
 done
 case "$_html_log" in
@@ -314,6 +355,62 @@ if [ -z "$_wrong" ]; then
   _pass diagnosis-does-not-change-the-verdict
 else
   _bad diagnosis-does-not-change-the-verdict "$_wrong"
+fi
+
+# ---- 7. the description is reduced before it reaches the terminal ---------
+# file(1) ECHOES payload bytes for several types (a shebang line, an embedded
+# comment), so its answer is attacker-controlled text on a path that prints
+# straight to an operator's terminal -- where an ANSI escape rewrites the very
+# line being read to diagnose the failure.
+#
+# Driven through a STUBBED file(1), not a crafted payload, because what reaches
+# describe_payload depends on the local libmagic: file-5.48 renders a control
+# byte as the four characters `\033` itself, so a real payload cannot exercise
+# the reduction on this host and a test built on one would pass by accident
+# wherever it did. The contract under test is describe_payload's own -- whatever
+# file(1) hands it, what leaves is printable and bounded -- and a stub is the
+# only way to state it. `command_exists` is `command -v`, which finds a shell
+# function, so the stub is reached exactly as the binary would be.
+_evil_desc=$(printf 'CABINET \033[31mred\033[0m data%s' \
+             "$(awk 'BEGIN { while (i++ < 400) printf "x" }')")
+_diag=$(
+  file() { printf '%s' "$_evil_desc"; }
+  describe_payload "$GOOD" "$ARCHIVE" 2>&1
+)
+_ctl=$(printf '%s' "$_diag" | tr -d '\n' | LC_ALL=C tr -d '[:print:][:blank:]' | wc -c | tr -d ' ')
+_wrong=''
+case "$_diag" in
+  *CABINET*) ;;
+  *) _wrong="$_wrong the description never reached the message, so nothing was measured;" ;;
+esac
+[ "$_ctl" -eq 0 ] || _wrong="$_wrong $_ctl control character(s) survived into the message;"
+[ "${#_diag}" -lt 300 ] || _wrong="$_wrong the message is ${#_diag} characters -- the description was not capped;"
+if [ -z "$_wrong" ]; then
+  _pass payload-description-is-printable-and-bounded
+else
+  _bad payload-description-is-printable-and-bounded "$_wrong"
+fi
+
+# ---- 8. a web page is called a web page, not asserted to be HTML ----------
+# The diagnostic's whole justification is that the first line an operator reads
+# is TRUE. Reporting `XML 1.0 document` as "is HTML" and pointing at bot
+# challenges would reproduce the misdiagnosis in a new place.
+_wrong=''
+case "$_xml_log" in
+  *"is a web page"*) ;;
+  *) _wrong="$_wrong an XML body served as 200 was not diagnosed as a web page;" ;;
+esac
+case "$_xml_log" in
+  *"is HTML"*) _wrong="$_wrong an XML body was asserted to be HTML;" ;;
+esac
+case "$_xml_log" in
+  *"XML 1.0"*) ;;
+  *) _wrong="$_wrong the message does not quote what file(1) actually said;" ;;
+esac
+if [ -z "$_wrong" ]; then
+  _pass xml-body-diagnosed-without-claiming-html
+else
+  _bad xml-body-diagnosed-without-claiming-html "$_wrong"
 fi
 
 printf 'DONE: download-retry-verify\n'

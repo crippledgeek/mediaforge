@@ -434,9 +434,10 @@ $2 -- run './mediaforge.sh makesum' to record it."
 }
 
 # describe_payload FILE NAME
-# One line naming what actually landed, printed wherever a download fails
-# verification (#70). DIAGNOSTIC ONLY: verify_file owns the accept/reject
-# decision and nothing here touches it.
+# One line naming what actually landed, printed wherever a download fails its
+# recorded size or digest -- verify_file rc 2 (#70). The rc-3 path (no record
+# at all) says something else and is not a payload question. DIAGNOSTIC ONLY:
+# verify_file owns the accept/reject decision and nothing here touches it.
 #
 # A host that answers a tarball request with HTTP 200 and an interstitial --
 # an Anubis bot challenge, a captive portal -- produces an ordinary size
@@ -464,15 +465,32 @@ describe_payload() {
     return 0
   fi
 
-  _dp_desc=$(file -b "$_dp_file" 2>/dev/null) || return 0
+  # file(1)'s answer is not trusted text: for several types it ECHOES bytes out
+  # of the payload (a shebang line, an embedded comment or path), and the
+  # payload here is whatever an origin chose to serve. Printed raw, an ANSI
+  # escape inside a "description" rewrites the very line the operator is
+  # reading to diagnose the failure. So it is reduced to printable characters
+  # and capped -- a diagnosis is one line, and a crafted one is otherwise as
+  # long as the attacker likes. LC_ALL=C keeps the classes byte-defined, so the
+  # filter cannot vary with the operator's locale.
+  _dp_desc=$(file -b "$_dp_file" 2>/dev/null |
+             LC_ALL=C tr -dc '[:print:][:blank:]' |
+             cut -c1-160)
   [ -n "$_dp_desc" ] || return 0
 
   case "$_dp_desc" in
     # Anything file(1) recognises as an archive: this failure is about the
-    # bytes, not about what was served, and there is nothing to add.
-    *compressed*|*archive*|*Zip*) return 0 ;;
+    # bytes, not about what was served, and there is nothing to add. Two
+    # patterns cover every archive shape in play, `Zip archive data` and
+    # `7-zip archive data` included -- both say "archive".
+    *compressed*|*archive*) return 0 ;;
+    # Named as a web page rather than as HTML, and quoting the description,
+    # because file(1) answers `XML 1.0 document` for the other body that lands
+    # here -- an S3/GCS <Error><Code>AccessDenied</Code></Error> or a SOAP
+    # fault served as 200. Telling the operator that is "HTML" is the same
+    # species of misleading first line this function exists to remove.
     *HTML*|*XML*)
-      warn "$_dp_name is HTML, not an archive -- the host may be serving a bot challenge or a captive portal rather than the file" ;;
+      warn "$_dp_name is a web page ($_dp_desc), not an archive -- the host may be serving a bot challenge or a captive portal rather than the file" ;;
     *)
       warn "$_dp_name is not an archive: $_dp_desc" ;;
   esac
@@ -506,8 +524,8 @@ redownload_and_verify() {
   rm -f "$DISTDIR/$_rd_file"
   download_file "$_rd_url" "$DISTDIR/$_rd_file"
   verify_file "$DISTDIR/$_rd_file" "$_rd_file"
-  # rc 3 (missing record) here means the hash file lost its entry between the
-  # two verify_file calls a few lines apart -- not reachable in practice, but a
+  # rc 3 (missing record) here means the hash file lost its entry between
+  # fetch()'s verify_file and this one -- not reachable in practice, but a
   # plain `||` would delete on rc 3 the same as on rc 2, exactly the
   # keep-on-missing-record inversion the case shape exists to prevent. A
   # genuine rc 3 dies with the file kept, as it does everywhere else in fetch().
