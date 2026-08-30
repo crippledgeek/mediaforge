@@ -39,7 +39,7 @@ pkg_build() {
 # (GH-68).
 pkg_install() {
   _dest=$(mf_dest_prefix)
-  install -d "$_dest/include" "$_dest/lib"
+  mf_dest_mkdir include lib
   install -m 0644 bzlib.h "$_dest/include/"
   install -m 0644 libbz2.a "$_dest/lib/"
 }
@@ -53,7 +53,7 @@ pkg_install() {
 # is not there from pkg_install's own staged install.
 pkg_post_install() {
   _dest=$(mf_dest_prefix)
-  install -d "$_dest/lib/pkgconfig"
+  mf_dest_mkdir lib/pkgconfig
   cat > "$_dest/lib/pkgconfig/bzip2.pc" <<EOF
 prefix=$PREFIX
 exec_prefix=\${prefix}

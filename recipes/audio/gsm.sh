@@ -21,7 +21,7 @@ pkg_build() {
 # recipe never runs it, and a shell cp writes past the stage (GH-68).
 pkg_install() {
   _dest=$(mf_dest_prefix)
-  mkdir -p "$_dest/include/gsm" "$_dest/lib"
+  mf_dest_mkdir include/gsm lib
   cp inc/gsm.h "$_dest/include/gsm/"
   cp lib/libgsm.a "$_dest/lib/"
 }

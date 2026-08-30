@@ -50,7 +50,7 @@ pkg_build() { :; }
 pkg_install() {
   _dest=$(mf_dest_prefix)
   rm -rf "$PREFIX/include/AMF"
-  mkdir -p "$_dest/include/AMF" || die "Failed to create AMF include dir"
+  mf_dest_mkdir include/AMF
   if [ -d AMF/components ] && [ -d AMF/core ]; then
     run cp -r AMF/components AMF/core "$_dest/include/AMF/"
   elif [ -d components ] && [ -d core ]; then

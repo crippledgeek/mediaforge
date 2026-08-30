@@ -80,8 +80,8 @@ pkg_post_install() {
   resolve_openssldir "$OPENSSLDIR" "$PREFIX/etc/ssl"
   _libressl_openssldir="$OPENSSLDIR_RESOLVED"
 
-  # The install hook that used to place this bundle is patched out, so mediaforge
-  # stages it here instead — same file, chosen location.
+  # The install hook that used to place this bundle is patched out, so the
+  # recipe places it here instead — same file, chosen location.
   #
   # UNCONDITIONALLY, and always at $PREFIX/etc/ssl rather than at the baked path.
   # It is this package's own file and $PREFIX is the tree the build already
@@ -89,9 +89,18 @@ pkg_post_install() {
   # prefix. And lib/install.sh cannot deliver a bundle it does not have: when
   # the baked path is under the INSTALL prefix — the documented way to get
   # verification working after install — nothing exists there yet at build
-  # time, so staging must not be conditional on it.
-  run mkdir -p "$PREFIX/etc/ssl"
-  run cp cert.pem "$PREFIX/etc/ssl/cert.pem"
+  # time, so placing it must not be conditional on it.
+  #
+  # Through the stage, so the one file whose absence fails TLS closed at
+  # handshake time is in the manifest and `reconcile` can see it go missing
+  # (GH-68). The commit is then load-bearing rather than tidy: the advisory
+  # below reads this very path back when the operator has not overridden
+  # --openssldir, and would fire on every build against a file still sitting in
+  # the stage.
+  _dest=$(mf_dest_prefix)
+  mf_dest_mkdir etc/ssl
+  run cp cert.pem "$_dest/etc/ssl/cert.pem"
+  mf_stage_commit
 
   # A baked path with nothing behind it fails CLOSED at handshake time with no
   # useful diagnostic — libtls has no SSL_CERT_FILE to fall back on — so say so

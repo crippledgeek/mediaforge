@@ -20,6 +20,9 @@ pkg_configure() {
     ../.. -G"Unix Makefiles"
 }
 
-pkg_post_install() {
-  run cp SvtAv1Enc.pc "$PREFIX/lib/pkgconfig/"
-}
+# No pkg_post_install: upstream installs SvtAv1Enc.pc itself. Source/Lib/
+# CMakeLists.txt configure_file()s it into the build dir and install()s it to
+# ${CMAKE_INSTALL_LIBDIR}/pkgconfig, and the recipe's stamp records
+# lib/pkgconfig/SvtAv1Enc.pc as STAGED -- which only that install can have done.
+# The `cp` that used to be here installed the same file a second time, into the
+# live prefix where nothing recorded it (GH-68).

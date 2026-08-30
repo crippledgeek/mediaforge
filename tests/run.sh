@@ -140,12 +140,15 @@ sh tests/output-and-startup-hygiene.sh
 # FFmpeg's link step instead. Covers both the recording half (staged installs,
 # lib/stage.sh) and the reporting half (the reconcile subcommand).
 sh tests/stamp-reconcile.sh
-# Pins that the eight recipes installing by hand write into the stage and not
-# the live prefix (#68). DESTDIR redirects a build system's install target and
-# nothing else, so a shell cp at "$PREFIX/..." staged nothing and left its stamp
-# permanently `unverifiable`. Both directions of the regression are invisible in
-# a green build: a revert still installs the right files, and a stage path baked
-# into a generated .pc still resolves until the stage is deleted.
+# Pins that a recipe installing by hand writes into the stage and not the live
+# prefix (#68). DESTDIR redirects a build system's install target and nothing
+# else, so a shell cp at "$PREFIX/..." staged nothing and went unrecorded. Both
+# directions of the regression are invisible in a green build: a revert still
+# installs the right files, and a stage path baked into a generated .pc still
+# resolves until the stage is deleted. The last assertion is the one that
+# outlives this branch -- it scans every recipe, because the eight the issue
+# listed were the ones with EMPTY stamps and six more had a per-file gap inside
+# a stamp that read `verified`.
 sh tests/staged-shell-installs.sh
 sh tests/assert-reporter.sh
 # Pins that the suite's verdict is a function of the TREE and not of the

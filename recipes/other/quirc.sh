@@ -42,7 +42,7 @@ pkg_build() { run make -j "$MJOBS" CFLAGS="-Wall $CFLAGS" libquirc.a; }
 # $PREFIX, because DESTDIR must never reach file contents.
 pkg_install() {
   _dest=$(mf_dest_prefix)
-  install -d "$_dest/include" "$_dest/lib" "$_dest/lib/pkgconfig"
+  mf_dest_mkdir include lib lib/pkgconfig
   install -m 0644 lib/quirc.h "$_dest/include/"
   install -m 0644 libquirc.a "$_dest/lib/"
   cat > "$_dest/lib/pkgconfig/libquirc.pc" <<EOF

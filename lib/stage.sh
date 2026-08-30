@@ -82,7 +82,10 @@ mf_stage_dir() {
 # stage, so it stages nothing, records nothing, and its stamp reports
 # `unverifiable` forever -- honest, but unfalsifiable. A full workspace reported
 # ten such stamps, eight of them recipes that install something (the other two,
-# vaapi and waflib, install nothing and are right to record nothing). Writing
+# vaapi and waflib, install nothing and are right to record nothing). Counting
+# empty stamps understates it: a recipe whose build system installs too can have
+# a hand-copy go unrecorded inside a stamp that reads `verified`, which is how
+# lib/libxeve.a and lib/libxevd.a were on disk and in no manifest. Writing
 # through this function instead puts those files in the stage like any other
 # install, and the merge carries them to the same paths they reached before.
 #
@@ -96,6 +99,26 @@ mf_stage_dir() {
 # unset case yields $PREFIX and the pre-GH-59 behaviour exactly.
 mf_dest_prefix() {
   printf '%s\n' "${DESTDIR:-}$PREFIX"
+}
+
+# Create directories under that destination, failing the build if it cannot.
+#
+# The step every by-hand install needs, because a freshly reset stage is empty
+# where the live prefix had the directory already -- and it had drifted into
+# four spellings across the recipes that need it: `mkdir -p` with a bespoke
+# `|| die`, a bare `mkdir -p`, `install -d`, and none at all. The last is the
+# one worth converging: five install phases could not tell you their mkdir had
+# failed.
+#
+# Deliberately NOT folded into mf_dest_prefix as an optional argument. That
+# function is used in a command substitution, and die() inside one exits the
+# SUBSHELL alone -- `_dest=$(mf_dest_prefix lib)` would hand the recipe an empty
+# $_dest and carry on writing to /lib. A statement's die is the build's.
+mf_dest_mkdir() { # $@ = $PREFIX-relative directories
+  _st_root=$(mf_dest_prefix)
+  for _st_d in "$@"; do
+    mkdir -p "$_st_root/$_st_d" || die "Cannot create $_st_d under $_st_root"
+  done
 }
 
 # Files staged and merged but not yet claimed by any stamp, newline-separated

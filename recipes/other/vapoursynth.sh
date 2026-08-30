@@ -12,6 +12,6 @@ pkg_build() { :; }
 # mf_dest_prefix, not $PREFIX: a shell cp writes past the stage (GH-68).
 pkg_install() {
   _dest=$(mf_dest_prefix)
-  mkdir -p "$_dest/include/vapoursynth" || die "Failed to create vapoursynth include dir"
+  mf_dest_mkdir include/vapoursynth
   cp -r "include/." "$_dest/include/vapoursynth/"
 }

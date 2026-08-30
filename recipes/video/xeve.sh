@@ -65,7 +65,15 @@ pkg_install() {
   # installer (flat lib/*.a glob) never copies. Install a flat libxeve.a so
   # FFmpeg's --static link of -lxeve resolves it, drop the shared lib, and
   # remove the redundant nested archive so it doesn't linger in the workspace.
-  cp src_main/libxeve.a "$PREFIX/lib/libxeve.a" \
+  #
+  # The copy goes to the STAGE and the two rm to the LIVE prefix, and the split
+  # is not cosmetic: default_install above has already merged and reset, so the
+  # rm act on files that are in the prefix, while a copy written there too would
+  # be past the stage and absent from the manifest -- which is what left
+  # lib/libxeve.a unrecorded while its stamp read `verified` (GH-68).
+  _dest=$(mf_dest_prefix)
+  mf_dest_mkdir lib
+  cp src_main/libxeve.a "$_dest/lib/libxeve.a" \
     || die "xeve static lib (src_main/libxeve.a) not found"
   rm -f "$PREFIX/lib/libxeve.so" "$PREFIX/lib/libxeve.so".*
   rm -rf "$PREFIX/lib/xeve"

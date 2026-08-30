@@ -37,7 +37,7 @@ pkg_install() {
   # mf_dest_prefix, not $PREFIX: flite's own `make install` is skipped (see
   # pkg_build), and a shell cp writes past the stage (GH-68).
   _dest=$(mf_dest_prefix)
-  mkdir -p "$_dest/include/flite" "$_dest/lib"
+  mf_dest_mkdir include/flite lib
   run cp include/*.h "$_dest/include/flite/"
   run cp "$_builddir"/lib/*.a "$_dest/lib/"
 }

@@ -15,6 +15,6 @@ pkg_build() { :; }
 # created, and a freshly reset stage has nothing in it at all.
 pkg_install() {
   _dest=$(mf_dest_prefix)
-  mkdir -p "$_dest/include" || die "Failed to create $_dest/include"
+  mf_dest_mkdir include
   run cp src/ladspa.h "$_dest/include/"
 }
