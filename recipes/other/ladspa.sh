@@ -9,6 +9,12 @@ PKG_FFMPEG_OPT="--enable-ladspa"
 pkg_configure() { :; }
 pkg_build() { :; }
 
+# mf_dest_prefix, not $PREFIX: a shell cp writes past the stage, and an
+# unstaged install records nothing (GH-68; see lib/stage.sh). The mkdir comes
+# with it: the copy used to land in an include/ some earlier recipe had already
+# created, and a freshly reset stage has nothing in it at all.
 pkg_install() {
-  run cp src/ladspa.h "$PREFIX/include/"
+  _dest=$(mf_dest_prefix)
+  mf_dest_mkdir include
+  run cp src/ladspa.h "$_dest/include/"
 }

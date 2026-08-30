@@ -9,7 +9,9 @@ PKG_FFMPEG_OPT="--enable-vapoursynth"
 pkg_configure() { :; }
 pkg_build() { :; }
 
+# mf_dest_prefix, not $PREFIX: a shell cp writes past the stage (GH-68).
 pkg_install() {
-  mkdir -p "$PREFIX/include/vapoursynth" || die "Failed to create vapoursynth include dir"
-  cp -r "include/." "$PREFIX/include/vapoursynth/"
+  _dest=$(mf_dest_prefix)
+  mf_dest_mkdir include/vapoursynth
+  cp -r "include/." "$_dest/include/vapoursynth/"
 }

@@ -74,6 +74,60 @@ mf_stage_dir() {
   printf '%s\n' "$(mf_stage_root)/current"
 }
 
+# Where a recipe's OWN shell install should write (GH-68).
+#
+# Property 3 above is why this exists: DESTDIR redirects a build system's
+# install target, and nothing else. A recipe that installs with `cp`, `install`
+# or a redirect aimed at an absolute "$PREFIX/..." path writes straight past the
+# stage, so it stages nothing, records nothing, and its stamp reports
+# `unverifiable` forever -- honest, but unfalsifiable. A full workspace reported
+# ten such stamps, eight of them recipes that install something (the other two,
+# vaapi and waflib, install nothing and are right to record nothing). Counting
+# empty stamps understates it: a recipe whose build system installs too can have
+# a hand-copy go unrecorded inside a stamp that reads `verified`, which is how
+# lib/libxeve.a and lib/libxevd.a were on disk and in no manifest. Writing
+# through this function instead puts those files in the stage like any other
+# install, and the merge carries them to the same paths they reached before.
+#
+# It is the destination only. A path that ends up in a file's CONTENTS -- a .pc
+# prefix= line, meson's launcher -- keeps using $PREFIX directly, because
+# DESTDIR must never reach contents (property 2). That split is the whole
+# subtlety of using it: the file goes to the stage, the string inside it names
+# the real prefix.
+#
+# `${DESTDIR:-}` because the phases are callable outside a staging window: the
+# unset case yields $PREFIX and the pre-GH-59 behaviour exactly.
+mf_dest_prefix() {
+  printf '%s\n' "${DESTDIR:-}$PREFIX"
+}
+
+# Create directories under that destination, failing the build if it cannot.
+#
+# The step every by-hand install needs, because a freshly reset stage is empty
+# where the live prefix had the directory already -- and it had drifted into
+# five spellings across the recipes that need it: `mkdir -p` with a bespoke
+# `|| die` (amf, VapourSynth), `run mkdir -p` (libressl), a bare `mkdir -p`
+# (gsm, flite, meson), `install -d` (bzip2, quirc), and no directory step at
+# all (ladspa, xeve, xevd, shaderc, lcevc, and bzip2's post_install). Only the
+# first two report a failure. The last group is the one the stage changes: each
+# relied on the live prefix already holding the directory, which a stage reset
+# moments earlier never does.
+#
+# Deliberately NOT folded into mf_dest_prefix as an optional argument. That
+# function is used in a command substitution, and die() inside one exits the
+# SUBSHELL alone -- `_dest=$(mf_dest_prefix lib)` would hand the recipe an empty
+# $_dest and carry on writing to /lib. A statement's die is the build's.
+mf_dest_mkdir() { # $@ = $PREFIX-relative directories
+  # An empty list is a mis-expansion, not a request to do nothing: `for` over it
+  # returns 0, and the failure would surface later as the cp that had nowhere to
+  # land. Making it the build's is this function's entire purpose.
+  [ "$#" -gt 0 ] || die "mf_dest_mkdir: called with no directories"
+  _st_root=$(mf_dest_prefix)
+  for _st_d in "$@"; do
+    mkdir -p "$_st_root/$_st_d" || die "Cannot create $_st_d under $_st_root"
+  done
+}
+
 # Files staged and merged but not yet claimed by any stamp, newline-separated
 # and $PREFIX-relative. Whichever stamp is written next takes them.
 #

@@ -79,8 +79,15 @@ pkg_post_install() {
   # Guard against an unset PREFIX before any glob/rm below operates on $_libdir
   # (the framework validates PREFIX at startup; this is defense-in-depth).
   [ -n "$PREFIX" ] || die "lcevc: PREFIX is unset"
+  # _libdir is the LIVE prefix, which is where the split archives are: pkg_install
+  # staged them and the claim before this phase merged them. _merged is the STAGE,
+  # because `ar cr` CREATES a file and a create in the live prefix is past the
+  # stage -- it would leave the one library FFmpeg links (-llcevc_dec) out of the
+  # manifest, inside a stamp reading `verified`, while the eight archives it
+  # replaces are recorded and then deleted below (GH-68).
   _libdir="$PREFIX/lib"
-  _merged="$_libdir/liblcevc_dec.a"
+  mf_dest_mkdir lib
+  _merged="$(mf_dest_prefix)/lib/liblcevc_dec.a"
   _work=$(mktemp -d)
   _idx=0
   # Extract each archive into its own subdir: object names collide across
@@ -100,7 +107,9 @@ pkg_post_install() {
       mv "$_o" "$_work/$(basename "$_sub")_$(basename "$_o")"
     done
   done
-  rm -f "$_merged"
+  # Both names, because the two live in different trees now: the stale merged
+  # archive to be replaced is in the live prefix, while $_merged is the stage.
+  rm -f "$_merged" "$_libdir/liblcevc_dec.a"
   # `--` terminates ar option processing so a crafted upstream member name
   # beginning with '-' can't be read as a flag. shellcheck disable: the *.o
   # glob must word-split into separate member arguments.

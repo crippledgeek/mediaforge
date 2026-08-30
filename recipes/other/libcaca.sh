@@ -21,13 +21,12 @@ pkg_build() {
   run make -j "$MJOBS" -C caca
 }
 
+# No hand-copy of caca.pc after this: upstream installs it itself. caca/
+# Makefile.am declares `pkgconfig_DATA = caca.pc` unconditionally, and the
+# recipe's stamp records lib/pkgconfig/caca.pc as STAGED -- which only
+# `make install` can have put there. The `mkdir -p` and `cp` that used to
+# follow (predating staging, from the repo flatten in 16ade04) installed the
+# same file a second time, into the live prefix where nothing recorded it.
 pkg_install() {
   run make -C caca install
-  # `make install` creates lib/pkgconfig in the STAGE since GH-59, not in the
-  # live prefix, so this cp no longer inherits the directory from the line above
-  # it. It happens to succeed anyway because an earlier recipe has always made
-  # the directory by the time libcaca builds -- an invisible ordering
-  # dependency, and one nothing in the tree would report if it broke.
-  mkdir -p "$PREFIX/lib/pkgconfig"
-  run cp caca/caca.pc "$PREFIX/lib/pkgconfig/"
 }

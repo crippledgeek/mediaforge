@@ -42,15 +42,21 @@ pkg_build() { :; }
 # names, and 1.4.32's source-archive fallback nests under amf/public/include/.
 # Probed against each of the four pinned versions' real tarballs during task
 # 7b rather than assumed.
+#
+# The copies go to mf_dest_prefix, not $PREFIX: a shell cp writes past the
+# stage (GH-68). The rm still aims at the LIVE prefix, and has to -- it is
+# there to drop headers a previous version installed and this one does not,
+# and the merge only ever adds.
 pkg_install() {
+  _dest=$(mf_dest_prefix)
   rm -rf "$PREFIX/include/AMF"
-  mkdir -p "$PREFIX/include/AMF" || die "Failed to create AMF include dir"
+  mf_dest_mkdir include/AMF
   if [ -d AMF/components ] && [ -d AMF/core ]; then
-    run cp -r AMF/components AMF/core "$PREFIX/include/AMF/"
+    run cp -r AMF/components AMF/core "$_dest/include/AMF/"
   elif [ -d components ] && [ -d core ]; then
-    run cp -r components core "$PREFIX/include/AMF/"
+    run cp -r components core "$_dest/include/AMF/"
   elif [ -d amf/public/include/components ] && [ -d amf/public/include/core ]; then
-    run cp -r amf/public/include/components amf/public/include/core "$PREFIX/include/AMF/"
+    run cp -r amf/public/include/components amf/public/include/core "$_dest/include/AMF/"
   else
     die "amf: none of the known header layouts found in $(pwd) — upstream changed the archive shape again"
   fi

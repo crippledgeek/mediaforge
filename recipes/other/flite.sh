@@ -34,7 +34,10 @@ pkg_install() {
   if [ -z "$_builddir" ]; then
     die "Cannot find flite build directory"
   fi
-  mkdir -p "$PREFIX/include/flite" "$PREFIX/lib"
-  run cp include/*.h "$PREFIX/include/flite/"
-  run cp "$_builddir"/lib/*.a "$PREFIX/lib/"
+  # mf_dest_prefix, not $PREFIX: flite's own `make install` is skipped (see
+  # pkg_build), and a shell cp writes past the stage (GH-68).
+  _dest=$(mf_dest_prefix)
+  mf_dest_mkdir include/flite lib
+  run cp include/*.h "$_dest/include/flite/"
+  run cp "$_builddir"/lib/*.a "$_dest/lib/"
 }

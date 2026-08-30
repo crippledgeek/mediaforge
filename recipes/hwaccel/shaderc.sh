@@ -26,10 +26,23 @@ pkg_configure() {
     -DSKIP_SPIRV_TOOLS_INSTALL=ON -DSPIRV_HEADERS_SKIP_INSTALL=ON \
     -DBUILD_SHARED_LIBS=OFF .
 }
+# FFmpeg probes pkg-config name "shaderc" but shaderc.pc -> -lshaderc_shared.
+# shaderc_static.pc -> -lshaderc -lshaderc_util (static). Make it the one FFmpeg
+# finds.
+#
+# Written as a staged copy plus a live delete rather than as an `mv` in the
+# prefix, because a plain rename loses the file from the manifest entirely
+# (GH-68): the stamp records what was STAGED, so it would name shaderc_static.pc
+# -- which no longer exists, so the existence filter drops it -- while
+# shaderc.pc, never staged, is never recorded. The delete is correct against the
+# live prefix for the same reason it always was: default_install has already
+# merged the file being replaced.
 pkg_post_install() {
-  # FFmpeg probes pkg-config name "shaderc" but shaderc.pc -> -lshaderc_shared.
-  # shaderc_static.pc -> -lshaderc -lshaderc_util (static). Make it the one FFmpeg finds.
   _src="$PREFIX/lib/pkgconfig/shaderc_static.pc"
   [ -f "$_src" ] || die "shaderc: expected $_src after install (upstream .pc layout changed?)"
-  mv "$_src" "$PREFIX/lib/pkgconfig/shaderc.pc"
+  _dest=$(mf_dest_prefix)
+  mf_dest_mkdir lib/pkgconfig
+  cp "$_src" "$_dest/lib/pkgconfig/shaderc.pc" \
+    || die "shaderc: failed to stage shaderc.pc"
+  rm -f "$_src"
 }

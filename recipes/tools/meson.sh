@@ -18,11 +18,18 @@ PKG_REQUIRES_CMD="python3"
 pkg_configure() { default_noop; }
 pkg_build()     { default_noop; }
 
+# _dest is where this phase writes (the stage, GH-68) and _live is where the
+# tree ends up. Both are needed because the launcher below has to name the path
+# meson will actually be run from, and DESTDIR must never reach file contents.
+# The rm aims at _live for the same reason it always did: the merge only adds,
+# so a mesonbuild/ that shed a module upstream would keep it here forever.
 pkg_install() {
   _src="$DISTDIR/meson-${PKG_VERSION}"
-  _dest="$PREFIX/share/meson"
-  rm -rf "$_dest"
-  mkdir -p "$_dest" "$PREFIX/bin"
+  _live="$PREFIX/share/meson"
+  _dest="$(mf_dest_prefix)/share/meson"
+  _bin="$(mf_dest_prefix)/bin/meson"
+  rm -rf "$_live"
+  mf_dest_mkdir share/meson bin
   cp -R "$_src/meson.py" "$_src/mesonbuild" "$_dest/" \
     || die "Failed to install meson package tree to $_dest"
   # Launcher: meson.py locates its mesonbuild/ package relative to itself, so a
@@ -31,7 +38,7 @@ pkg_install() {
   # absolute path here is stable.
   {
     printf '#!/bin/sh\n'
-    printf 'exec python3 "%s/meson.py" "$@"\n' "$_dest"
-  } > "$PREFIX/bin/meson"
-  chmod +x "$PREFIX/bin/meson"
+    printf 'exec python3 "%s/meson.py" "$@"\n' "$_live"
+  } > "$_bin"
+  chmod +x "$_bin"
 }

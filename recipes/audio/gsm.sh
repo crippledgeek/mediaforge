@@ -17,8 +17,11 @@ pkg_build() {
     CC="gcc" CCFLAGS="$CFLAGS -c -DNeedFunctionPrototypes=1 -Wall -fPIC"
 }
 
+# mf_dest_prefix, not $PREFIX: gsm's Makefile has an install target, but this
+# recipe never runs it, and a shell cp writes past the stage (GH-68).
 pkg_install() {
-  mkdir -p "$PREFIX/include/gsm" "$PREFIX/lib"
-  cp inc/gsm.h "$PREFIX/include/gsm/"
-  cp lib/libgsm.a "$PREFIX/lib/"
+  _dest=$(mf_dest_prefix)
+  mf_dest_mkdir include/gsm lib
+  cp inc/gsm.h "$_dest/include/gsm/"
+  cp lib/libgsm.a "$_dest/lib/"
 }
