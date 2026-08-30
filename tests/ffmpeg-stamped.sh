@@ -46,7 +46,7 @@ _reasons=""
 if [ -z "$_read" ]; then
   _reasons=" nothing reads back \$PREFIX/bin/ffmpeg any more, so this assertion no longer guards what it names."
 elif [ -z "$_stamp" ] || [ "$_stamp" -gt "$_read" ]; then
-  _reasons=" the stamp (line ${_stamp:-none}) does not precede the read-back at line $_read, so `file` inspects a path still in the stage."
+  _reasons=" the stamp (line ${_stamp:-none}) does not precede the read-back at line $_read, so the file(1) probe inspects a path still in the stage."
 fi
 _verdict ffmpeg-merges-before-it-reads-back "$_reasons"
 
