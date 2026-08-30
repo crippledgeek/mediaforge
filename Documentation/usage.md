@@ -81,7 +81,7 @@ Checksum verification (loud; never persisted to the stored choice matrix):
                             (repeatable, comma-separated ok)
 
 Clean options (used by the clean subcommand):
-  --all                     Also remove the downloaded archives and git clones
+  --dist                     Also remove the downloaded archives and git clones
                             in packages/, which only an upstream can serve again
 
 Install/uninstall options:
@@ -185,14 +185,14 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 
 # Clean
 ./mediaforge.sh clean                        # build tree + unpacked sources
-./mediaforge.sh clean --all                  # also the downloads and git clones
+./mediaforge.sh clean --dist                  # also the downloads and git clones
 ```
 
 ### What `clean` removes, and what it does not
 
 `clean` removes the build tree (`workspace/`) and the source trees unpacked
 under `packages/`, and keeps the downloaded archives and git clones that also
-live there. `--all` removes `packages/` outright, naming what it is about to
+live there. `--dist` removes `packages/` outright, naming what it is about to
 discard first.
 
 The dividing line is not the directory --- it is whether getting something back
@@ -202,8 +202,16 @@ needs an upstream to answer:
 |---|---|---|
 | `workspace/` | rebuilding; CPU time only | `clean` |
 | `packages/<dir>/` (unpacked sources) | re-extracting an archive we still hold | `clean` |
-| `packages/<file>` (downloaded archives) | **downloading again** | `clean --all` |
-| `packages/<dir>/.git` (git clones) | **cloning again** | `clean --all` |
+| `packages/<file>` (downloaded archives) | **downloading again** | `clean --dist` |
+| `packages/<dir>/.git` (git clones) | **cloning again** | `clean --dist` |
+
+One exception, stated rather than glossed: the five cloned recipes are built
+*inside* their clone, so a default `clean` leaves their object files and build
+directories in place --- locally reconstructible state that by the rule above
+belongs on the `clean` side, and aom's is the largest of them. They are left
+alone because the clone and its build output share a directory, and removing the
+second means running `git clean` inside a tree the operator may have touched.
+`clean --dist` removes both along with everything else.
 
 GH-71 records what discarding the bottom two as a side effect costs: a full
 clean dropped the cache, one archive host answered with a bot challenge that
@@ -225,7 +233,7 @@ clean` defaults to `--work` and takes `--dist` explicitly; `makepkg` has no
 option that touches `SRCDEST` at all.
 
 Anything `clean` does not recognise is an error rather than a fallback to the
-default --- a typo'd `--all` must not silently keep the cache you asked to
+default --- a typo'd `--dist` must not silently keep the cache you asked to
 discard. That includes `--`: `clean` takes no operands, so it has nothing to
 introduce, and an arm that accepted it could only mean "ignore the rest".
 

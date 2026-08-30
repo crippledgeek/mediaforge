@@ -44,9 +44,10 @@ on_exit() {
 #                        (lib/download.sh extracts each one beside its archive)
 # Needs an upstream to answer:
 #   * $DISTDIR/<file>  — the downloaded archives
-#   * $DISTDIR/<dir>/.git — the git clones (x264, librist, libplacebo, rtmpdump)
+#   * $DISTDIR/<dir>/.git — the git clones (every recipe that calls fetch_git)
 #
-# So the default removes the first group and keeps the second. GH-71 records
+# So the default removes the first group and keeps the second; --dist adds
+# the second. GH-71 records
 # what the old behaviour cost: a full clean discarded the cache, one archive
 # host answered with a bot challenge that minute, and the run was blocked on a
 # file it had held a verified copy of ten minutes earlier. x264 is cloned from
@@ -69,12 +70,30 @@ on_exit() {
 workspace_cleanup() {
   rm -rf "$PREFIX"
   log "Removed the build tree: $PREFIX"
-  prune_extracted_sources
 }
 
 # The unpacked sources, which live in $DISTDIR beside the archives they came
-# from. A directory carrying .git is a clone rather than an unpacked archive:
+# from. An entry carrying .git is a clone rather than an unpacked archive:
 # re-creating it needs the forge, so it stays on the keep side.
+#
+# `-d` on the .git, and DELIBERATELY the same test fetch_git makes before
+# deciding a destination is reusable (lib/download.sh, `if [ -d "$_dest/.git" ]`
+# ... else "exists but is not a git clone, replacing it"). The two must agree:
+# an entry this keeps is one fetch_git will reuse, and an entry this prunes is
+# one fetch_git would have replaced anyway, so nothing is lost that was going to
+# survive.
+#
+# That matters for the shape it gets wrong. A worktree or submodule checkout has
+# .git as a FILE, and `-d` reads that as "not a clone" -- but fetch_git reads it
+# the same way and rm -rf's it on the next build, so answering `-e` here would
+# only keep it until then, while putting the two predicates out of step. The
+# agreement is silent, so tests/clean-modes.sh asserts it rather than leaving it
+# to be rediscovered.
+#
+# Entries that are themselves symlinks are left alone entirely: what one points
+# at is not ours to judge, and `rm -rf` on it would remove the link while the
+# count claimed a source tree. Dot-entries are invisible to the glob (POSIX `*`
+# skips them) and nothing in-tree creates one.
 #
 # A shell glob rather than `find -maxdepth 1`, which is not POSIX (CLAUDE.md's
 # first non-negotiable) and would be this repo's first use of it in lib/. An
@@ -84,8 +103,13 @@ prune_extracted_sources() {
   [ -d "$DISTDIR" ] || return 0
   _pruned=0
   for _entry in "$DISTDIR"/*; do
-    if [ -d "$_entry" ] && [ ! -d "$_entry/.git" ]; then
-      rm -rf "$_entry"
+    if [ -d "$_entry" ] && [ ! -L "$_entry" ] && [ ! -d "$_entry/.git" ]; then
+      # `${_entry:?}` for the reason lib/download.sh writes
+      # `rm -rf "${DISTDIR:?}/${_dir:?}"`: not because this one can go empty --
+      # it is the shell's own glob expansion and the -d above has already held
+      # -- but so a reader does not have to re-derive that before trusting the
+      # line.
+      rm -rf "${_entry:?}"
       _pruned=$((_pruned + 1))
     fi
   done
@@ -97,7 +121,7 @@ prune_extracted_sources() {
 # or nothing at all when there is none.
 #
 # ONE counter, because two call sites make a claim about the same set: the
-# default says what it kept, and --all says what it is about to discard. Two
+# default says what it kept, and --dist says what it is about to discard. Two
 # counters would answer the same question differently the first time either
 # learned about a new kind of entry.
 #
@@ -151,7 +175,7 @@ full_cleanup() {
 report_kept_cache() {
   _kept=$(describe_cached_assets)
   [ -n "$_kept" ] || return 0
-  log "Kept $_kept in $DISTDIR (use 'clean --all' to remove them too)."
+  log "Kept $_kept in $DISTDIR (use 'clean --dist' to remove them too)."
 }
 
 # Register traps

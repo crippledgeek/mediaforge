@@ -1,10 +1,44 @@
 #!/bin/sh
 # Core utility functions for mediaforge
 
+# Reduce a string to characters that can only ADD to the terminal, never
+# rewrite it. LC_ALL=C keeps the classes byte-defined so the filter cannot vary
+# with the operator's locale; `[:print:]` already includes space, so
+# `[:blank:]` is here for TAB alone.
+#
+# The three reporters below interpolate values mediaforge did not choose --
+# paths, filenames, tool output, and the operator's own command line. An ESC or
+# a CR inside one of those rewrites the very line being read to diagnose a
+# problem, which is a diagnostic that lies rather than merely a cosmetic one.
+# lib/download.sh's describe_payload had this filter inline for exactly that
+# reason (the payload there is chosen by whoever answers the request); it now
+# calls this, so the rule exists once.
+#
+# One `tr` per reported line. A build's log lines are a few thousand against
+# hours of compilation, and run() already forks per command, so the cost is not
+# measurable against what it protects.
+#
+# The `command -v` is not defensive decoration: tests/ccache.sh runs mediaforge
+# under a sandbox PATH holding only the binaries the case is about, and without
+# this the filter produced NOTHING there -- so `die` printed "FATAL: " with the
+# reason stripped off, and two assertions that read the reason failed. A
+# reporter that loses its message is worse than one that prints an unfiltered
+# character: die() is what runs when everything else has already gone wrong, and
+# a PATH without `tr` is a broken environment rather than an attacker. So the
+# message wins, and the filter applies wherever it can. `command -v` is a shell
+# builtin, so asking costs no fork.
+mf_printable() {
+  if command -v tr >/dev/null 2>&1; then
+    printf '%s' "$*" | LC_ALL=C tr -dc '[:print:][:blank:]'
+  else
+    printf '%s' "$*"
+  fi
+}
+
 # Logging
-log()  { printf '[mediaforge] %s\n' "$*"; }
-warn() { printf '[mediaforge] WARNING: %s\n' "$*" >&2; }
-die()  { printf '[mediaforge] FATAL: %s\n' "$*" >&2; exit 1; }
+log()  { printf '[mediaforge] %s\n' "$(mf_printable "$*")"; }
+warn() { printf '[mediaforge] WARNING: %s\n' "$(mf_printable "$*")" >&2; }
+die()  { printf '[mediaforge] FATAL: %s\n' "$(mf_printable "$*")" >&2; exit 1; }
 
 # Run a command, capturing output to a log file.
 # On success the log is removed. On failure it is printed to stderr.
