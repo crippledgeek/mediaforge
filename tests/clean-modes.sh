@@ -278,15 +278,23 @@ fi
 # `paste -sd+ | bc` behind it produced nothing at all. So the assertion reported
 # a failure it had not measured -- the shape this whole file exists to prevent,
 # in its own code.
-_defs=$(grep -c '^mf_is_git_clone()' lib/utils.sh || true)
+_defs=$(_code_only lib/utils.sh | grep -c '^mf_is_git_clone()' || true)
 # Every file in lib/, and a pattern that survives the spellings a regrowth would
 # plausibly use. Naming three files could not see a fourth growing a copy, and
 # `[$][A-Za-z0-9_]*` missed both `${_entry}/.git` (braces) and
 # `$DISTDIR/$_dir/.git` (two expansions, which is download.sh's house style for
 # paths) -- measured, not assumed. Matching any quoted path ending in /.git
 # catches all four.
-_raw=$(cat lib/*.sh | grep -c -- '-d "[^"]*/[.]git"' || true)
-_users=$(cat lib/*.sh | grep -c 'mf_is_git_clone "' || true)
+# Comments STRIPPED before counting, both ways round. `_raw` reads high if a
+# comment illustrates the raw form -- mf_is_git_clone's own comment argues -d
+# versus -e and is one edit from quoting it -- and that reports a copy that does
+# not exist. `_users` is the dangerous direction: delete a real call site, leave
+# a comment quoting the call, and the count is preserved while the caller is
+# gone. This repo quotes calls in prose as a habit, and twice on this branch a
+# grep over unstripped source measured what a file SAYS.
+_lib_code() { for _f in lib/*.sh; do _code_only "$_f"; done; }
+_raw=$(_lib_code | grep -c -- '-d "[^"]*/[.]git"' || true)
+_users=$(_lib_code | grep -c 'mf_is_git_clone "' || true)
 if [ "$_defs" != 1 ]; then
   _bad clone-predicate-has-one-definition "expected exactly one mf_is_git_clone definition in lib/utils.sh, found $_defs"
 elif [ "$_raw" != 1 ]; then

@@ -185,7 +185,7 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 
 # Clean
 ./mediaforge.sh clean                        # build tree + unpacked sources
-./mediaforge.sh clean --dist                  # also the downloads and git clones
+./mediaforge.sh clean --dist                 # also the downloads and git clones
 ```
 
 ### What `clean` removes, and what it does not

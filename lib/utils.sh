@@ -46,17 +46,26 @@ mf_printable() {
   fi
 }
 
-# The same filter for text whose author is not us. describe_payload reports what
-# an origin chose to serve, and a retained newline there would let that text
-# forge a line of its own -- a convincing `[mediaforge] ...` one. Its output is
-# a single capped line by construction, so collapsing is free; nothing else
-# should use this, because for our own messages the newline is the formatting.
+# The same filter for text whose author is not us -- what an origin served, or
+# what a remote API answered. A retained newline there would let that text forge
+# a line of its own, a convincing `[mediaforge] ...` one, inside the very
+# diagnostic an operator is reading to decide whether to trust a download. Our
+# own messages keep their newlines, because for those the newline is formatting
+# and the author is the reader.
+#
+# FAILS CLOSED, and that is the whole difference from mf_printable. Without `tr`
+# this returns nothing rather than the raw string: mf_printable's fail-open trade
+# is sound because there the author and the reader are the same local operator,
+# and losing a die() message is worse than an unfiltered byte they typed
+# themselves. Here the author is remote, so returning raw bytes would drop every
+# protection this function was split out to provide -- newline, ESC and CR -- in
+# exactly the adversarial case it exists for. The cost of failing closed is one
+# missing diagnostic line in an environment with no `tr`, and callers already
+# handle empty: describe_payload's `[ -n "$_dp_full" ] || return 0` is the same
+# silence-over-a-wrong-answer trade its cap logic already makes.
 mf_printable_line() {
-  if command -v tr >/dev/null 2>&1; then
-    mf_printable "$*" | tr -d '\n'
-  else
-    printf '%s' "$*"
-  fi
+  command -v tr >/dev/null 2>&1 || return 0
+  mf_printable "$*" | tr -d '\n'
 }
 
 # "Is this directory a git clone?" -- asked by fetch_git before it decides a

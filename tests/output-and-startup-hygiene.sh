@@ -7,12 +7,16 @@
 # paths, filenames, tool output, and the operator's own command line, which
 # reaches die() verbatim in every "Unknown argument for X: $1". A CR or an ANSI
 # escape inside one of those does not merely look wrong: it rewrites the line
-# being read to diagnose the problem, so the diagnostic lies. lib/download.sh
-# already carried this filter inline for describe_payload, where the text comes
-# from whoever answered the request (GH-70); mf_printable is that same rule
-# extracted, and describe_payload now calls it. This file asserts BOTH callers,
-# because an extraction whose original still carries a private copy has added a
-# third spelling rather than removed one.
+# being read to diagnose the problem, so the diagnostic lies.
+#
+# There are TWO forms of the filter, and the difference is who wrote the text.
+# mf_printable keeps newlines, because for our own messages the newline is
+# formatting and the author is the reader; nineteen calls in lib/ pass
+# deliberately multi-line text. mf_printable_line collapses them and fails
+# closed, because its input is what an origin served or a remote API answered,
+# and a newline there would let that text forge a line of its own -- a
+# convincing `[mediaforge] ...` one -- inside the diagnostic an operator is
+# reading to decide whether to trust a download.
 #
 # THE STARTUP HALF. $TOPDIR comes from `pwd`, and `pwd` fails when the working
 # directory has been removed from under the shell -- `mkdir d; cd d; rmdir d` is
@@ -23,11 +27,18 @@
 # put it in scope: the whole design rests on "the unflagged verb is the safe
 # one".
 #
-# The assertions are behavioural where they can be. The sanitizer is checked by
-# running mediaforge with an escape sequence in an argument and reading what
-# comes back, not by grepping for a tr; the startup guard by actually deleting
-# the working directory first. Only the shared-definition claim is structural,
-# because "these two call the same helper" is not observable from outside.
+# It probes with `version`, NOT with `clean`. The guard sits above the library
+# sourcing and far above dispatch, so any subcommand exercises it identically --
+# but tests/oracle-baseline.sh runs this file against the MERGE BASE, where
+# there is no guard, and `clean` there would reach full_cleanup with an empty
+# $TOPDIR and actually run `rm -rf /packages`. Harmless as an unprivileged user
+# on a sane host, and still an absolute-path rm executed in the course of
+# proving those paths must never be targeted.
+#
+# Every grep over shell source here reads through _code_only. Twice on this
+# branch an assertion matched the words in a COMMENT rather than in the code --
+# once in this file, found by mutation -- so a needle that has not had comments
+# stripped is asking what a file SAYS, not what it does.
 set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT"
 _fail=0
@@ -38,28 +49,55 @@ _tmp=$(mktemp -d) || { printf 'FAIL [tmpdir]\n' >&2; exit 1; }
 trap 'rm -rf "$_tmp"' EXIT
 _cleanup_on_signal
 
-# --- the output half --------------------------------------------------------
-# Guarded per HALF, not per file. The startup assertions below are about the
-# $TOPDIR guard and have nothing to do with the sanitizer, so a tree carrying
-# one and not the other must report the absent one and MEASURE the other --
-# reporting "mf_printable is absent" against a $TOPDIR regression would send the
-# next reader to the wrong file.
-#
-# The condition is a grep and not `command -v`: lib/utils.sh is not sourced
-# until after this block, so a function-existence test here could only ever be
-# false and would make the guard look stricter than it is.
-_have_printable=true
-grep -q 'mf_printable()' lib/utils.sh || _have_printable=false
-if [ "$_have_printable" = false ]; then
-  for _a in escape-stripped-from-a-fatal control-chars-stripped-from-a-warning \
-            printable-text-survives newlines-survive-in-our-own-messages \
-            message-survives-without-tr payload-description-is-one-line \
-            payload-description-shares-the-helper reporters-share-the-helper; do
-    _bad "$_a" "mf_printable is absent — claim would be vacuous"
+# lib/*.sh with comments stripped, as one stream. Every file in lib/, not a
+# named few: a copy of something this file forbids can grow in a file nobody
+# listed.
+_lib_code() {
+  for _f in "$ROOT"/lib/*.sh; do
+    _code_only "$_f"
   done
+}
+
+# --- the startup half -------------------------------------------------------
+# First, and with no vacuity guard: a tree without the guard fails these two on
+# their own terms rather than reporting them as unmeasurable, so the file needs
+# no wrapper block spanning most of its length.
+#
+# The working directory is removed while the shell is still in it, which is what
+# makes `pwd` fail. Run in a subshell so this test's own cwd is not the casualty.
+mkdir -p "$_tmp/gone"
+_rc=0
+_out=$( (cd "$_tmp/gone" && rmdir "$_tmp/gone" && "$ROOT/mediaforge.sh" version) 2>&1 ) || _rc=$?
+_said=$(printf '%s' "$_out" | tr '\n' ' ')
+if [ "$_rc" -ne 0 ]; then
+  _pass startup-refuses-a-deleted-workdir
+else
+  _bad startup-refuses-a-deleted-workdir "mediaforge ran with no working directory, so \$TOPDIR was empty and /packages and /workspace were the derived targets: $_said"
 fi
 
-if [ "$_have_printable" = true ]; then
+# Refusing is not enough by itself: this failure is bewildering (every path in
+# the message is wrong, or absent), so the refusal has to name the cause.
+case "$_said" in
+  *"working directory"*) _pass startup-names-the-cause ;;
+  *) _bad startup-names-the-cause "refused without naming the missing working directory: $_said" ;;
+esac
+
+# --- the output half --------------------------------------------------------
+# Anchored `^mf_printable()`, because an unanchored needle is satisfied by a doc
+# comment naming the function after the function itself is gone -- and this file
+# would then source lib/utils.sh, get empty output from every reporter, and
+# report a pile of confusing failures instead of "the feature is absent".
+if ! _lib_code | grep -q '^mf_printable()'; then
+  for _a in escape-stripped-from-a-fatal control-chars-stripped-from-a-warning \
+            printable-text-survives newlines-survive-in-our-own-messages \
+            message-survives-without-tr line-form-fails-closed-without-tr \
+            payload-description-is-one-line payload-description-shares-the-helper \
+            remote-tag-is-filtered reporters-share-the-helper; do
+    _bad "$_a" "mf_printable is absent — claim would be vacuous"
+  done
+  printf 'DONE: output-and-startup-hygiene\n'
+  exit "$_fail"
+fi
 
 # shellcheck source=lib/utils.sh
 SCRIPT_DIR="$ROOT"
@@ -97,13 +135,13 @@ case "$_out" in
   *) _bad printable-text-survives "ordinary text did not come through intact: $_out" ;;
 esac
 
-# R2, and the reason this file exists twice over: `[:print:]` does not include
-# newline and `tr -d` DELETES rather than replaces, so the first version of
-# mf_printable turned a two-line message into one line with the words jammed
-# together at the seam ("hash file X:line two here"). Nineteen calls in lib/ pass
-# deliberately multi-line text. The single-line needle above cannot see any of
-# that, which is precisely what its own comment warned about -- a filter that
-# eats ordinary text while both escape assertions stay green.
+# `[:print:]` does not include newline and `tr -d` DELETES rather than replaces,
+# so the first version of mf_printable turned a two-line message into one line
+# with the words jammed together at the seam ("hash file X:line two here").
+# Nineteen calls in lib/ pass deliberately multi-line text. The single-line
+# needle above cannot see any of that -- which is exactly what its own comment
+# warns about, a filter that eats ordinary text while both escape assertions
+# stay green.
 _out=$( (warn "first line
 second line") 2>&1 || true )
 case "$_out" in
@@ -112,10 +150,32 @@ second line"*) _pass newlines-survive-in-our-own-messages ;;
   *) _bad newlines-survive-in-our-own-messages "a deliberately multi-line message did not survive as two lines: $(printf '%s' "$_out" | tr '\n' '|')" ;;
 esac
 
-# The exception, and why the helper has two forms. describe_payload reports text
-# an ORIGIN chose; a newline retained there would let it forge a line of its own,
-# and a convincing `[mediaforge] ` one at that. So that path collapses newlines
-# while ours keep them.
+# The two forms diverge when `tr` is missing, and the direction is the point.
+# OURS fails open: tests/ccache.sh runs mediaforge under a sandbox PATH holding
+# only what its case needs, `tr` was not in it, and the first version of this
+# helper made `die` announce FATAL and say nothing about why. Losing the reason
+# is worse than an unfiltered byte the operator typed themselves.
+_nopath="$_tmp/nobin"
+mkdir -p "$_nopath"
+_out=$( (PATH="$_nopath"; export PATH; die "cause worth keeping") 2>&1 || true )
+case "$_out" in
+  *"cause worth keeping"*) _pass message-survives-without-tr ;;
+  *) _bad message-survives-without-tr "with no tr on PATH the reason was stripped from the message: $_out" ;;
+esac
+
+# THEIRS fails closed, for the same reason in reverse: the author is remote, so
+# returning the raw string would drop newline, ESC and CR stripping together in
+# precisely the adversarial case the form exists for. One missing diagnostic
+# line in an environment with no `tr` is the cheaper half of that trade, and
+# describe_payload already returns early on an empty description.
+_line=$( (PATH="$_nopath"; export PATH; mf_printable_line "raw${_esc}[2K bytes") 2>&1 || true )
+if [ -z "$_line" ]; then
+  _pass line-form-fails-closed-without-tr
+else
+  _bad line-form-fails-closed-without-tr "with no tr on PATH an origin's text came back unfiltered: $_line"
+fi
+
+# The collapsing itself.
 _multi=$(mf_printable_line "one
 two")
 case "$_multi" in
@@ -126,19 +186,10 @@ case "$_multi" in
 esac
 
 # The extraction actually replaced the original, and describe_payload is on the
-# single-line form rather than the general one.
-#
-# Read through _code_only (tests/lib-assert.sh), because the first version of
-# this grep matched the words in the COMMENT above the call: mutating the call
-# from mf_printable_line to mf_printable left the assertion green, since the
-# sentence explaining the choice still named it. A grep over shell source that
-# does not strip comments is asking what the file SAYS, not what it does.
-#
-# With comments stripped, the bare name IS the call, so the needle needs no
-# surrounding syntax -- which also keeps a `$(` out of a case pattern, where it
-# would either be parsed as a command substitution or need single quotes that
-# read as a mistake.
-_dl_code=$(_code_only lib/download.sh)
+# single-line form rather than the general one. Read through _code_only: the
+# first version of this matched the words in the COMMENT above the call, so
+# mutating the call from mf_printable_line to mf_printable left it green.
+_dl_code=$(_code_only "$ROOT/lib/download.sh")
 case "$_dl_code" in
   *"tr -dc '[:print:][:blank:]'"*)
     _bad payload-description-shares-the-helper "lib/download.sh still carries its own printable filter" ;;
@@ -148,57 +199,32 @@ case "$_dl_code" in
     _bad payload-description-shares-the-helper "describe_payload does not filter its text through mf_printable_line; an origin's newline could forge a line" ;;
 esac
 
+# The other remote-text path, and it is not a download at all. check_updates
+# prints a tag captured out of a GitHub API response into a COLUMN-ALIGNED
+# table, where a CR rewrites the rows already drawn above it rather than only
+# its own cell. Asserted through the one function both of _github_latest's
+# extraction paths end in.
+# shellcheck source=lib/updates.sh
+. "$ROOT/lib/updates.sh"
+_tag=$(_strip_tag_prefix "v1.2.3${_cr}fake row")
+case "$_tag" in
+  *"$_cr"*) _bad remote-tag-is-filtered "a CR in a GitHub tag reached the version table: $_tag" ;;
+  "1.2.3fake row") _pass remote-tag-is-filtered ;;
+  *) _bad remote-tag-is-filtered "unexpected stripped tag: $_tag" ;;
+esac
+
 # All three reporters, not just the one that was easiest to reach. die() is the
 # one that prints operator-supplied argv, log() the one that runs thousands of
 # times -- a filter applied to some of them is a filter an attacker picks around.
 _missing=''
 for _fn in log warn die; do
-  grep -qE "^$_fn\\(\\).*mf_printable" lib/utils.sh || _missing="$_missing $_fn"
+  _code_only "$ROOT/lib/utils.sh" | grep -qE "^$_fn\(\).*mf_printable" || _missing="$_missing $_fn"
 done
 if [ -z "$_missing" ]; then
   _pass reporters-share-the-helper
 else
   _bad reporters-share-the-helper "these reporters print interpolated values unfiltered:$_missing"
 fi
-
-# The filter must not be able to EAT the message. Found by tests/ccache.sh
-# rather than by this file: it runs mediaforge under a sandbox PATH containing
-# only what its case needs, `tr` was not in it, and the first version of
-# mf_printable turned every reported line into the empty string -- so `die`
-# announced FATAL and said nothing about why. The message is the point; the
-# filter is a precaution on top of it.
-# A real but EMPTY directory as the whole search path, rather than a literal
-# non-existent one: it is the shape tests/ccache.sh actually produces (a sandbox
-# bin/ holding only what the case needs), and a `PATH=` assignment whose value is
-# a bare literal is what SC2123 exists to catch.
-mkdir -p "$_tmp/nobin"
-_nopath="$_tmp/nobin"
-_out=$( (PATH="$_nopath"; export PATH; die "cause worth keeping") 2>&1 || true )
-case "$_out" in
-  *"cause worth keeping"*) _pass message-survives-without-tr ;;
-  *) _bad message-survives-without-tr "with no tr on PATH the reason was stripped from the message: $_out" ;;
-esac
-
-fi
-
-# --- the startup half -------------------------------------------------------
-# The working directory is removed while the shell is still in it, which is what
-# makes `pwd` fail. Run in a subshell so this test's own cwd is not the casualty.
-mkdir -p "$_tmp/gone"
-_rc=0
-_out=$( (cd "$_tmp/gone" && rmdir "$_tmp/gone" && "$ROOT/mediaforge.sh" clean) 2>&1 ) || _rc=$?
-if [ "$_rc" -ne 0 ]; then
-  _pass startup-refuses-a-deleted-workdir
-else
-  _bad startup-refuses-a-deleted-workdir "mediaforge ran to completion with no working directory, so \$TOPDIR was empty and /packages and /workspace were the targets: $(printf '%s' "$_out" | tr '\n' ' ')"
-fi
-
-# Refusing is not enough by itself: this failure is bewildering (every path in
-# the message is wrong, or absent), so the refusal has to name the cause.
-case "$(printf '%s' "$_out" | tr '\n' ' ')" in
-  *"working directory"*) _pass startup-names-the-cause ;;
-  *) _bad startup-names-the-cause "refused without naming the missing working directory: $(printf '%s' "$_out" | tr '\n' ' ')" ;;
-esac
 
 printf 'DONE: output-and-startup-hygiene\n'
 exit "$_fail"

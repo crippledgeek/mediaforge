@@ -4,8 +4,18 @@
 
 # Strip common tag prefixes to get bare version string
 # e.g., "v1.2.3" -> "1.2.3", "n8.0.1" -> "8.0.1", "release-1.0" -> "1.0"
+#
+# Both of _github_latest's extraction paths end here, which is why the filter
+# is here and not at each of them. What arrives is a substring of a GitHub API
+# response -- remote text, sed-captured from between two quotes -- and
+# check_updates prints it into a COLUMN-ALIGNED table, where a CR does not
+# merely garble its own cell but rewrites the rows already drawn above it. So it
+# goes through the same fail-closed filter describe_payload uses for an origin's
+# bytes (mf_printable_line, lib/utils.sh); a tag that filters to nothing reads
+# as "no version found", which is what the caller already shows for a failed
+# query.
 _strip_tag_prefix() {
-  printf '%s\n' "$1" | sed -e 's/^v//' -e 's/^n//' -e 's/^release-//' -e 's/^R//'
+  printf '%s\n' "$(mf_printable_line "$1")" | sed -e 's/^v//' -e 's/^n//' -e 's/^release-//' -e 's/^R//'
 }
 
 # Query GitHub API for the latest release tag of a repo
