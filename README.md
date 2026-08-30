@@ -33,7 +33,7 @@ Commands
 * build            compile FFmpeg and the libraries it links against
 * install          copy a finished build to a prefix, recording a manifest
 * uninstall        delete what that manifest lists
-* clean            remove the build tree and the downloaded sources
+* clean            remove the build tree; `--all` also discards the verified tarballs
 * check-updates    compare pinned versions against upstream releases
 * makesum          record or refresh the .hash sidecar for a recipe
 * check-shadowers  report .pc files that would shadow the system's

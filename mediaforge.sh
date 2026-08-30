@@ -92,7 +92,7 @@ cmd_help() {
   printf 'Usage: %s <command> [options]\n\n' "$PROGNAME"
   printf 'Commands:\n'
   printf '  build              Build FFmpeg and dependencies\n'
-  printf '  clean              Remove all build artifacts\n'
+  printf '  clean              Remove the build tree; keep the verified tarball cache\n'
   printf '  install            Install built binaries and libraries\n'
   printf '  uninstall          Remove installed files\n'
   printf '  check-updates      Check for newer dependency versions\n'
@@ -156,6 +156,13 @@ cmd_help() {
   printf '\nChecksum verification (loud; never persisted to the stored choice matrix):\n'
   printf '      --skip-checksum       Disable verification for EVERY recipe\n'
   printf '      --skip-checksum=PKG   Disable verification for one recipe, by recipe filename or "ffmpeg" (repeatable, comma-separated ok)\n'
+  printf '\nClean options (used by the clean subcommand):\n'
+  printf '  Two directories, and they do not cost the same to replace. workspace/ is\n'
+  printf '  rebuildable from local state at the price of CPU time; packages/ holds\n'
+  printf '  tarballs already verified against their .hash sidecars, and refilling it\n'
+  printf '  depends on every upstream still serving the same bytes.\n'
+  printf '      --all                 Also remove the tarball cache (packages/), not just\n'
+  printf '                            the build tree (workspace/)\n'
   printf '\nInstall / uninstall options (used by the install and uninstall subcommands):\n'
   printf '      --prefix=PATH         Install/uninstall location (default: interactive prompt)\n'
   printf '  -y, --yes                 Non-interactive mode\n'
@@ -705,7 +712,29 @@ cmd_build() {
 # ─── Clean ───────────────────────────────────────────────────────────
 
 cmd_clean() {
-  full_cleanup
+  _all=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --all) _all=true ;;
+      --)    shift; break ;;
+      # Anything else dies, including a bare operand. `clean` accepted no
+      # options at all before GH-71, so every argument handed to it was
+      # silently ignored -- and the argument this command now takes is the one
+      # that decides whether the tarball cache survives. A typo'd --all that
+      # fell through to the default would keep the cache the operator asked to
+      # discard; the reverse, on a tree where the flag stopped being read,
+      # discards it without being asked.
+      *)     die "Unknown option for clean: $1 (use --all to also remove $DISTDIR)" ;;
+    esac
+    shift
+  done
+
+  if [ "$_all" = true ]; then
+    full_cleanup
+  else
+    workspace_cleanup
+    report_kept_cache
+  fi
 }
 
 # ─── Install ─────────────────────────────────────────────────────────

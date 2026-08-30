@@ -9,7 +9,7 @@ Usage: mediaforge.sh <command> [options]
 
 Commands:
   build              Build FFmpeg and dependencies
-  clean              Remove all build artifacts
+  clean              Remove the build tree; keep the verified tarball cache
   install            Install built binaries and libraries
   uninstall          Remove installed files
   check-updates      Check for newer dependency versions
@@ -180,8 +180,32 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 ./mediaforge.sh makesum --update             # overwrite a digest that no longer matches
 
 # Clean
-./mediaforge.sh clean
+./mediaforge.sh clean                        # remove workspace/, keep the verified tarballs
+./mediaforge.sh clean --all                  # also remove packages/
 ```
+
+### What `clean` removes, and what it does not
+
+`clean` removes the build tree (`workspace/`) and leaves the tarball cache
+(`packages/`) alone. `--all` removes both, and says so before it does.
+
+The two directories do not cost the same to replace. `workspace/` is rebuildable
+from local state at the price of CPU time. `packages/` holds tarballs that have
+each already been verified against their `.hash` sidecar, and refilling it
+depends on every upstream still serving the same bytes at that minute --- which
+mediaforge neither controls nor can retry its way out of. GH-70 records what
+that costs: a full clean discarded the cache, one archive host answered with a
+bot challenge, and the run was blocked on a file it had held a verified copy of
+ten minutes earlier.
+
+This is where every other build system draws the line. FreeBSD's `ports(7)` has
+`clean` remove the expanded source and `distclean` remove the distfiles as a
+separate request; MacPorts' `port clean` defaults to `--work` and takes `--dist`
+explicitly; `makepkg` has no option that touches `SRCDEST` at all.
+
+Anything `clean` does not recognise is an error rather than a fallback to the
+default --- a typo'd `--all` must not silently keep the cache you asked to
+discard.
 
 ## Build stamps and reconcile
 

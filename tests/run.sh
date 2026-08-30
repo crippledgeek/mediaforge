@@ -120,6 +120,12 @@ sh tests/ccache.sh
 # gigabytes into tmpfs; filling that exhausts memory rather than disk, and the
 # OOM killer's SIGKILL cannot be trapped, so the half-written tree stays.
 sh tests/storage-guard.sh
+# Pins which directory `clean` may remove (#71). The two are not
+# interchangeable: workspace/ costs CPU to rebuild, packages/ costs an upstream
+# still being willing to serve the same bytes -- and #70 is what the second one
+# costs when it goes as a side effect of "remove all build artifacts". Nothing
+# else in the suite runs the clean subcommand at all.
+sh tests/clean-modes.sh
 # Pins that a build stamp is EVIDENCE and not a claim (#59). A stamp used to be
 # an empty file, so nothing noticed when one outlived the artifact it vouched
 # for -- and the next build then skips a recipe it never built, failing at
