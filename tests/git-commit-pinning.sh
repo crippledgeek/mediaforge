@@ -189,6 +189,52 @@ if command -v fetch_git > /dev/null 2>&1; then
   else
     _pass unreachable-commit-fails-loudly
   fi
+
+  # -- 5b. An ANNOTATED TAG's object name is refused, naming the peel. -------
+  # THE BUG THIS PINS. `git ls-remote <url> v0.2.11` prints TWO lines for an
+  # annotated tag: the tag object, then the commit it peels to under
+  # `refs/tags/v0.2.11^{}`. librist's pin was taken from the first, so
+  # PKG_COMMIT held 27460636 (the tag object) instead of c5268580 (the commit).
+  #
+  # Nothing upstream of the checkout could see it. The 40-hex guard passes --
+  # a tag object name is 40 hex like any other -- and `git fetch --depth 1
+  # origin <tag-object>` succeeds, because the object really does exist. Only
+  # `checkout FETCH_HEAD` reveals it, by silently PEELING the tag and landing
+  # HEAD on a SHA that is not the one that was asked for.
+  #
+  # The base tree does detect that mismatch, via the post-checkout assertion --
+  # which is why this is asserted as a COMPOUND: "it failed" alone passes on
+  # the base and guards nothing. What the base cannot do is say WHY, or stop
+  # before the working tree has been populated from the wrong object. Both of
+  # those are what the third and second clauses below measure.
+  _TAGOBJ=$(git -C "$_repo" rev-parse v9.9.9)
+  _TAGCOMMIT=$(git -C "$_repo" rev-parse 'v9.9.9^{commit}')
+  if [ "$_TAGOBJ" = "$_TAGCOMMIT" ]; then
+    _bad fixture-annotated-tag "v9.9.9 is not an annotated tag; the fixture cannot pose the question"
+  fi
+  _d7="$_fx/c7"
+  _out=$( ( fetch_git "$_repo" "$_d7" "$_TAGOBJ" ) 2>&1 )
+  _rc=$?
+  _head7=$(git -C "$_d7" rev-parse HEAD 2>/dev/null || printf '')
+  if [ "$_rc" -ne 0 ] &&
+     printf '%s' "$_out" | grep -qF 'tag object' &&
+     [ "$_head7" != "$_TAGCOMMIT" ]; then
+    _pass tag-object-pin-refused-before-checkout
+  else
+    _bad tag-object-pin-refused-before-checkout \
+      "rc=$_rc head=[$_head7] peel=[$_TAGCOMMIT] out=$(printf '%s\n' "$_out" | _evidence 2 'fetch_git')"
+  fi
+
+  # The complement, and the reason the clause above greps for a TYPE rather
+  # than just any failure: a real commit must still go through. A guard that
+  # refuses everything would satisfy 5b and break every git-sourced recipe.
+  _d8="$_fx/c8"
+  if ( fetch_git "$_repo" "$_d8" "$_TAGCOMMIT" ) > /dev/null 2>&1 &&
+     [ "$(git -C "$_d8" rev-parse HEAD 2>/dev/null)" = "$_TAGCOMMIT" ]; then
+    _pass peeled-commit-of-a-tag-still-fetches
+  else
+    _bad peeled-commit-of-a-tag-still-fetches "the commit a tag points to was refused"
+  fi
 else
   _bad fetch-git-helper-exists "no fetch_git helper in lib/download.sh"
 fi
@@ -230,12 +276,13 @@ else
   _pass av1-not-a-gitiles-archive-tarball
 fi
 
-# -- 7. Every profile supplies a 40-hex commit for all three recipes. --------
+# -- 7. Every profile supplies a 40-hex commit for all five recipes. ---------
 # The regression test for the reported failure: a profile value that is not a
 # commit is what produced `v<sha>`, and a MISSING one silently reintroduces the
 # tag-pinning the rest of this file removes.
 for _p in profiles/ffmpeg-*.conf; do
-  for _v in PKG_COMMIT_LIBRTMP PKG_COMMIT_LIBPLACEBO PKG_COMMIT_AV1; do
+  for _v in PKG_COMMIT_LIBRTMP PKG_COMMIT_LIBPLACEBO PKG_COMMIT_AV1 \
+            PKG_COMMIT_X264 PKG_COMMIT_LIBRIST; do
     _val=$(awk -F'"' -v k="^$_v=" '$0 ~ k { print $2; exit }' "$_p")
     _hex=$(printf '%s' "$_val" | tr -d '0-9a-f')
     _len=${#_val}
@@ -247,6 +294,35 @@ for _p in profiles/ffmpeg-*.conf; do
       _bad "commit-var-is-40-hex-$(basename "$_p")-$_v" "not a commit: $_val"
     fi
   done
+done
+
+# -- 7c. librist pins the COMMIT v0.2.11 peels to, not the tag object. ------
+# The value regression, in every place that carries it: the recipe default and
+# all four profiles. 27460636 is `refs/tags/v0.2.11`, the annotated tag object;
+# c5268580 is `refs/tags/v0.2.11^{}`, the commit. Both are 40 hex, so 7's shape
+# check above cannot separate them and this has to name the value.
+#
+# Hardcoded deliberately. Deciding which of the two a SHA is requires asking the
+# remote (`git cat-file -t` needs the object), and this file is hermetic by
+# design -- so the choice is a literal here or no offline guard at all. A
+# version bump must update this line, which is the intent: re-resolving the pin
+# is exactly when the peel gets dropped again.
+_RIST_COMMIT=c526858020ce14c1ef156c0c68a655ba8dfe8b00
+_rist_default=$(awk -F'"' '/^PKG_COMMIT=/ { print $0; exit }' recipes/other/librist.sh |
+                grep -oE '[0-9a-f]{40}')
+if [ "$_rist_default" = "$_RIST_COMMIT" ]; then
+  _pass librist-recipe-pins-the-peeled-commit
+else
+  _bad librist-recipe-pins-the-peeled-commit "got=[$_rist_default] want=[$_RIST_COMMIT]"
+fi
+for _p in profiles/ffmpeg-*.conf; do
+  _val=$(awk -F'"' '/^PKG_COMMIT_LIBRIST=/ { print $2; exit }' "$_p")
+  if [ "$_val" = "$_RIST_COMMIT" ]; then
+    _pass "librist-profile-pins-the-peeled-commit-$(basename "$_p")"
+  else
+    _bad "librist-profile-pins-the-peeled-commit-$(basename "$_p")" \
+      "got=[$_val] want=[$_RIST_COMMIT]"
+  fi
 done
 
 # -- 7b. A profile must not put a COMMIT where a VERSION belongs. -----------

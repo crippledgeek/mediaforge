@@ -189,6 +189,30 @@ fetch_git() {
   # --depth 1 on the commit itself: no history is needed, and the SHA is the
   # thing being verified, so a shallow fetch loses nothing here.
   run git -C "$_dest" fetch -q --depth 1 origin "$_commit"
+
+  # 40 hex digits names an OBJECT, not necessarily a commit. `git ls-remote`
+  # prints an annotated tag twice -- the tag object under refs/tags/<v>, and the
+  # commit it points to under refs/tags/<v>^{} -- so resolving a pin by reading
+  # the first line yields the tag object. The shape check at the top of this
+  # function cannot see the difference (both are 40 hex), and the fetch above
+  # succeeds because the object genuinely exists; `checkout FETCH_HEAD` then
+  # silently PEELS the tag and lands HEAD on a SHA nobody asked for.
+  #
+  # librist arrived that way: PKG_COMMIT held 27460636 (refs/tags/v0.2.11)
+  # rather than c5268580 (the commit it peels to), and the build died 86
+  # recipes in. The assertion below the checkout did catch it -- but only after
+  # the working tree had been written from the wrong object, and it reported a
+  # bare SHA mismatch, which reads as a corrupted checkout rather than as a
+  # mis-resolved pin. Asking git what the object IS costs one cheap local call
+  # and turns that into an instruction.
+  _type=$(git -C "$_dest" cat-file -t "$_commit" 2>/dev/null || printf '')
+  if [ "$_type" != commit ]; then
+    _peel=$(git -C "$_dest" rev-parse "${_commit}^{commit}" 2>/dev/null || printf '')
+    die "fetch_git: $_commit is a git ${_type:-unreadable} object, not a commit.${_peel:+
+Pin the commit it points to instead: $_peel}
+'git ls-remote <url> <tag>' prints the tag object first and the commit under <tag>^{} -- pin the second."
+  fi
+
   run git -C "$_dest" checkout -q FETCH_HEAD
 
   # Belt-and-braces: confirm what actually landed. A remote that served a
