@@ -472,13 +472,21 @@ describe_payload() {
   # reading to diagnose the failure. So it is reduced to printable characters
   # and capped -- a diagnosis is one line, and a crafted one is otherwise as
   # long as the attacker likes. LC_ALL=C keeps the classes byte-defined, so the
-  # filter cannot vary with the operator's locale.
-  _dp_desc=$(file -b "$_dp_file" 2>/dev/null |
-             LC_ALL=C tr -dc '[:print:][:blank:]' |
-             cut -c1-160)
-  [ -n "$_dp_desc" ] || return 0
+  # filter cannot vary with the operator's locale; `[:print:]` already includes
+  # space, so `[:blank:]` is there for TAB alone -- kept so a tab inside a
+  # description reads as the whitespace it is rather than closing the gap
+  # between two words.
+  _dp_full=$(file -b "$_dp_file" 2>/dev/null | LC_ALL=C tr -dc '[:print:][:blank:]')
+  [ -n "$_dp_full" ] || return 0
 
-  case "$_dp_desc" in
+  # The cap is MARKED. A description cut at 160 characters otherwise ends
+  # mid-word and reads as a complete sentence, so the operator cannot tell
+  # file(1) said more -- which is the one failure mode this whole function
+  # exists to remove, reintroduced by the fix for a different one.
+  _dp_desc=$(printf '%s' "$_dp_full" | cut -c1-160)
+  [ "$_dp_desc" = "$_dp_full" ] || _dp_desc="$_dp_desc..."
+
+  case "$_dp_full" in
     # Anything file(1) recognises as an archive: this failure is about the
     # bytes, not about what was served, and there is nothing to add. Two
     # patterns cover every archive shape in play, `Zip archive data` and

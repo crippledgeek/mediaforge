@@ -169,6 +169,14 @@ recipe_key() { return 1; }
 
 SEED=''
 
+# The sidecar verify_file reads, defaulted and reset the same way $SEED is, and
+# for the same reason: it was set to the recordless one and restored by hand
+# either side of a single scenario, so a scenario appended between those two
+# lines would have inherited it, taken the rc-3 path, and still read as a
+# plausible pass.
+HASH_DEFAULT="$WORK/stub.hash"
+HASH="$HASH_DEFAULT"
+
 # _run SEQUENCE...
 # Point the origin at a fresh scripted sequence, clear the request counter and
 # the download directory, and run one fetch() to completion. die() exits, so
@@ -187,6 +195,7 @@ SEED=''
 # branches differ in, so one runner drives both rather than the cached case
 # getting an open-coded copy of this.
 _run() {
+  PKG_HASH_FILE="$HASH"
   : > "$COUNT"
   printf '%s\n' "$@" > "$SEQ"
   rm -rf "${DIST:?}"
@@ -195,10 +204,11 @@ _run() {
   ( fetch "$URL" "$ARCHIVE" "" ) > "$LOG" 2>&1
   RC=$?
   REQ=$(wc -l < "$COUNT" | tr -d ' ')
-  # Cleared HERE, not by each caller. A scenario appended after the cached one
-  # would otherwise inherit the seed silently, become a cached run, and keep
-  # passing -- measuring the branch it does not name.
+  # Both cleared HERE, not by each caller. A scenario appended after the cached
+  # or the recordless one would otherwise inherit that state silently, measure
+  # a branch it does not name, and keep passing.
   SEED=''
+  HASH="$HASH_DEFAULT"
 }
 
 # Did the run leave the archive in DISTDIR? Every scenario below asks it, and
@@ -207,8 +217,6 @@ _run() {
 _cached() {
   if [ -f "$DIST/$ARCHIVE" ]; then printf yes; else printf no; fi
 }
-
-PKG_HASH_FILE="$WORK/stub.hash"
 
 # ---- the runs -------------------------------------------------------------
 # Every distinct scenario runs ONCE, here, and the assertions below read what
@@ -240,10 +248,9 @@ _xml_log=$(cat "$LOG")
 
 # No recorded digest at all -- verify_file's rc 3, which keeps the file and
 # must not enter the retry.
-PKG_HASH_FILE="$WORK/empty.hash"
+HASH="$WORK/empty.hash"
 _run "$HTML_BODY"
 _norec_rc=$RC; _norec_req=$REQ; _norec_left=$(_cached); _norec_log=$(cat "$LOG")
-PKG_HASH_FILE="$WORK/stub.hash"
 
 # A CACHED bad copy: the branch that always had the retry. It is not fetched,
 # so its single retry is one request where the fresh path's is two.
@@ -373,10 +380,25 @@ fi
 # function, so the stub is reached exactly as the binary would be.
 _evil_desc=$(printf 'CABINET \033[31mred\033[0m data%s' \
              "$(awk 'BEGIN { while (i++ < 400) printf "x" }')")
-_diag=$(
-  file() { printf '%s' "$_evil_desc"; }
-  describe_payload "$GOOD" "$ARCHIVE" 2>&1
-)
+# _stub_diag DESCRIPTION -- what describe_payload prints when file(1) says
+# exactly that. The stub is defined inside the command substitution, so it is
+# scoped to that subshell and the assertions using the real binary are
+# unaffected.
+_stub_diag() {
+  _sd_desc="$1"
+  (
+    file() { printf '%s' "$_sd_desc"; }
+    describe_payload "$GOOD" "$ARCHIVE" 2>&1
+  )
+}
+
+# _pad N -- a description of exactly N characters that no archive pattern
+# matches, so it reaches the branch that prints it.
+_pad() {
+  awk -v n="$1" 'BEGIN { s = "CABINET "; while (length(s) < n) s = s "x"; print s }'
+}
+
+_diag=$(_stub_diag "$_evil_desc")
 _ctl=$(printf '%s' "$_diag" | tr -d '\n' | LC_ALL=C tr -d '[:print:][:blank:]' | wc -c | tr -d ' ')
 _wrong=''
 case "$_diag" in
@@ -384,11 +406,35 @@ case "$_diag" in
   *) _wrong="$_wrong the description never reached the message, so nothing was measured;" ;;
 esac
 [ "$_ctl" -eq 0 ] || _wrong="$_wrong $_ctl control character(s) survived into the message;"
-[ "${#_diag}" -lt 300 ] || _wrong="$_wrong the message is ${#_diag} characters -- the description was not capped;"
 if [ -z "$_wrong" ]; then
-  _pass payload-description-is-printable-and-bounded
+  _pass payload-description-is-printable
 else
-  _bad payload-description-is-printable-and-bounded "$_wrong"
+  _bad payload-description-is-printable "$_wrong"
+fi
+
+# ---- 9. the cap is pinned AT 160, not somewhere comfortably past it --------
+# A length assertion placed well beyond the cap passes at 240 as happily as at
+# 160, so it guards the branch and not the threshold. These two are one
+# character apart: 160 must survive whole, 161 must come back cut and MARKED,
+# and no off-by-one in the cut or the marker leaves both green.
+_at=$(_stub_diag "$(_pad 160)")
+_over=$(_stub_diag "$(_pad 161)")
+_at_desc=${_at#*is not an archive: }
+_over_desc=${_over#*is not an archive: }
+_wrong=''
+[ "${#_at_desc}" -eq 160 ] || _wrong="$_wrong a 160-character description came back as ${#_at_desc};"
+case "$_at_desc" in
+  *...) _wrong="$_wrong a description AT the cap was marked as truncated;" ;;
+esac
+[ "${#_over_desc}" -eq 163 ] || _wrong="$_wrong a 161-character description came back as ${#_over_desc}, expected 160 plus the marker;"
+case "$_over_desc" in
+  *...) ;;
+  *) _wrong="$_wrong a truncated description carries no marker, so it reads as complete;" ;;
+esac
+if [ -z "$_wrong" ]; then
+  _pass description-cap-holds-at-its-boundary
+else
+  _bad description-cap-holds-at-its-boundary "$_wrong"
 fi
 
 # ---- 8. a web page is called a web page, not asserted to be HTML ----------
