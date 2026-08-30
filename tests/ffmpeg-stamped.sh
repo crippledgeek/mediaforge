@@ -25,6 +25,8 @@ _fail=0
 . "$ROOT/tests/lib-assert.sh"
 
 _recipe=recipes/ffmpeg.sh
+_pend=$(_code_line "$_recipe" '^[[:space:]]*mf_stage_pending_reset[[:space:]]*$')
+_resv=$(_code_line "$_recipe" '^[[:space:]]*mf_stage_reserved_reset[[:space:]]*$')
 _begin=$(_code_line "$_recipe" '^[[:space:]]*mf_stage_begin[[:space:]]*$')
 _inst=$(_code_line "$_recipe" '^[[:space:]]*run make install')
 _stamp=$(_code_line "$_recipe" '^[[:space:]]*stamp_write[[:space:]]+"ffmpeg"')
@@ -35,6 +37,18 @@ _read=$(_code_line "$_recipe" 'file "[$]PREFIX/bin/ffmpeg"')
 _reasons=""
 [ -n "$_begin" ] || _reasons=" no mf_stage_begin, so make install writes straight to the live prefix and nothing records it."
 [ -n "$_inst" ]  || _reasons="$_reasons no install line inside the window, so the assertion would pass over a recipe that installs nothing."
+# The two accumulator resets were the only lines in the window with nothing
+# behind them: deleting both left all five assertions green. They are what stops
+# a pool stranded by a predecessor's failed exit from being drained into THIS
+# stamp -- the GH-59 misattribution direction -- and the recipe's own comment
+# concedes the pool is empty today as a property of code this file does not own.
+# That concession is the argument for pinning it here.
+[ -n "$_pend" ] && [ -n "$_resv" ] \
+  || _reasons="$_reasons the window does not reset both stage accumulators (pending=${_pend:-none} reserved=${_resv:-none}), so a pool stranded by an earlier recipe would be drained into ffmpeg's stamp."
+if [ -n "$_pend" ] && [ -n "$_resv" ] && [ -n "$_begin" ]; then
+  [ "$_pend" -lt "$_begin" ] && [ "$_resv" -lt "$_begin" ] \
+    || _reasons="$_reasons a reset follows mf_stage_begin (pending=$_pend reserved=$_resv begin=$_begin), where run_recipe puts both before it."
+fi
 [ -n "$_stamp" ] || _reasons="$_reasons no stamp_write for ffmpeg, so its 248 files are claimed by nobody."
 [ -n "$_end" ]   || _reasons="$_reasons no mf_stage_end, so DESTDIR stays set past the install."
 if [ -n "$_begin" ] && [ -n "$_inst" ] && [ -n "$_stamp" ] && [ -n "$_end" ]; then

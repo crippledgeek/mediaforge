@@ -304,11 +304,12 @@ _match_line() { # pattern   (text on stdin)
 # concept, three spellings. Naming it matters more than the keystrokes it saves:
 # the rule that a source grep reads through _code_only is one every site
 # otherwise re-decides, and tests/debug-levels.sh got it wrong exactly that way:
-# one half of an ordering claim read stripped source and the other read raw, so
-# the raw half could have matched the symbol inside a COMMENT. Not a coordinate
-# mismatch -- _code_only is a sed substitution that blanks rather than deletes,
-# so both halves always shared one numbering. Making the correct form the short
-# form is what stops that recurring.
+# BOTH halves of an ordering claim read raw source, so either could have matched
+# the symbol inside a COMMENT. Not a coordinate mismatch, and not a split
+# between the halves -- two earlier drafts of this sentence claimed each of
+# those. _code_only is a sed substitution that blanks rather than deletes, so
+# any two reads of one file always share a numbering. Making the correct form
+# the short form is what stops that recurring.
 #
 # MEASURED, so the claim is not stronger than the evidence: removing the strip
 # fails NO assertion today. All eight pinned needles first match at the same
@@ -316,11 +317,11 @@ _match_line() { # pattern   (text on stdin)
 # is by PROPERTY, not by file. Two earlier drafts of this paragraph partitioned
 # it by file and were wrong in both directions.
 #
-# FOUR are line-anchored (mf_stage_begin, run make install, stamp_write
-# "ffmpeg", mf_stage_end -- all `^[[:space:]]*`, and save_stored_choices too):
+# FIVE are line-anchored (mf_stage_begin, run make install, stamp_write
+# "ffmpeg", mf_stage_end -- all `^[[:space:]]*` -- and save_stored_choices):
 # a `#`-prefixed mention cannot match them at all, whatever the prose says.
 #
-# FOUR are unanchored (file "$PREFIX/bin/ffmpeg", mf_storage_guard, the
+# THREE are unanchored (file "$PREFIX/bin/ffmpeg", mf_storage_guard, the
 # MF_DEFAULT_OPT assignment) and are safe only because each symbol's first
 # occurrence is its call rather than prose about it. That group is what this
 # strip defends, and `file "$PREFIX/bin/ffmpeg"` is the one to watch: it is
