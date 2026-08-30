@@ -33,16 +33,28 @@ pkg_build() {
     CFLAGS="$CFLAGS -Wall -Winline -D_FILE_OFFSET_BITS=64" libbz2.a
 }
 
+# mf_dest_prefix, not $PREFIX: bzip2's own install target depends on the bzip2
+# and bzip2recover binaries and copies them plus the man pages, which is why
+# this recipe installs by hand -- and a shell install(1) writes past the stage
+# (GH-68).
 pkg_install() {
-  install -d "$PREFIX/include" "$PREFIX/lib"
-  install -m 0644 bzlib.h "$PREFIX/include/"
-  install -m 0644 libbz2.a "$PREFIX/lib/"
+  _dest=$(mf_dest_prefix)
+  install -d "$_dest/include" "$_dest/lib"
+  install -m 0644 bzlib.h "$_dest/include/"
+  install -m 0644 libbz2.a "$_dest/lib/"
 }
 
 # bzip2 ships no .pc file. Provide a minimal one so consumers (libpng,
 # freetype) that use `pkg-config --static --libs bzip2` find -lbz2.
+# The FILE goes to the stage; the prefix= line inside it names the REAL
+# $PREFIX. DESTDIR must never reach file contents (GNU Coding Standards), and a
+# .pc that pointed at the stage would resolve to a path deleted moments later.
+# install -d because the stage is emptied after every merge, so lib/pkgconfig
+# is not there from pkg_install's own staged install.
 pkg_post_install() {
-  cat > "$PREFIX/lib/pkgconfig/bzip2.pc" <<EOF
+  _dest=$(mf_dest_prefix)
+  install -d "$_dest/lib/pkgconfig"
+  cat > "$_dest/lib/pkgconfig/bzip2.pc" <<EOF
 prefix=$PREFIX
 exec_prefix=\${prefix}
 libdir=\${exec_prefix}/lib

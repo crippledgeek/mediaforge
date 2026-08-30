@@ -37,11 +37,15 @@ pkg_configure() { :; }
 # that flip. -Ilib is upstream's and is added after this, so it is not lost.
 pkg_build() { run make -j "$MJOBS" CFLAGS="-Wall $CFLAGS" libquirc.a; }
 
+# The files go to mf_dest_prefix, not $PREFIX -- a shell install(1) writes past
+# the stage (GH-68) -- while the .pc's own prefix= line keeps naming the REAL
+# $PREFIX, because DESTDIR must never reach file contents.
 pkg_install() {
-  install -d "$PREFIX/include" "$PREFIX/lib" "$PREFIX/lib/pkgconfig"
-  install -m 0644 lib/quirc.h "$PREFIX/include/"
-  install -m 0644 libquirc.a "$PREFIX/lib/"
-  cat > "$PREFIX/lib/pkgconfig/libquirc.pc" <<EOF
+  _dest=$(mf_dest_prefix)
+  install -d "$_dest/include" "$_dest/lib" "$_dest/lib/pkgconfig"
+  install -m 0644 lib/quirc.h "$_dest/include/"
+  install -m 0644 libquirc.a "$_dest/lib/"
+  cat > "$_dest/lib/pkgconfig/libquirc.pc" <<EOF
 prefix=$PREFIX
 libdir=\${prefix}/lib
 includedir=\${prefix}/include

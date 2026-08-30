@@ -18,12 +18,18 @@ PKG_REQUIRES_CMD="python3"
 pkg_configure() { default_noop; }
 pkg_build()     { default_noop; }
 
+# _dest is the REAL destination and _root is where this phase writes it: a
+# shell cp -R writes past the stage (GH-68), while the launcher below has to
+# name the path meson will actually live at, since DESTDIR must never reach
+# file contents. The rm aims at the live tree, because the merge only adds and
+# a shrinking mesonbuild/ would otherwise keep its removed modules.
 pkg_install() {
   _src="$DISTDIR/meson-${PKG_VERSION}"
   _dest="$PREFIX/share/meson"
+  _root=$(mf_dest_prefix)
   rm -rf "$_dest"
-  mkdir -p "$_dest" "$PREFIX/bin"
-  cp -R "$_src/meson.py" "$_src/mesonbuild" "$_dest/" \
+  mkdir -p "$_root/share/meson" "$_root/bin"
+  cp -R "$_src/meson.py" "$_src/mesonbuild" "$_root/share/meson/" \
     || die "Failed to install meson package tree to $_dest"
   # Launcher: meson.py locates its mesonbuild/ package relative to itself, so a
   # thin python3 shim is all that's needed. $PREFIX is fixed for a build and
@@ -32,6 +38,6 @@ pkg_install() {
   {
     printf '#!/bin/sh\n'
     printf 'exec python3 "%s/meson.py" "$@"\n' "$_dest"
-  } > "$PREFIX/bin/meson"
-  chmod +x "$PREFIX/bin/meson"
+  } > "$_root/bin/meson"
+  chmod +x "$_root/bin/meson"
 }

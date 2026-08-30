@@ -74,6 +74,29 @@ mf_stage_dir() {
   printf '%s\n' "$(mf_stage_root)/current"
 }
 
+# Where a recipe's OWN shell install should write (GH-68).
+#
+# Property 3 above is why this exists: DESTDIR redirects a build system's
+# install target, and nothing else. A recipe that installs with `cp`, `install`
+# or a redirect aimed at an absolute "$PREFIX/..." path writes straight past the
+# stage, so it stages nothing, records nothing, and its stamp reports
+# `unverifiable` forever -- honest, but unfalsifiable. Eleven stamps read that
+# way after GH-59. Writing through this function instead puts those files in the
+# stage like any other install, and the merge carries them to the same paths
+# they reached before.
+#
+# It is the destination only. A path that ends up in a file's CONTENTS -- a .pc
+# prefix= line, meson's launcher -- keeps using $PREFIX directly, because
+# DESTDIR must never reach contents (property 2). That split is the whole
+# subtlety of using it: the file goes to the stage, the string inside it names
+# the real prefix.
+#
+# `${DESTDIR:-}` because the phases are callable outside a staging window: the
+# unset case yields $PREFIX and the pre-GH-59 behaviour exactly.
+mf_dest_prefix() {
+  printf '%s\n' "${DESTDIR:-}$PREFIX"
+}
+
 # Files staged and merged but not yet claimed by any stamp, newline-separated
 # and $PREFIX-relative. Whichever stamp is written next takes them.
 #
