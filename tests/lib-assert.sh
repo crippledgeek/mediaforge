@@ -257,6 +257,14 @@ _shell_var() { # file  name
 # grep -qF, not -qE: every needle in-tree is a fixed string (a case label, a
 # help line, a function name), and one containing a regex metacharacter -- a
 # `--ccache)` label ends in one -- would silently match something else.
+_wired() { # name  file  needle
+  if grep -qF -- "$3" "$2" 2>/dev/null; then
+    _pass "$1"
+  else
+    _bad "$1" "$2 never mentions $3"
+  fi
+}
+
 # The 1-based line number where PATTERN first matches the text on stdin, empty
 # if it never does.
 #
@@ -273,19 +281,16 @@ _shell_var() { # file  name
 # PAT`. When reading source rather than output, pipe through _code_only first so
 # a call named in a comment cannot be mistaken for the call itself.
 #
+# EXITS 0 whether or not it matched, because `cut` is last in the pipeline and
+# it is `grep` that returns 1. Five call sites assign it directly under
+# `set -eu` and tests/clean-modes.sh dropped its `|| true` on the strength of
+# that, so the property is load-bearing rather than incidental.
+#
 # NOT used by tests/debug-levels.sh's second grep, which deliberately collects
 # EVERY matching line number to find whether any of them follows a position.
 # That is a different question and stays spelled out where it is asked.
 _match_line() { # pattern   (text on stdin)
   grep -nE -- "$1" | head -1 | cut -d: -f1
-}
-
-_wired() { # name  file  needle
-  if grep -qF -- "$3" "$2" 2>/dev/null; then
-    _pass "$1"
-  else
-    _bad "$1" "$2 never mentions $3"
-  fi
 }
 
 # Reading shell SOURCE: fold continuations, then extract one function's body.

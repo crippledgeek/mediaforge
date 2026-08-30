@@ -3,11 +3,16 @@
 #
 # It was the one package writing into the workspace with no manifest behind it,
 # because cmd_build sources recipes/ffmpeg.sh directly instead of running it
-# through run_recipe, and the staging window lives in run_recipe. Measured on a
-# full build before this: 9954 files in the prefix, 9706 claimed by a stamp, and
-# every one of the 248 unclaimed was FFmpeg's own. That gap is why a prefix-side
-# orphan audit had to be advisory -- with FFmpeg accounted for, the remainder is
-# empty and the audit can be a gate.
+# through run_recipe, and the staging window lives in run_recipe. FFmpeg's stamp
+# now carries 248 paths that nothing recorded before.
+#
+# It does NOT make the prefix wholly accounted for, and an earlier draft of this
+# comment claimed it did. Measured after a full rebuild of all 110 recipes, with
+# $PREFIX's own dotfile state excluded: 153 paths are still claimed by no stamp
+# -- 151 meson bytecode caches, written when meson RUNS rather than when it is
+# installed, and 2 stale lv2 plugin UIs from a configuration that no longer
+# builds them. What this closes is the largest single class, not the last one
+# (GH-77).
 #
 # Asserted by reading the source rather than by building: driving this file means
 # fetching and compiling FFmpeg. What that buys is still the load-bearing part,
@@ -67,16 +72,26 @@ _verdict ffmpeg-passes-destdir-on-the-command-line "$_reasons"
 #    the operator just changed. Paired with the write above in ONE assertion,
 #    because "does not call stamp_check" is true of the merge base too and would
 #    otherwise pass there having verified nothing.
+#    Both files, because the natural place to add the gate is not this recipe:
+#    cmd_build owns the line that sources it and already short-circuits above
+#    that line for --dry-run, so a stamp_check there would leave a recipe-only
+#    grep green.
 _reasons=""
 [ -n "$_stamp" ] || _reasons=" ffmpeg writes no stamp at all."
-printf '%s\n' "$_code" | grep -qE '(^|[^_[:alnum:]])stamp_check' \
+{ printf '%s\n' "$_code"; _code_only mediaforge.sh; } \
+  | grep -qE '(^|[^_[:alnum:]])stamp_check[^(]*ffmpeg' \
   && _reasons="$_reasons it gates on a stamp, so changing --enable-gpl or --tls= would skip the rebuild that change asks for."
 _verdict ffmpeg-stamp-is-evidence-not-a-gate "$_reasons"
 
 # 5. The help text must not promise a skip that does not happen for FFmpeg.
+#    Read through _code_only and anchored on the printf, so the phrase counts
+#    only where it is PRINTED -- a mention in a comment is not help text. The
+#    coupling to the exact wording is deliberate and is the cost of pinning
+#    prose: reword the help and this assertion asks you to confirm the claim
+#    still holds.
 _reasons=""
-grep -qF 'FFmpeg is the exception' mediaforge.sh \
-  || _reasons=" reconcile's help still tells the reader a drifted stamp means the recipe is skipped, which is false for the one stamp nothing gates on."
+_code_only mediaforge.sh | grep -qE "^[[:space:]]*printf '.*FFmpeg is the exception" \
+  || _reasons=" reconcile's help no longer tells the reader that the one stamp nothing gates on is exempt from the skip it promises."
 _verdict reconcile-help-names-the-ungated-stamp "$_reasons"
 
 printf 'DONE: ffmpeg-stamped\n'

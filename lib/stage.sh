@@ -42,10 +42,15 @@
 #      .pc correct -- it records the REAL prefix while the file itself sits in
 #      the stage.
 #   3. DESTDIR does NOT redirect a plain shell `cp`/`mv`/`rm`/`>` aimed at an
-#      absolute "$PREFIX/..." path. Recipes that install that way (gsm, ladspa,
-#      amf, bzip2, quirc, meson) keep writing straight to the live prefix
-#      exactly as before, and simply record nothing. That is why this change is
-#      a retrofit rather than a rewrite.
+#      absolute "$PREFIX/..." path. Such an install writes straight to the live
+#      prefix and records nothing, which is what made this change a retrofit
+#      rather than a rewrite: the recipes that installed that way kept working
+#      untouched, and only their manifests came out empty.
+#
+#      PAST TENSE since GH-68. Every one of them now writes through
+#      mf_dest_prefix below, and a recipe that reintroduces the shape is caught
+#      by tests/staged-shell-installs.sh. The property itself is unchanged and
+#      is why that guard has to exist.
 #
 # The merge uses a tar pipe, not `cp -R`. POSIX leaves cp's symlink handling
 # UNSPECIFIED when none of -H/-L/-P is given ("it is unspecified which of -H,

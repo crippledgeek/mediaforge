@@ -153,9 +153,10 @@ sh tests/staged-shell-installs.sh
 # Pins that FFmpeg's own install is staged and stamped (#77). cmd_build sources
 # recipes/ffmpeg.sh directly rather than through run_recipe, where the staging
 # window lives, so FFmpeg was the one package writing into the workspace with no
-# manifest behind it -- 248 files, and every unclaimed file in a full prefix.
-# All the assertions are about ORDER, which is what a green build cannot check:
-# the binary installs correctly whether or not the merge precedes the read-back.
+# manifest behind it -- 248 files, the largest single class of unclaimed path in
+# a full prefix though not the last one. All the assertions are about ORDER,
+# which is what a green build cannot check: the binary installs correctly
+# whether or not the merge precedes the read-back.
 sh tests/ffmpeg-stamped.sh
 sh tests/assert-reporter.sh
 # Pins that the suite's verdict is a function of the TREE and not of the

@@ -91,8 +91,10 @@ run make -j "$MJOBS"
 # FFmpeg's own install is staged and stamped like every recipe's, so the one
 # package that writes into the workspace without a manifest stops being an
 # exception (GH-77). Before this, every file FFmpeg installed was claimed by no
-# stamp -- 248 of them on a full build, and the entire reason a prefix-side
-# orphan audit had to be advisory rather than a gate.
+# stamp -- 248 of them on a full build, and the largest single reason a
+# prefix-side orphan audit could not be a gate. Not the only one: a full rebuild
+# with FFmpeg stamped still leaves the meson bytecode caches unclaimed, because
+# they are written when meson RUNS rather than when it is installed (GH-77).
 #
 # DESTDIR on the command line, matching default_install and the GNU Coding
 # Standards. FFmpeg honours the environment too -- probed on 8.0.1, 248 files
@@ -109,7 +111,11 @@ run make -j "$MJOBS"
 mf_stage_begin
 run make install DESTDIR="$DESTDIR"
 # Commits as well as records -- the `file` read-back below reads $PREFIX, and
-# without the merge the binary is still sitting in the stage.
+# without the merge the binary is still sitting in the stage. That is why the
+# stamp is written INSIDE the window here while run_recipe writes it after
+# mf_stage_end: the order is interchangeable (mf_stage_commit reads
+# mf_stage_dir, never $DESTDIR) and this way round keeps the merge next to the
+# read-back that depends on it.
 stamp_write "ffmpeg" "$FFMPEG_VERSION"
 mf_stage_end
 

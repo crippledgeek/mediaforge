@@ -618,7 +618,8 @@ cmd_build() {
     _reconcile_stamps
     if [ "$_rc_drifted" -gt 0 ]; then
       warn "$_rc_drifted build stamp(s) vouch for artifacts that are gone."
-      warn "  A real build would drop them and rebuild those recipes."
+      warn "  A real build would drop them and rebuild those recipes — except FFmpeg's,"
+      warn "  which nothing gates on and which a real build rewrites regardless."
     fi
   else
     mf_build_preflight_stamps
@@ -1251,6 +1252,7 @@ mf_build_preflight_stamps() {
   [ "$_rc_drifted" -gt 0 ] || return 0
   warn "$_rc_drifted build stamp(s) vouch for artifacts that are no longer present."
   warn "  Dropping them so this build rebuilds those recipes rather than skipping them."
+  warn "  (FFmpeg is rebuilt every run either way; dropping its stamp changes nothing.)"
   _reconcile_prune
 }
 
@@ -1270,6 +1272,7 @@ cmd_reconcile() {
         printf '                  build would SKIP that recipe without building it.\n'
         printf '                  FFmpeg is the exception: nothing gates on its\n'
         printf '                  stamp, so it rebuilds every run and heals its own\n'
+        printf '                  drift.\n'
         printf '  [unverifiable]  the stamp carries no manifest: a recipe that\n'
         printf '                  installs nothing and correctly records nothing, or\n'
         printf '                  a stamp written by an older mediaforge\n\n'
