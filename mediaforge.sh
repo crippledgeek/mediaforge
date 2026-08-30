@@ -1161,10 +1161,12 @@ _reconcile_stamps() {
 
     # An empty stamp is a stamp with no manifest, not a stamp with no files:
     # every stamp written before GH-59 is empty, as is every stamp for a recipe
-    # that installs through a bare shell `cp` and stages nothing. Reporting
-    # those as drift would be a false positive on a majority of a legacy
-    # workspace, which is the fastest way to teach someone to ignore this
-    # command.
+    # that installs nothing at all and correctly records nothing -- vaapi and
+    # waflib, the only two left in a built workspace, since GH-68 converted
+    # every recipe that used to stage nothing by installing with a shell cp.
+    # Reporting those as drift would be a false positive on a majority of a
+    # legacy workspace, which is the fastest way to teach someone to ignore
+    # this command.
     if [ ! -s "$_rc_stamp" ]; then
       _rc_unverifiable=$((_rc_unverifiable + 1))
       [ "$_rc_quiet" = true ] || log "  [unverifiable] $_rc_name — stamp carries no manifest"

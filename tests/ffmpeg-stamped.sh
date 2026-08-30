@@ -77,9 +77,15 @@ _verdict ffmpeg-passes-destdir-on-the-command-line "$_reasons"
 #    already lives. A recipe-only grep would go blind on either.
 #
 #    Folded through _logical_lines first: grep is line-oriented, and a gate
-#    split over a backslash continuation evaded this needle until it was. The
-#    needle stops at `)` rather than `(` so that a computed name --
-#    stamp_check "$(pkg_name)" ffmpeg -- does not slip past on the paren.
+#    split over a backslash continuation evaded this needle until it was.
+#
+#    `[^)]*` rather than `[^(]*` because the name can be COMPUTED, and stopping
+#    at the opening paren gave up on the whole form. Measured, both ways:
+#      stamp_check "$(printf ffmpeg)"    [^)]* CAUGHT   [^(]* missed
+#      stamp_check "$(pkg_name)" ffmpeg  [^)]* missed   [^(]* missed
+#    The second is out of reach of either, since the name sits after the closing
+#    paren and neither class can bridge it. Stated rather than implied: a gate
+#    written that way is not covered.
 _reasons=""
 [ -n "$_stamp" ] || _reasons=" ffmpeg writes no stamp at all."
 { _code_only "$_recipe"; _code_only mediaforge.sh; _lib_code; } \
@@ -89,8 +95,10 @@ _reasons=""
 _verdict ffmpeg-stamp-is-evidence-not-a-gate "$_reasons"
 
 # 5. The help text must not promise a skip that does not happen for FFmpeg.
-#    Read through _code_only and anchored on the printf, so the phrase counts
-#    only where it is PRINTED -- a mention in a comment is not help text. The
+#    Read out of cmd_reconcile's own body and anchored on the printf, so the
+#    phrase counts only where it is PRINTED. The anchor is what excludes a
+#    comment, NOT _fn_body -- that folds continuations and slices a function,
+#    and strips nothing. The
 #    coupling to the exact wording is deliberate and is the cost of pinning
 #    prose: reword the help and this assertion asks you to confirm the claim
 #    still holds.

@@ -303,27 +303,29 @@ _match_line() { # pattern   (text on stdin)
 # stripped source into a variable and wrapped it in a local helper -- one
 # concept, three spellings. Naming it matters more than the keystrokes it saves:
 # the rule that a source grep reads through _code_only is one every site
-# otherwise re-decides, and tests/debug-levels.sh got it wrong exactly that way,
-# comparing a line number from stripped source against one from raw. Making the
-# correct form the short form is what stops that recurring.
+# otherwise re-decides, and tests/debug-levels.sh got it wrong exactly that way:
+# one half of an ordering claim read stripped source and the other read raw, so
+# the raw half could have matched the symbol inside a COMMENT. Not a coordinate
+# mismatch -- _code_only is a sed substitution that blanks rather than deletes,
+# so both halves always shared one numbering. Making the correct form the short
+# form is what stops that recurring.
 #
 # MEASURED, so the claim is not stronger than the evidence: removing the strip
 # fails NO assertion today. All eight pinned needles first match at the same
-# line with the strip and without it -- but for two different reasons, and an
-# earlier draft gave only the first and named only three of the eight.
+# line with the strip and without it -- for two different reasons, and the split
+# is by PROPERTY, not by file. Two earlier drafts of this paragraph partitioned
+# it by file and were wrong in both directions.
 #
-# The three in mediaforge.sh (mf_storage_guard, save_stored_choices, the
-# MF_DEFAULT_OPT assignment) are safe because each symbol's first occurrence
-# there is its definition or call, ahead of any prose about it. The five in
-# recipes/ffmpeg.sh are safe for an unrelated reason: they are line-anchored
-# (`^[[:space:]]*mf_stage_end[[:space:]]*$`), so a `#`-prefixed mention cannot
-# match them at all -- which matters, because mf_stage_end IS named in a comment
-# above its own call, exactly the direction flagged below.
+# FOUR are line-anchored (mf_stage_begin, run make install, stamp_write
+# "ffmpeg", mf_stage_end -- all `^[[:space:]]*`, and save_stored_choices too):
+# a `#`-prefixed mention cannot match them at all, whatever the prose says.
 #
-# So the strip is defence against the next needle, not a property any test
-# exercises. The direction that bites silently is an unanchored needle whose
-# symbol appears in a comment ABOVE the code, which is how this repo habitually
-# writes.
+# FOUR are unanchored (file "$PREFIX/bin/ffmpeg", mf_storage_guard, the
+# MF_DEFAULT_OPT assignment) and are safe only because each symbol's first
+# occurrence is its call rather than prose about it. That group is what this
+# strip defends, and `file "$PREFIX/bin/ffmpeg"` is the one to watch: it is
+# unanchored, it lives in a recipe whose comments quote calls verbatim, and
+# nothing but habit keeps a matching comment from appearing above it.
 _code_line() { # file  pattern
   _code_only "$1" | _match_line "$2"
 }
