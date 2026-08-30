@@ -108,14 +108,26 @@ _bad() {
 }
 
 # The verdict of a COMPOUND assertion: several things had to hold, and the
-# caller accumulated one sentence into $2 for each that did not. Empty means
-# every half held.
+# caller accumulated one sentence into REASONS for each that did not. REASONS
+# is REQUIRED -- empty means every half held, and a caller that omits it aborts
+# under `set -u` rather than passing quietly, which is the right way round for
+# what is always a mistake. (_bad's one-argument form does not extend here: a
+# verdict with no accumulator has nothing to decide.)
 #
 # `if [ -z "$_wrong" ]; then _pass NAME; else _bad NAME "$_wrong"; fi` is the
-# shape every multi-part claim in the suite ends with, and it was written out
-# at every one of them -- including four times in tests/assert-reporter.sh,
-# which exists to pin this library. `grep -rn _verdict tests/` is the census;
-# no list is written here, for the reason the head of this file gives.
+# shape a multi-part claim ends with WHEN THE ACCUMULATOR IS THE DETAIL, and it
+# was written out at every such site -- including four times in
+# tests/assert-reporter.sh, which exists to pin this library. Where the detail
+# is DECORATED (`_bad NAME "not ignored:$_uncovered"`, a head -3 of it, a
+# three-way elif ladder) the site keeps its own `if`: what varies there is the
+# wording, not the mechanism. Those sites are legitimately in that state; this
+# helper has not converged them and should not.
+#
+# Two greps, because one only sees what it already took: `grep -rn _verdict
+# tests/` finds the converted sites, and
+# `grep -rnE 'if \[ -z "\$_[a-z_]+" \]' tests/` finds the candidates it has
+# not. That is the same blind spot this file names above for _pass/_bad, and it
+# gets the same complement rather than a list that rots.
 #
 # The accumulate-then-report shape is what lets one assertion state a claim
 # with several halves and still report ONE line, which is what

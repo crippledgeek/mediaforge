@@ -26,54 +26,30 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 # defined after the handler it protects leaves the window between them unguarded.
 # shellcheck source=tests/lib-assert.sh
 . "$ROOT/tests/lib-assert.sh"
+# shellcheck source=tests/lib-origin.sh
+. "$ROOT/tests/lib-origin.sh"
 
 DISTDIR=$(mktemp -d)
 PORT_FILE=$(mktemp)
-SRV_PID=''
+COUNT_FILE=$(mktemp)
+SEQ_FILE=$(mktemp)
+BODY_FILE=$(mktemp)
 
 # Single-quote so the variables expand at trap time, not now (shellcheck-clean,
-# matches the trap idiom used by the other tests).
-trap 'kill "$SRV_PID" 2>/dev/null; rm -rf "$DISTDIR"; rm -f "$PORT_FILE"' EXIT
+# matches the trap idiom used by the other tests). _origin_stop is the shared
+# origin's own kill, which is safe before the server exists.
+trap '_origin_stop; rm -rf "$DISTDIR"; rm -f "$PORT_FILE" "$COUNT_FILE" "$SEQ_FILE" "$BODY_FILE"' EXIT
 _cleanup_on_signal
 
-# Tiny HTTP server: bind 127.0.0.1 on an ephemeral port, answer every GET with
-# 502 + an HTML body, and write the chosen port to PORT_FILE so the shell can
-# read it back. Runs in the background; trap-killed on EXIT.
-python3 -c '
-import sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
-
-class H(BaseHTTPRequestHandler):
-    def do_GET(self):
-        body = b"<html><body><h1>502 Bad Gateway</h1></body></html>"
-        self.send_response(502)
-        self.send_header("Content-Type", "text/html")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-    def log_message(self, *a):
-        pass
-
-srv = HTTPServer(("127.0.0.1", 0), H)
-with open(sys.argv[1], "w") as f:
-    f.write(str(srv.server_address[1]))
-    f.flush()
-srv.serve_forever()
-' "$PORT_FILE" &
-SRV_PID=$!
-
-# Wait (briefly) for the server to publish its port.
-_i=0
-PORT=''
-while [ "$_i" -lt 50 ]; do
-  PORT=$(cat "$PORT_FILE" 2>/dev/null)
-  [ -n "$PORT" ] && break
-  sleep 0.1
-  _i=$((_i + 1))
-done
-
-if [ -z "$PORT" ]; then
-  printf 'ERROR: the fixture server did not start\n' >&2
+# The origin, from tests/lib-origin.sh: one script line, so every request gets
+# the same 502 and an HTML body. The shared origin replaced a copy of itself
+# that lived here -- see that file's head for why one server serves both this
+# test and tests/download-retry-verify.sh.
+printf '<html><body><h1>502 Bad Gateway</h1></body></html>' > "$BODY_FILE"
+printf '502 %s\n' "$BODY_FILE" > "$SEQ_FILE"
+_origin_start "$SEQ_FILE" "$COUNT_FILE" "$PORT_FILE"
+if ! PORT=$(_origin_port "$PORT_FILE"); then
+  printf 'ERROR: the fixture origin did not start\n' >&2
   exit 1
 fi
 

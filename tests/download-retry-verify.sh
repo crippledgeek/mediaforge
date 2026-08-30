@@ -36,10 +36,11 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 # the time the trap that calls it is registered.
 # shellcheck source=tests/lib-assert.sh
 . "$ROOT/tests/lib-assert.sh"
+# shellcheck source=tests/lib-origin.sh
+. "$ROOT/tests/lib-origin.sh"
 
 WORK=$(mktemp -d)
-SRV_PID=''
-trap 'kill "$SRV_PID" 2>/dev/null; rm -rf "$WORK"' EXIT
+trap '_origin_stop; rm -rf "$WORK"' EXIT
 _cleanup_on_signal
 
 ARCHIVE=stub-1.0.tar.gz
@@ -94,50 +95,12 @@ XML_BODY="$WORK/denied.xml"
 printf '# no record for %s\n' "$ARCHIVE" > "$WORK/empty.hash"
 
 # ---- stub origin ----------------------------------------------------------
-# Answers 200 to every GET with the body named by the next line of $SEQ (the
-# last line repeats), and appends one line to $COUNT per request. Re-reading
-# both files per request is what lets one server serve every scenario below.
-python3 -c '
-import sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
-
-seq_file, count_file, port_file = sys.argv[1:4]
-
-class H(BaseHTTPRequestHandler):
-    def do_GET(self):
-        with open(seq_file) as f:
-            seq = [l.strip() for l in f if l.strip()]
-        with open(count_file) as f:
-            n = sum(1 for l in f if l.strip())
-        with open(count_file, "a") as f:
-            f.write("x\n")
-        body = open(seq[min(n, len(seq) - 1)], "rb").read()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/octet-stream")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-    def log_message(self, *a):
-        pass
-
-srv = HTTPServer(("127.0.0.1", 0), H)
-with open(port_file, "w") as f:
-    f.write(str(srv.server_address[1]))
-    f.flush()
-srv.serve_forever()
-' "$SEQ" "$COUNT" "$PORT_FILE" &
-SRV_PID=$!
-
-_i=0
-PORT=''
-while [ "$_i" -lt 50 ]; do
-  PORT=$(cat "$PORT_FILE" 2>/dev/null)
-  [ -n "$PORT" ] && break
-  sleep 0.1
-  _i=$((_i + 1))
-done
-if [ -z "$PORT" ]; then
-  printf 'ERROR: the fixture server did not start\n' >&2
+# tests/lib-origin.sh, shared with tests/fetch-fail-no-cache.sh: each line of
+# $SEQ is `<status> <body-file>`, the last line repeats, and every request
+# appends to $COUNT.
+_origin_start "$SEQ" "$COUNT" "$PORT_FILE"
+if ! PORT=$(_origin_port "$PORT_FILE"); then
+  printf 'ERROR: the fixture origin did not start\n' >&2
   exit 1
 fi
 URL="http://127.0.0.1:$PORT/$ARCHIVE"
@@ -197,7 +160,8 @@ HASH="$HASH_DEFAULT"
 _run() {
   PKG_HASH_FILE="$HASH"
   : > "$COUNT"
-  printf '%s\n' "$@" > "$SEQ"
+  : > "$SEQ"
+  for _body in "$@"; do printf '200 %s\n' "$_body" >> "$SEQ"; done
   rm -rf "${DIST:?}"
   mkdir -p "$DIST"
   [ -n "$SEED" ] && cp "$SEED" "$DIST/$ARCHIVE"
@@ -351,7 +315,7 @@ _verdict diagnosis-does-not-change-the-verdict "$_wrong"
 # byte as the four characters `\033` itself, so a real payload cannot exercise
 # the reduction on this host and a test built on one would pass by accident
 # wherever it did. The contract under test is describe_payload's own -- whatever
-# file(1) hands it, what leaves is printable and bounded -- and a stub is the
+# file(1) hands it, what leaves is printable -- and a stub is the
 # only way to state it. `command_exists` is `command -v`, which finds a shell
 # function, so the stub is reached exactly as the binary would be.
 #
