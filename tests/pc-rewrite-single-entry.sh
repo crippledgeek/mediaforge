@@ -162,7 +162,13 @@ _verdict pc-name-must-be-a-bare-name "$_reasons"
 # temp file rather than a wrong link, so this is hygiene, not correctness -- but
 # it is one drive and the prefix is what reconcile audits, where a file no
 # manifest names is exactly what GH-77 is about.
+# The definedness guard is not ceremony: without it this assertion PASSES on the
+# merge base, where _mf_pc_rewrite does not exist, the drive fails for that
+# reason, and "no .tmp was stranded" is trivially true of a rewrite that never
+# ran. tests/oracle-baseline.sh caught exactly that.
 _reasons=""
+_code_only lib/framework.sh | grep -qE '^_mf_pc_rewrite\(\)' \
+  || _reasons=" _mf_pc_rewrite is not defined, so nothing here ran."
 _broken="$_tmp/prefix/lib/pkgconfig/broken.pc"
 printf 'Name: broken\nLibs: -lbroken\n' > "$_broken"
 : > "$_tmp/out"
