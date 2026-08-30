@@ -462,10 +462,22 @@ run_recipe() {
   # narrowing the window keeps configure and build seeing exactly the
   # environment they saw before.
   #
+  # That is true of the PHASES, not of everything that runs inside them. Four
+  # recipes run a full configure+compile within the window (lv2's seven
+  # sub-packages and opencl's ICD loader in pkg_install, libcdio's paranoia in
+  # pkg_post_install, rav1e's cargo cinstall), so their sub-builds see DESTDIR
+  # set. That is harmless for a build that does not install, and correct for one
+  # that does -- but a NEW sub-build whose compile performs an internal install
+  # to an absolute path outside $PREFIX would have it redirected into the stage
+  # and discarded. That is exactly what a widened window did to gettext's
+  # textstyle install before it was reverted, and it is why the window was
+  # narrowed rather than widened.
+  #
   # mf_stage_pending_reset before rather than after: a recipe that dies mid-build
   # leaves its accumulator behind, and the next recipe must not inherit it and
   # write another package's files into its own stamp.
   mf_stage_pending_reset
+  mf_stage_reserved_reset
   pkg_prepare
   pkg_configure
   pkg_build

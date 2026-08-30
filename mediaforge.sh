@@ -573,6 +573,17 @@ cmd_build() {
   mkdir -p "$PREFIX/.stamps" 2>/dev/null
   mkdir -p "$PREFIX/.logs" 2>/dev/null
 
+  # mediaforge OWNS DestDIR for the duration of a build, so an operator's own is
+  # refused rather than half-honoured. It would be respected through the first
+  # recipe's prepare/configure/build and then gone from the second recipe
+  # onward, because mf_stage_end unsets it -- a build that is neither what the
+  # operator asked for nor a clean one, with nothing said about it. DESTDIR is
+  # THE packaging-standard variable, so a distro packager wrapping mediaforge
+  # plausibly has one set.
+  if [ -n "${DESTDIR:-}" ]; then
+    die "DESTDIR is set in the environment ($DESTDIR). mediaforge owns it for staged installs (lib/stage.sh) and cannot honour yours: unset it, and use 'install --prefix=PATH' to choose where the build is installed."
+  fi
+
   # Preflight the stamps against the workspace before building anything
   # (GH-59). A stamp whose artifact is gone is not evidence that a recipe was
   # built, and leaving it in place is what makes the next build SKIP that

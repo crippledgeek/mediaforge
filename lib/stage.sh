@@ -151,7 +151,16 @@ mf_stage_commit() {
   _st_dir=$(mf_stage_dir)
   _st_src="$_st_dir$PREFIX"
 
-  [ -d "$_st_src" ] || { mf_stage_warn_stray "$_st_dir" "$_st_src"; return 0; }
+  # Reset on this branch too. Without it the stray tree survives into the next
+  # commit within the same recipe -- and a default-install recipe commits three
+  # times (default_install, and the claim after each install phase), so one
+  # foreign-prefix recipe reported itself three times and read as three
+  # separate incidents. The strays are discarded at mf_stage_end either way.
+  if [ ! -d "$_st_src" ]; then
+    mf_stage_warn_stray "$_st_dir" "$_st_src"
+    mf_stage_reset
+    return 0
+  fi
 
   # Record BEFORE merging: the stage holds this step's files and nothing else,
   # which is the entire reason for staging. Enumerating $PREFIX after the merge
@@ -231,10 +240,22 @@ mf_stage_restore() {
 # sound, and in mediaforge.sh's reconcile, to decide that a stamp has drifted.
 # The reconcile answer drives a delete, so two copies free to disagree is a copy
 # too many.
+# `-e` OR `-L`, because the recorder and the filter must agree on what a
+# manifest entry IS. mf_stage_commit enumerates with `find ... -o -type l`, so it
+# deliberately records the LINK; `-e` alone resolves it, so a symlink whose
+# target is gone reads as a missing file.
+#
+# The disagreement is reachable through the four recipes that delete `.so*` from
+# the workspace (brotli, xvidcore, xevd, xeve): a dangling link would report its
+# owning stamp as DRIFTED and make the preflight prune and rebuild it, blaming a
+# file that is still on disk. Their globs happen to take link and target
+# together today, which is what keeps it unreached rather than what makes it
+# safe. Recording the directory entry rather than its resolution is also what
+# pkg-plist and CONTENTS do.
 mf_stage_filter_paths() {
   while IFS= read -r _st_p; do
     [ -n "$_st_p" ] || continue
-    if [ -e "$PREFIX/$_st_p" ]; then
+    if [ -e "$PREFIX/$_st_p" ] || [ -L "$PREFIX/$_st_p" ]; then
       [ "$1" = extant ] && printf '%s\n' "$_st_p"
     else
       [ "$1" = missing ] && printf '%s\n' "$_st_p"
@@ -266,6 +287,24 @@ mf_stage_pending_extant() {
 # Drop the accumulator, once a stamp has taken responsibility for it.
 mf_stage_pending_reset() {
   MF_STAGE_PENDING=""
+}
+
+# Drop the reserved pool. SEPARATE from mf_stage_pending_reset, and deliberately
+# so: stamp_write calls that one, and a NESTED stamp_write must not be able to
+# wipe the parent recipe's reserved files -- holding them out of its reach is
+# the entire purpose of the pool. Folding the two together reintroduces the
+# Critical bug this pool exists to fix, which
+# `nested-stamp-takes-only-its-own-files` catches immediately.
+#
+# run_recipe calls it once per recipe, for the reason it gives about PENDING: a
+# recipe that dies mid-phase must not leave a pool for the next one to prepend
+# to its own stamp. It cannot leak through run_recipe as written -- claim and
+# restore bracket a straight-line body -- but that is a property of that body,
+# not of this state machine, and lv2 and opencl claim inside a phase function
+# where a later `return` would strand the pool. Silently, and in the exact
+# direction GH-59 exists to close.
+mf_stage_reserved_reset() {
+  MF_STAGE_RESERVED=""
 }
 
 # Report anything staged OUTSIDE $PREFIX, which the merge above cannot carry.

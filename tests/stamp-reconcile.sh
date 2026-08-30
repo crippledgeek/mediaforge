@@ -339,6 +339,50 @@ EOF
   fi
   mf_stage_pending_reset
 
+  # A dangling symlink stays in the manifest.
+  #
+  # The recorder enumerates with `-o -type l` and so records the LINK; a filter
+  # using `-e` alone RESOLVES it, so a link whose target is gone would read as a
+  # missing file, report its stamp DRIFTED, and make the preflight prune and
+  # rebuild a recipe over a file that is still on disk. Reachable through the
+  # four recipes that delete `.so*` from the workspace.
+  mf_stage_pending_reset
+  mf_stage_begin
+  _stage=$(mf_stage_dir)$PREFIX
+  mkdir -p "$_stage/lib"
+  echo target > "$_stage/lib/libdangle.so.1"
+  ln -s libdangle.so.1 "$_stage/lib/libdangle.so"
+  mf_stage_commit
+  rm -f "$PREFIX/lib/libdangle.so.1"        # the link now dangles
+  if mf_stage_pending_extant | grep -q '^lib/libdangle\.so$'; then
+    _pass dangling-symlink-stays-in-manifest
+  else
+    _bad dangling-symlink-stays-in-manifest "a recorded symlink vanished from the manifest once its target was removed"
+  fi
+  mf_stage_end
+  mf_stage_pending_reset
+  rm -f "$PREFIX/lib/libdangle.so"
+
+  # Both accumulators are cleared by one reset. RESERVED cannot leak through
+  # run_recipe as written, but lv2 and opencl claim inside a phase function
+  # where a later `return` would strand the pool -- and the next recipe would
+  # prepend another package's files to its own stamp.
+  mf_stage_begin
+  _stage=$(mf_stage_dir)$PREFIX
+  mkdir -p "$_stage/lib"
+  echo orphan > "$_stage/lib/liborphan.a"
+  mf_stage_claim                       # -> RESERVED, as a recipe dying here would leave it
+  mf_stage_reserved_reset              # what run_recipe does for the NEXT recipe
+  mf_stage_restore
+  if [ -z "$(mf_stage_pending_extant)" ]; then
+    _pass reset-clears-the-reserved-pool-too
+  else
+    _bad reset-clears-the-reserved-pool-too "a stranded claim survived the reset and would land in the next recipe's stamp: $(mf_stage_pending_extant | tr '\n' ' ')"
+  fi
+  mf_stage_end
+  mf_stage_pending_reset
+  rm -f "$PREFIX/lib/liborphan.a"
+
   # A recipe that stages nothing -- gsm, ladspa and amf install with a bare
   # shell cp, which DESTDIR does not redirect -- must still get a stamp, and an
   # EMPTY one. That is the "unverifiable" signal, and it is also every stamp

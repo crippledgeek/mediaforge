@@ -208,7 +208,8 @@ and `--prune` performs the drop on its own.
 
 `unverifiable` is not a problem. It means the stamp has no manifest to check —
 either it was written before GH-59, or it belongs to one of the recipes that
-installs with a plain `cp` (`gsm`, `ladspa`, `amf`, `bzip2`, `quirc`, `meson`),
+installs with a plain `cp` (`gsm`, `ladspa`, `amf`, `bzip2`, `quirc`, `meson`,
+`vapoursynth`, `flite`),
 which stages nothing because `DESTDIR` only redirects installs performed by make,
 ninja and cmake. Those recipes behave exactly as they always have; they simply
 cannot be verified this way.
