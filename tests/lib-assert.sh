@@ -312,14 +312,19 @@ _match_line() { # pattern   (text on stdin)
 # the short form is what stops that recurring.
 #
 # MEASURED, so the claim is not stronger than the evidence: removing the strip
-# fails NO assertion today. All eight pinned needles first match at the same
+# fails NO assertion today. All ten pinned needles first match at the same
 # line with the strip and without it -- for two different reasons, and the split
 # is by PROPERTY, not by file. Two earlier drafts of this paragraph partitioned
 # it by file and were wrong in both directions.
 #
-# FIVE are line-anchored (mf_stage_begin, run make install, stamp_write
-# "ffmpeg", mf_stage_end -- all `^[[:space:]]*` -- and save_stored_choices):
-# a `#`-prefixed mention cannot match them at all, whatever the prose says.
+# SEVEN are line-anchored (mf_stage_pending_reset, mf_stage_reserved_reset,
+# mf_stage_begin, run make install, stamp_write "ffmpeg", mf_stage_end -- all
+# `^[[:space:]]*` -- and save_stored_choices): a `#`-prefixed mention cannot
+# match them at all, whatever the prose says. FIVE of those seven are also
+# END-anchored (the four `[[:space:]]*$` ones and save_stored_choices' bare
+# `$`), which makes them strip-DEPENDENT in the opposite direction: a trailing
+# `# comment` on the real call would defeat the needle, and matches only
+# because the strip removes the comment and the whitespace before it.
 #
 # THREE are unanchored (file "$PREFIX/bin/ffmpeg", mf_storage_guard, the
 # MF_DEFAULT_OPT assignment) and are safe only because each symbol's first
