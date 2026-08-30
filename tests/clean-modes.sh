@@ -84,6 +84,13 @@ _clean_run() { # seed(both|cache-only|workspace-only)  [args...]
       # to carry one or it is a test of the wrong predicate.
       mkdir -p "$_MF_SCRATCH/packages/libbar/.git"
       printf 'clone\n' > "$_MF_SCRATCH/packages/libbar/README"
+      # A symlinked entry pointing OUTSIDE packages/. `rm -rf` on a symlink
+      # unlinks it without recursing, so the target was never in danger -- what
+      # the skip protects is the link itself, and only a fixture that keeps the
+      # two distinguishable can tell the skip from its absence.
+      mkdir -p "$_MF_SCRATCH/outside"
+      printf 'not ours\n' > "$_MF_SCRATCH/outside/keepme"
+      ln -s "$_MF_SCRATCH/outside" "$_MF_SCRATCH/packages/linked"
       ;;
   esac
   case "$_seed" in
@@ -102,6 +109,8 @@ _clean_run() { # seed(both|cache-only|workspace-only)  [args...]
   if [ -f "$_MF_SCRATCH/workspace/lib/libfoo.a" ]; then _tree=present; else _tree=absent; fi
   if [ -f "$_MF_SCRATCH/packages/libfoo-1.0/configure" ]; then _src=present; else _src=absent; fi
   if [ -f "$_MF_SCRATCH/packages/libbar/README" ]; then _clone=present; else _clone=absent; fi
+  if [ -L "$_MF_SCRATCH/packages/linked" ]; then _link=present; else _link=absent; fi
+  if [ -f "$_MF_SCRATCH/outside/keepme" ]; then _target=present; else _target=absent; fi
   _said=$(printf '%s' "$_out" | tr '\n' ' ')
 }
 
@@ -121,6 +130,7 @@ if [ "$_have" = false ]; then
             mode-comes-from-the-flag-not-the-tree unknown-option-is-rejected \
             bare-operand-is-rejected end-of-options-does-not-smuggle-past-the-parser \
             default-removes-the-unpacked-sources default-keeps-git-clones \
+            default-leaves-symlinked-entries-alone \
             all-says-what-it-discards-before-discarding-it default-says-what-it-kept \
             clone-predicate-has-one-definition \
             help-names-the-build-tree help-names-the-cache; do
@@ -156,6 +166,17 @@ if [ "$_clone" = present ]; then
   _pass default-keeps-git-clones
 else
   _bad default-keeps-git-clones "a bare 'clean' removed packages/libbar/, a git clone: $_said"
+fi
+
+# The symlink skip, which nothing pinned until a mutation went unnoticed:
+# dropping `[ ! -L "$1" ]` from the prune left every other assertion green. An
+# entry that is a symlink is left alone whatever it points at -- deciding that
+# is not cleanup's business, and the count would otherwise call a link an
+# unpacked source tree.
+if [ "$_link" = present ] && [ "$_target" = present ]; then
+  _pass default-leaves-symlinked-entries-alone
+else
+  _bad default-leaves-symlinked-entries-alone "after a bare 'clean' the link is $_link and its target is $_target; both should be present"
 fi
 
 # What it kept, said out loud. The default is a behaviour CHANGE for anyone who
