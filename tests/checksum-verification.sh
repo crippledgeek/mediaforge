@@ -1707,5 +1707,97 @@ if _require_fn hash_file_validate sidecars-in-tree-validate; then
   fi
 fi
 
+# -- every version a PROFILE pins has a sidecar record -----------------------
+# THE BUG THIS PINS (GH-69). A recipe's PKG_URL is a template over PKG_VERSION,
+# and a profile overrides that version. So a change to the URL's shape -- host,
+# layout, or file extension -- silently changes the filename for EVERY profile,
+# while the sidecar only ever gains a record for the version the author happened
+# to build. GH-69 repointed dav1d, libdvdread and libdvdnav at the release
+# server and re-recorded only the 8.0.1 versions; `--profile=6.1/7.0/7.1` then
+# asked for files with no record at all and died in die_no_record, and the
+# release server does not even publish .tar.xz for the 6.1.x libdvd releases.
+#
+# A full 8.0.1 build stayed green throughout -- which is the point. This is the
+# class of defect that is invisible to any single build and to the whole suite,
+# and cheap to check statically.
+#
+# ORACLE, RECORDED BY HAND. This file is MODIFIED rather than added, so
+# tests/oracle-baseline.sh SKIPs it. It is also not an oracle against the merge
+# base: d8f670d was CORRECT here (every profile version had a matching .tar.gz
+# record), because the defect is one this branch introduced. Measured instead
+# against the defect commit, which is the state the rule requires it to fail on:
+#
+#   git archive f8f9502 | tar -x -C "$T"
+#   cp tests/checksum-verification.sh tests/lib-assert.sh "$T/tests/"
+#   ( cd "$T" && sh tests/checksum-verification.sh )
+#
+#   -> FAIL [profile-version-has-a-sidecar-record] 5 pinned version(s)
+#      unrecorded: dav1d-1.3.0.tar.xz libdvdnav-6.1.1.tar.xz
+#      libdvdread-6.1.3.tar.xz dav1d-1.4.1.tar.xz dav1d-1.4.3.tar.xz
+#
+# Each recipe is sourced in a SUBSHELL with the profile's variables set, rather
+# than having its URL read textually: PKG_URL is now built by a function call
+# (videolan_release_url), and a textual substitution cannot evaluate one. The
+# subshell also contains any stray state a recipe sets at source time.
+#
+# SCOPE, stated because it is narrower than the heading. Only top-level PKG_URL
+# is checked. A fetch() nested inside a phase function (lv2's sub-tarballs,
+# opencl's ICD-Loader, libcdio's paranoia, vid_stab's patch) is invisible here,
+# exactly as it is to plain `makesum`; `makesum --build` is what reaches those.
+# Recipes with an empty PKG_URL (the fetch_git ones) have no tarball to record
+# and are skipped.
+_MIN_PROFILE_CHECKS=200
+_pv_missing=""
+_pv_checked=0
+for _pv_prof in "$ROOT"/profiles/ffmpeg-*.conf; do
+  [ -f "$_pv_prof" ] || continue
+  for _pv_recipe in "$ROOT"/recipes/*/*.sh; do
+    [ -f "$_pv_recipe" ] || continue
+    _pv_hash="${_pv_recipe%.sh}.hash"
+    [ -f "$_pv_hash" ] || continue
+
+    # The recipe's own idea of the file it will fetch, under this profile.
+    _pv_file=$(
+      # Cleared BEFORE sourcing, not merely unset by the recipe: this file sets
+      # PKG_URL for its own fixtures earlier on, and a subshell inherits it. A
+      # recipe that sets no PKG_URL (the fetch_git ones) would otherwise be
+      # measured against whatever the last fixture left behind -- which is
+      # exactly what this reported on its first run, naming the fixture's
+      # loud.tar.gz as an unrecorded pin for five recipes that fetch no tarball
+      # at all.
+      PKG_URL=''
+      PKG_FILENAME=''
+      # shellcheck disable=SC1090
+      . "$_pv_prof" > /dev/null 2>&1 || exit 0
+      # shellcheck disable=SC1090
+      . "$_pv_recipe" > /dev/null 2>&1 || exit 0
+      [ -n "${PKG_URL:-}" ] || exit 0
+      printf '%s' "${PKG_FILENAME:-${PKG_URL##*/}}"
+    ) || _pv_file=""
+    [ -n "$_pv_file" ] || continue
+
+    _pv_checked=$((_pv_checked + 1))
+    if ! grep -q "[[:space:]]$_pv_file\$" "$_pv_hash" 2>/dev/null; then
+      case " $_pv_missing " in
+        *" $_pv_file "*) ;;
+        *) _pv_missing="$_pv_missing $_pv_file" ;;
+      esac
+    fi
+  done
+done
+# Floored for the reason sidecars-in-tree-validate is: a loop that sources
+# nothing reports no missing records and would pass having checked nothing.
+# Four profiles over ~100 tarball recipes is ~400; 200 leaves room to move.
+if [ "$_pv_checked" -lt "$_MIN_PROFILE_CHECKS" ]; then
+  _bad profile-version-has-a-sidecar-record \
+    "only $_pv_checked profile/recipe pair(s) resolved, want >= $_MIN_PROFILE_CHECKS"
+elif [ -n "$_pv_missing" ]; then
+  _pv_n=$(printf '%s' "$_pv_missing" | wc -w | tr -d ' ')
+  _bad profile-version-has-a-sidecar-record \
+    "$_pv_n pinned version(s) unrecorded:$_pv_missing"
+else
+  _pass profile-version-has-a-sidecar-record
+fi
+
 printf 'DONE:\n'
 exit "$_fail"

@@ -1,5 +1,24 @@
 #!/bin/sh
-# No recipe may fetch a FORGE-GENERATED archive (GH-69).
+# No recipe may fetch a GitLab or gitiles GENERATED archive (GH-69).
+#
+# SCOPE, STATED FIRST BECAUSE IT IS NARROWER THAN THE MOTIVATION BELOW. The
+# assertion matches two URL shapes and only two: `/-/archive/` (GitLab) and
+# `/+archive/` (gitiles). GitHub's `/<owner>/<repo>/archive/refs/tags/...` is a
+# generated archive by the same definition and is NOT matched -- 38 recipes in
+# this tree fetch one, including recipes/ffmpeg.sh, which the scan below reads.
+#
+# That is a deliberate line, not an oversight, and it is drawn where the harm
+# is: the two matched hosts regenerate per request AND front the endpoint with
+# bot protection, which is what broke real builds here. GitHub's archives are
+# the reason the byte-stability half of this file's argument is stated at all
+# (its 2023 codeload change invalidated recorded digests tree-wide), but they
+# are served without a challenge and their sidecars verify today -- all 38 pass
+# on a full build. Widening the pattern would mean converting 38 recipes, which
+# is its own change with its own risk, not a line in this one.
+#
+# So: a new GitHub tag-archive recipe will NOT be rejected here. If that becomes
+# the rule, widen the pattern and grandfather the 38 the same way lv2 and svtav1
+# are grandfathered below.
 #
 # A `/-/archive/<ref>/name.tar.gz` (GitLab) or `/+archive/<sha>.tar.gz`
 # (gitiles) URL is not a published artifact: the forge computes it per request.
@@ -17,8 +36,9 @@
 # 7KB HTML lands where a tarball should be. A full clean build died twice on it,
 # at two different recipes, before this rule existed.
 #
-# The rule has two branches: a static release tarball where upstream publishes
-# one, and fetch_git where the pin is a commit. Nothing else.
+# The replacement has two branches: a static release tarball where upstream
+# publishes one, and fetch_git where the pin is a commit. Nothing else -- for a
+# recipe this rule covers, per the scope note above.
 set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT"
 _fail=0
@@ -79,15 +99,40 @@ fi
 # download.videolan.org is a plain static file server; code.videolan.org is the
 # Anubis-fronted GitLab. Asserting the HOST is what distinguishes them -- both
 # serve something at a dav1d path.
+#
+# The RESOLVED value is asserted, not the source text. These three build their
+# URL through videolan_release_url (lib/download.sh), so a grep for the literal
+# host string reports on how the URL is spelled rather than on where the recipe
+# actually fetches from -- it went red on the refactor that introduced the
+# helper, while every resolved URL was byte-identical, and it would stay green
+# for a recipe that spelled the host in a comment and fetched elsewhere.
+# Sourcing answers the question the assertion is named for.
 for _pair in "recipes/video/dav1d.sh:dav1d" \
              "recipes/other/libdvdread.sh:libdvdread" \
              "recipes/other/libdvdnav.sh:libdvdnav"; do
   _r=${_pair%%:*}; _n=${_pair#*:}
-  if _code_only "$_r" | grep -q 'PKG_URL="https://download.videolan.org/pub/videolan/'; then
-    _pass "release-server-$_n"
-  else
-    _bad "release-server-$_n" "$_r does not fetch from download.videolan.org"
-  fi
+  _url=$(
+    PKG_URL=''
+    # SCRIPT_DIR is how lib/utils.sh finds lib/stage.sh, and framework.sh is
+    # what defines ffmpeg_version_ge, which two of these three call at source
+    # time. Without either, the source fails and the URL comes back empty --
+    # which reads identically to "fetches from the wrong host", so both are
+    # named here rather than discovered again from a blank failure detail.
+    SCRIPT_DIR="$ROOT"; export SCRIPT_DIR
+    # shellcheck source=lib/utils.sh
+    . "$ROOT/lib/utils.sh" > /dev/null 2>&1 || exit 0
+    # shellcheck source=lib/framework.sh
+    . "$ROOT/lib/framework.sh" > /dev/null 2>&1 || exit 0
+    # shellcheck source=lib/download.sh
+    . "$ROOT/lib/download.sh" > /dev/null 2>&1 || exit 0
+    # shellcheck disable=SC1090
+    . "$ROOT/$_r" > /dev/null 2>&1 || exit 0
+    printf '%s' "${PKG_URL:-}"
+  ) || _url=""
+  case "$_url" in
+    https://download.videolan.org/pub/videolan/"$_n"/*) _pass "release-server-$_n" ;;
+    *) _bad "release-server-$_n" "$_r resolves to '${_url:-<empty>}'" ;;
+  esac
 done
 
 # --- the two that moved to git --------------------------------------------

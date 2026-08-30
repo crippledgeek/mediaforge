@@ -4,7 +4,7 @@ PKG_NAME="x264"
 PKG_VERSION="${PKG_VERSION_X264:-0480cb05}"
 # Pinned by COMMIT and fetched over git, not as a generated GitLab archive
 # (GH-69). x264 publishes no release tarball for a commit -- the only static
-# tarballs on download.videolan.org are dated snapshots that stop in 2007 -- so
+# tarballs on download.videolan.org are dated snapshots that stop in 2019 -- so
 # `/-/archive/<sha>/` was the only tarball URL available, and that endpoint is
 # Anubis-fronted: it intermittently returns a 7KB challenge page with HTTP 200,
 # which reads as a successful download and then fails checksum verification

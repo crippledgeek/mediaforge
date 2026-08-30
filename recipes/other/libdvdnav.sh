@@ -8,8 +8,13 @@ PKG_NAME="libdvdnav"
 PKG_VERSION="${PKG_VERSION_LIBDVDNAV:-7.0.0}"
 # VideoLAN's release server, not the generated GitLab archive (GH-69):
 # that endpoint is Anubis-fronted and serves a challenge page as HTTP 200.
-PKG_URL="https://download.videolan.org/pub/videolan/libdvdnav/${PKG_VERSION}/libdvdnav-${PKG_VERSION}.tar.xz"
-PKG_FILENAME="libdvdnav-${PKG_VERSION}.tar.xz"
+# The extension is version-dependent on the release server (6.1.x is
+# .tar.bz2, 7.0.x is .tar.xz), which is what the '6.*' argument selects --
+# see videolan_release_url in lib/download.sh.
+# No PKG_FILENAME: fetch() falls back to the URL basename, which is already
+# the name wanted, and a second copy of the extension is a second place to
+# get it wrong.
+PKG_URL="$(videolan_release_url libdvdnav "$PKG_VERSION" '6.*')"
 PKG_GPL=true
 
 # --enable-libdvdnav requires FFmpeg >= 7.0 (FFmpeg probes pkg-config dvdnav).

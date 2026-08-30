@@ -308,6 +308,58 @@ Run './mediaforge.sh makesum' to record it, or --skip-checksum to bypass (loudly
   return 0
 }
 
+# videolan_release_url NAME VERSION [LEGACY_BZ2_GLOB]
+# A tarball URL on VideoLAN's release server, which every recipe repointed by
+# GH-69 fetches from:
+#
+#   https://download.videolan.org/pub/videolan/<name>/<version>/<name>-<version>.<ext>
+#
+# NAME appears twice and VERSION three times in that shape, which is why it is
+# a function rather than three copies of the string: dav1d, libdvdread and
+# libdvdnav all build it, and a correction to the layout belongs to all three.
+#
+# LEGACY_BZ2_GLOB is the version pattern published as .tar.bz2; everything else
+# is .tar.xz. It is a PARAMETER and not a constant because the cutoff is a
+# per-project fact, not a VideoLAN-wide one. VideoLAN did move from bzip2 to xz
+# across its projects, but each crossed at its own version number -- x264's
+# snapshots are still .tar.bz2 today -- so a shared "6.x means bz2" rule would
+# be right for libdvdread and libdvdnav and quietly wrong for the next caller.
+# Omit it when a project has only ever published .tar.xz, as dav1d has.
+#
+# THE BUG THIS EXISTS FOR. The generated GitLab archives these recipes used
+# before GH-69 were extension-uniform across every tag -- always .tar.gz,
+# because the forge built them per request from the tag name. The release server
+# is not, and a hardcoded extension breaks only the profiles pinning the other
+# format, which is why a full 8.0.1 build stayed green while three profiles
+# could not fetch at all:
+#
+#   --profile=7.0 / 7.1 pin libdvdread 6.1.3 and libdvdnav 6.1.1
+#   .../libdvdread/6.1.3/libdvdread-6.1.3.tar.xz  -> 404 (verified 2026-08-30)
+#   .../libdvdread/6.1.3/libdvdread-6.1.3.tar.bz2 -> 200
+#
+# Called at recipe-source time, which is already how a recipe reaches
+# ffmpeg_version_ge.
+videolan_release_url() {
+  _vr_name="$1"
+  _vr_ver="$2"
+  _vr_legacy="${3:-}"
+
+  _vr_ext=tar.xz
+  if [ -n "$_vr_legacy" ]; then
+    # $_vr_legacy is a GLOB by design, so it is deliberately unquoted here --
+    # quoting it would match the pattern literally and no version could ever
+    # select .tar.bz2. Same reason tests/lib-assert.sh's _glob leaves its
+    # pattern unquoted, and the same suppression it carries.
+    # shellcheck disable=SC2254
+    case "$_vr_ver" in
+      $_vr_legacy) _vr_ext=tar.bz2 ;;
+    esac
+  fi
+
+  printf 'https://download.videolan.org/pub/videolan/%s/%s/%s-%s.%s' \
+    "$_vr_name" "$_vr_ver" "$_vr_name" "$_vr_ver" "$_vr_ext"
+}
+
 # ffmpeg_tarball_filename / ffmpeg_tarball_url
 # The canonical GitHub tag-archive name and URL for $FFMPEG_VERSION.
 #

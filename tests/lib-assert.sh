@@ -177,9 +177,16 @@ _code_only() { # file
 # test actually asks -- "what does the FILE say" -- and a value the file never
 # sets comes back empty, which every caller already distinguishes.
 #
-# Extracted once there were four call sites in two files, in two spellings: the
-# keyword-parameterised form in tests/git-commit-pinning.sh and a hardcoded
-# `/^PKG_NAME=/` in tests/recipe-identity.sh. Both are now this.
+# Extracted once there were FIVE call sites in two files, in THREE spellings:
+# the keyword-parameterised form twice in tests/git-commit-pinning.sh, a
+# hardcoded `/^PKG_COMMIT_LIBRIST=/` beside them, a hardcoded `/^PKG_NAME=/` in
+# tests/recipe-identity.sh, and -- the one an earlier count of this note missed
+# -- a `/^PKG_COMMIT=/` that printed `$0` rather than `$2`.
+#
+# That fifth is the interesting one, because it is the only site whose semantics
+# the extraction CHANGED: whole line to first quoted field. Its caller (the
+# librist pin assertion) therefore still greps the SHA out of the result, and
+# would be wrong if it did not.
 #
 # Returns the FIRST double-quoted field, so the answer for a defaulted
 # assignment (`PKG_COMMIT="${PKG_COMMIT_LIBRIST:-<sha>}"`) is the whole

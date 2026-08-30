@@ -26,11 +26,13 @@ PKG_REQUIRES_CMD="git"
 PKG_FFMPEG_OPT="--enable-librist"
 PKG_REQUIRES_MESON=true
 
-# librist 0.2.11 uses -pedantic-errors which promotes -Wdiscarded-qualifiers
-# to a hard error on GCC 15
 pkg_prepare() {
   fetch_git https://code.videolan.org/rist/librist.git "$DISTDIR/librist" "$PKG_COMMIT"
   cd "$DISTDIR/librist" || die "Failed to cd to librist"
+  # librist 0.2.11 uses -pedantic-errors, which promotes -Wdiscarded-qualifiers
+  # to a hard error on GCC 15. Sits here rather than above pkg_prepare, where it
+  # read as a description of the whole function: it explains these two lines and
+  # nothing else in the phase.
   CFLAGS="$CFLAGS -Wno-error=discarded-qualifiers"
   export CFLAGS
 }

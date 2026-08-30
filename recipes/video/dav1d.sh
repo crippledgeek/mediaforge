@@ -9,7 +9,7 @@ PKG_VERSION="${PKG_VERSION_DAV1D:-1.5.3}"
 # fails checksum verification. Generated archives are also not a stable thing
 # to pin: GitHub's 2023 codeload change invalidated every checksum recorded
 # against one. This is a static release artifact on a plain file server.
-PKG_URL="https://download.videolan.org/pub/videolan/dav1d/${PKG_VERSION}/dav1d-${PKG_VERSION}.tar.xz"
+PKG_URL="$(videolan_release_url dav1d "$PKG_VERSION")"
 PKG_FFMPEG_OPT="--enable-libdav1d"
 PKG_REQUIRES_CMD="python3"
 PKG_REQUIRES_MESON=true
