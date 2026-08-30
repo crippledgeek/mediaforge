@@ -24,14 +24,12 @@ _fail=0
 # shellcheck source=tests/lib-assert.sh
 . "$ROOT/tests/lib-assert.sh"
 
-_code=$(_code_only recipes/ffmpeg.sh)
-_at() { printf '%s\n' "$_code" | _match_line "$1"; }
-
-_begin=$(_at '^[[:space:]]*mf_stage_begin[[:space:]]*$')
-_inst=$(_at '^[[:space:]]*run make install')
-_stamp=$(_at '^[[:space:]]*stamp_write[[:space:]]+"ffmpeg"')
-_end=$(_at '^[[:space:]]*mf_stage_end[[:space:]]*$')
-_read=$(_at 'file "[$]PREFIX/bin/ffmpeg"')
+_recipe=recipes/ffmpeg.sh
+_begin=$(_code_line "$_recipe" '^[[:space:]]*mf_stage_begin[[:space:]]*$')
+_inst=$(_code_line "$_recipe" '^[[:space:]]*run make install')
+_stamp=$(_code_line "$_recipe" '^[[:space:]]*stamp_write[[:space:]]+"ffmpeg"')
+_end=$(_code_line "$_recipe" '^[[:space:]]*mf_stage_end[[:space:]]*$')
+_read=$(_code_line "$_recipe" 'file "[$]PREFIX/bin/ffmpeg"')
 
 # 1. The window exists at all, and wraps the install.
 _reasons=""
@@ -62,7 +60,7 @@ _verdict ffmpeg-merges-before-it-reads-back "$_reasons"
 #    while installing correctly (lib/stage.sh, property 1; xvidcore is the
 #    in-tree precedent at 0 files staged versus 3).
 _reasons=""
-printf '%s\n' "$_code" | grep -qE '^[[:space:]]*run make install DESTDIR="[$]DESTDIR"' \
+_code_only "$_recipe" | grep -qE '^[[:space:]]*run make install DESTDIR="[$]DESTDIR"' \
   || _reasons=" make install does not pass DESTDIR on the command line, so a makefile that assigns it would silently stage nothing."
 _verdict ffmpeg-passes-destdir-on-the-command-line "$_reasons"
 
@@ -78,7 +76,7 @@ _verdict ffmpeg-passes-destdir-on-the-command-line "$_reasons"
 #    grep green.
 _reasons=""
 [ -n "$_stamp" ] || _reasons=" ffmpeg writes no stamp at all."
-{ printf '%s\n' "$_code"; _code_only mediaforge.sh; } \
+{ _code_only "$_recipe"; _code_only mediaforge.sh; } \
   | grep -qE '(^|[^_[:alnum:]])stamp_check[^(]*ffmpeg' \
   && _reasons="$_reasons it gates on a stamp, so changing --enable-gpl or --tls= would skip the rebuild that change asks for."
 _verdict ffmpeg-stamp-is-evidence-not-a-gate "$_reasons"

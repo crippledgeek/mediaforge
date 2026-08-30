@@ -293,6 +293,20 @@ _match_line() { # pattern   (text on stdin)
   grep -nE -- "$1" | head -1 | cut -d: -f1
 }
 
+# The same question asked of a FILE's code: where does this first appear, with
+# comments stripped.
+#
+# Three sites spelled `_code_only F | _match_line P` and a fourth captured the
+# stripped source into a variable and wrapped it in a local helper -- one
+# concept, three spellings. Naming it matters more than the keystrokes it saves:
+# the rule that a source grep reads through _code_only is one every site
+# otherwise re-decides, and tests/debug-levels.sh got it wrong exactly that way,
+# comparing a line number from stripped source against one from raw. Making the
+# correct form the short form is what stops that recurring.
+_code_line() { # file  pattern
+  _code_only "$1" | _match_line "$2"
+}
+
 # Reading shell SOURCE: fold continuations, then extract one function's body.
 #
 # Two tests need this and had one copy between them, which was about to become

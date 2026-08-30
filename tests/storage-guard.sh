@@ -55,8 +55,8 @@ fi
 # stand-in for "the first write"; the .debug-level write is covered only
 # because it is lexically later. Both are worth less than the regression this
 # does catch, which nothing else on this branch would see.
-_gline=$(_code_only mediaforge.sh | _match_line 'mf_storage_guard')
-_sline=$(_code_only mediaforge.sh | _match_line '^[[:space:]]*save_stored_choices$')
+_gline=$(_code_line mediaforge.sh 'mf_storage_guard')
+_sline=$(_code_line mediaforge.sh '^[[:space:]]*save_stored_choices$')
 if [ -z "$_gline" ] || [ -z "$_sline" ]; then
   _bad guard-precedes-first-write "could not locate both the guard call and save_stored_choices"
 elif [ "$_gline" -lt "$_sline" ]; then
