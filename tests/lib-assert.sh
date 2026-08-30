@@ -275,7 +275,7 @@ _wired() { # name  file  needle
 # cut -d: -f1` again, and one of them (storage-guard) additionally hand-rolling a
 # comment filter that `_code_only` already does properly.
 #
-# Text on STDIN rather than a filename, because the eight sites are split
+# Text on STDIN rather than a filename, because those sites were split
 # between a file and a captured string, and stdin is the one interface that
 # takes both: `_match_line PAT < file`, or `printf '%s\n' "$out" | _match_line
 # PAT`. When reading source rather than output, pipe through _code_only first so
@@ -283,11 +283,9 @@ _wired() { # name  file  needle
 #
 # EXITS 0 whether or not it matched, because `cut` is last in the pipeline and
 # it is `grep` that returns 1. Every caller assigns the result directly under
-# `set -eu` -- four through this function, the rest through _code_line -- and
+# `set -eu` -- some through this function, the rest through _code_line -- and
 # tests/clean-modes.sh dropped its `|| true` on the strength of it, so the
-# property is load-bearing rather than incidental. Counted rather than
-# remembered: an earlier draft said "five call sites", which was the number of
-# FILES.
+# property is load-bearing rather than incidental.
 #
 # NOT used by tests/debug-levels.sh's second grep, which deliberately collects
 # EVERY matching line number to find whether any of them follows a position.
@@ -312,26 +310,30 @@ _match_line() { # pattern   (text on stdin)
 # the short form is what stops that recurring.
 #
 # MEASURED, so the claim is not stronger than the evidence: removing the strip
-# fails NO assertion today. All ten pinned needles first match at the same
-# line with the strip and without it -- for two different reasons, and the split
-# is by PROPERTY, not by file. Two earlier drafts of this paragraph partitioned
-# it by file and were wrong in both directions.
+# fails NO assertion today -- every pinned needle first matches at the same line
+# with the strip and without it. For two different reasons, and the split is by
+# PROPERTY, not by file.
 #
-# SEVEN are line-anchored (mf_stage_pending_reset, mf_stage_reserved_reset,
-# mf_stage_begin, run make install, stamp_write "ffmpeg", mf_stage_end -- all
-# `^[[:space:]]*` -- and save_stored_choices): a `#`-prefixed mention cannot
-# match them at all, whatever the prose says. FIVE of those seven are also
-# END-anchored (the four `[[:space:]]*$` ones and save_stored_choices' bare
-# `$`), which makes them strip-DEPENDENT in the opposite direction: a trailing
-# `# comment` on the real call would defeat the needle, and matches only
-# because the strip removes the comment and the whitespace before it.
+# The LINE-ANCHORED needles (`^[[:space:]]*`) cannot match a `#`-prefixed
+# mention at all, whatever the prose says. Where such a needle is END-anchored
+# too, the strip is load-bearing in the opposite direction: a trailing
+# `# comment` on the real call would defeat the needle, which matches only
+# because _code_only removes the comment AND the whitespace before it.
 #
-# THREE are unanchored (file "$PREFIX/bin/ffmpeg", mf_storage_guard, the
-# MF_DEFAULT_OPT assignment) and are safe only because each symbol's first
-# occurrence is its call rather than prose about it. That group is what this
-# strip defends, and `file "$PREFIX/bin/ffmpeg"` is the one to watch: it is
-# unanchored, it lives in a recipe whose comments quote calls verbatim, and
-# nothing but habit keeps a matching comment from appearing above it.
+# The UNANCHORED needles are safe only because each symbol's first occurrence is
+# its call rather than prose about it. That group is what this strip defends, and
+# `file "$PREFIX/bin/ffmpeg"` is the one to watch: it is unanchored, it lives in
+# a recipe whose comments quote calls verbatim, and nothing but habit keeps a
+# matching comment from appearing above it.
+#
+# Deliberately NO census here -- no count of needles, no numeral per group, no
+# roll-call of names. Every earlier draft of this paragraph carried one, each was
+# correct when written, and each was falsified by the next commit that added a
+# call site. 63f1830 is the shape of it: that commit fixed the numerals and, in
+# the same diff, added the two reset needles that invalidated them. A number in a
+# comment has no gate, and a list of names here is a second copy of what the call
+# sites already say. `grep -rn '_code_line ' tests/` recomputes both in a second,
+# which is what a reader who needs them should run.
 _code_line() { # file  pattern
   _code_only "$1" | _match_line "$2"
 }
