@@ -207,8 +207,8 @@ fi
 # thing full_cleanup does after warning; the `rm -rf "$DISTDIR"` is later still.
 # A proxy, and a tight one -- there is no point between them for a removal to
 # hide.
-_warn_at=$(printf '%s\n' "$_out" | grep -n 'Also removing' | head -1 | cut -d: -f1 || true)
-_rm_at=$(printf '%s\n' "$_out" | grep -n 'Removed the build tree' | head -1 | cut -d: -f1 || true)
+_warn_at=$(printf '%s\n' "$_out" | _match_line 'Also removing')
+_rm_at=$(printf '%s\n' "$_out" | _match_line 'Removed the build tree')
 if [ -z "$_warn_at" ]; then
   _bad all-says-what-it-discards-before-discarding-it "--all discarded the cache without naming it: $_said"
 elif [ -z "$_rm_at" ]; then

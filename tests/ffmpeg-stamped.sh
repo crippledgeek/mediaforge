@@ -20,13 +20,13 @@ _fail=0
 . "$ROOT/tests/lib-assert.sh"
 
 _code=$(_code_only recipes/ffmpeg.sh)
-_line() { printf '%s\n' "$_code" | grep -nE "$1" | head -1 | cut -d: -f1; }
+_at() { printf '%s\n' "$_code" | _match_line "$1"; }
 
-_begin=$(_line '^[[:space:]]*mf_stage_begin[[:space:]]*$')
-_inst=$(_line '^[[:space:]]*run make install')
-_stamp=$(_line '^[[:space:]]*stamp_write[[:space:]]+"ffmpeg"')
-_end=$(_line '^[[:space:]]*mf_stage_end[[:space:]]*$')
-_read=$(_line 'file "[$]PREFIX/bin/ffmpeg"')
+_begin=$(_at '^[[:space:]]*mf_stage_begin[[:space:]]*$')
+_inst=$(_at '^[[:space:]]*run make install')
+_stamp=$(_at '^[[:space:]]*stamp_write[[:space:]]+"ffmpeg"')
+_end=$(_at '^[[:space:]]*mf_stage_end[[:space:]]*$')
+_read=$(_at 'file "[$]PREFIX/bin/ffmpeg"')
 
 # 1. The window exists at all, and wraps the install.
 _reasons=""

@@ -257,6 +257,29 @@ _shell_var() { # file  name
 # grep -qF, not -qE: every needle in-tree is a fixed string (a case label, a
 # help line, a function name), and one containing a regex metacharacter -- a
 # `--ccache)` label ends in one -- would silently match something else.
+# The 1-based line number where PATTERN first matches the text on stdin, empty
+# if it never does.
+#
+# The shape every ORDERING assertion needs: this call must come before that one,
+# and the claim is about position rather than presence. It was written out at
+# eight sites across five files -- tests/{clean-modes,debug-levels,storage-guard,
+# stamp-reconcile,ffmpeg-stamped}.sh -- each spelling `grep -n | head -1 |
+# cut -d: -f1` again, and one of them (storage-guard) additionally hand-rolling a
+# comment filter that `_code_only` already does properly.
+#
+# Text on STDIN rather than a filename, because the eight sites are split
+# between a file and a captured string, and stdin is the one interface that
+# takes both: `_match_line PAT < file`, or `printf '%s\n' "$out" | _match_line
+# PAT`. When reading source rather than output, pipe through _code_only first so
+# a call named in a comment cannot be mistaken for the call itself.
+#
+# NOT used by tests/debug-levels.sh's second grep, which deliberately collects
+# EVERY matching line number to find whether any of them follows a position.
+# That is a different question and stays spelled out where it is asked.
+_match_line() { # pattern   (text on stdin)
+  grep -nE -- "$1" | head -1 | cut -d: -f1
+}
+
 _wired() { # name  file  needle
   if grep -qF -- "$3" "$2" 2>/dev/null; then
     _pass "$1"

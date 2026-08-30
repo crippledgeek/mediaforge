@@ -159,7 +159,7 @@ _wired wired-opt         mediaforge.sh 'mf_debug_opt'
 # anywhere. So assert the ordering structurally -- computed, never a line number
 # written into a comment, which tests/comment-citations.sh forbids for good
 # reason.
-_ord_dbg=$(grep -n 'MF_DEFAULT_OPT=.(mf_debug_opt' mediaforge.sh | head -1 | cut -d: -f1)
+_ord_dbg=$(_match_line 'MF_DEFAULT_OPT=.\(mf_debug_opt' < mediaforge.sh)
 _ord_ok=no
 if [ -n "$_ord_dbg" ]; then
   while IFS= read -r _n; do
