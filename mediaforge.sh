@@ -167,7 +167,7 @@ cmd_help() {
   printf '      --skip-checksum       Disable verification for EVERY recipe\n'
   printf '      --skip-checksum=PKG   Disable verification for one recipe, by recipe filename or "ffmpeg" (repeatable, comma-separated ok)\n'
   printf '\nClean options (used by the clean subcommand):\n'
-  printf '      --dist                Also remove the downloaded archives and git clones in\n'
+  printf '      --all                 Also remove the downloaded archives and git clones in\n'
   printf '                            packages/, which only an upstream can serve again\n'
   printf '\nInstall / uninstall options (used by the install and uninstall subcommands):\n'
   printf '      --prefix=PATH         Install/uninstall location (default: interactive prompt)\n'
@@ -718,27 +718,27 @@ cmd_build() {
 # ─── Clean ───────────────────────────────────────────────────────────
 
 cmd_clean() {
-  _dist=false
+  _all=false
   while [ $# -gt 0 ]; do
     case "$1" in
-      --dist) _dist=true ;;
+      --all) _all=true ;;
       # Anything else dies: a bare operand, and `--` too. `clean` accepted no
       # options at all before GH-71, so every argument handed to it was
       # silently ignored -- and the one argument it now takes decides whether
-      # the cache survives. A typo'd --dist falling through to the default
+      # the cache survives. A typo'd --all falling through to the default
       # would keep the cache the operator asked to discard.
       #
       # No `--) shift; break` arm, unlike cmd_install and cmd_uninstall. Those
       # take a --prefix value and need a way to end option parsing; `clean`
       # takes no operands, so the arm could only ever mean "ignore the rest",
-      # and `clean -- --dist` then keeps the cache and exits 0. It did, until a
+      # and `clean -- --all` then keeps the cache and exits 0. It did, until a
       # review ran it.
-      *)     die "Unknown argument for clean: $1 (use --dist to also remove $DISTDIR)" ;;
+      *)     die "Unknown argument for clean: $1 (use --all to also remove $DISTDIR)" ;;
     esac
     shift
   done
 
-  if [ "$_dist" = true ]; then
+  if [ "$_all" = true ]; then
     full_cleanup
   else
     # The prune is called HERE rather than from workspace_cleanup, which would

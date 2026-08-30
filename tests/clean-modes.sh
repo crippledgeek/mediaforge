@@ -29,14 +29,16 @@
 # part this file had to be extended to cover. ports(7): `clean` "Remove the
 # expanded source code", `distclean` "Remove the port's distfiles and perform the
 # clean target" — so the unpacked sources go with the build tree, not with the
-# archives. port-clean(1) makes --work the default and --dist a separate request.
+# archives. port-clean(1) makes --work the default and --dist a separate request
+# -- distfiles ALONE, which is why our union flag is --all and not --dist; see
+# lib/cleanup.sh's header.
 # makepkg(8) has no option that touches SRCDEST at all. GNU's distclean "should
 # leave only the files that were in the distribution" -- read here as putting the
 # fetched distribution below even distclean's floor, which is our INFERENCE from
 # what that sentence preserves rather than a rule GNU states. What GNU does state
 # is that the target deleting hard-to-rebuild things SHOULD start by announcing
 # itself (a convention, not a mandate), and that is what
-# `all-says-what-it-discards-before-discarding-it` holds --dist to.
+# `all-says-what-it-discards-before-discarding-it` holds --all to.
 #
 # The vacuity guard below follows tests/storage-guard.sh: on the merge base
 # `clean` removes both directories, so several of these assertions (the removals
@@ -183,16 +185,16 @@ fi
 # has been running `clean` to reclaim disk, and the only place that reaches them
 # is the output of the command they are already running.
 case "$_said" in
-  *packages*--dist*) _pass default-says-what-it-kept ;;
+  *packages*--all*) _pass default-says-what-it-kept ;;
   *) _bad default-says-what-it-kept "the default path did not name the cache it kept or the flag that removes it: $_said" ;;
 esac
 
 # --- the destructive form, still reachable ----------------------------------
-_clean_run both --dist
+_clean_run both --all
 if [ "$_cache" = absent ] && [ "$_tree" = absent ] && [ "$_rc" -eq 0 ]; then
   _pass all-removes-both
 else
-  _bad all-removes-both "--dist left cache=$_cache tree=$_tree (rc=$_rc): $_said"
+  _bad all-removes-both "--all left cache=$_cache tree=$_tree (rc=$_rc): $_said"
 fi
 
 # GNU's convention for the target that deletes what special tools are needed to
@@ -208,9 +210,9 @@ fi
 _warn_at=$(printf '%s\n' "$_out" | grep -n 'Also removing' | head -1 | cut -d: -f1 || true)
 _rm_at=$(printf '%s\n' "$_out" | grep -n 'Removed the build tree' | head -1 | cut -d: -f1 || true)
 if [ -z "$_warn_at" ]; then
-  _bad all-says-what-it-discards-before-discarding-it "--dist discarded the cache without naming it: $_said"
+  _bad all-says-what-it-discards-before-discarding-it "--all discarded the cache without naming it: $_said"
 elif [ -z "$_rm_at" ]; then
-  _bad all-says-what-it-discards-before-discarding-it "--dist never reported removing the build tree, so the order could not be read: $_said"
+  _bad all-says-what-it-discards-before-discarding-it "--all never reported removing the build tree, so the order could not be read: $_said"
 elif [ "$_warn_at" -lt "$_rm_at" ]; then
   _pass all-says-what-it-discards-before-discarding-it
 else
@@ -241,13 +243,13 @@ fi
 
 # --- an unrecognised option is not the default ------------------------------
 # `clean` took no options at all before this change, so every argument reaching
-# it was ignored. A typo'd --dist must not silently keep the cache the operator
+# it was ignored. A typo'd --all must not silently keep the cache the operator
 # asked to remove, and must not remove the tree on its way to finding that out.
-_clean_run both --distt
+_clean_run both --alll
 if [ "$_rc" -ne 0 ] && [ "$_cache" = present ] && [ "$_tree" = present ]; then
   _pass unknown-option-is-rejected
 else
-  _bad unknown-option-is-rejected "'clean --distt' exited $_rc leaving cache=$_cache tree=$_tree: $_said"
+  _bad unknown-option-is-rejected "'clean --alll' exited $_rc leaving cache=$_cache tree=$_tree: $_said"
 fi
 
 # A bare operand, which is the deliberate divergence from cmd_install and
@@ -263,20 +265,20 @@ fi
 
 # `--` was an arm in the first version of this parser, copied from cmd_install
 # where it earns its place. Here it meant "stop reading, ignore the rest", so
-# `clean -- --dist` kept the cache, said nothing, and exited 0 -- the exact case
+# `clean -- --all` kept the cache, said nothing, and exited 0 -- the exact case
 # the parser's own comment argued must not happen. A review found it by running
 # it; nothing in this file could see it.
 #
 # Either behaviour is defensible: honour the flag, or refuse the argument. What
 # is not defensible is silently doing neither, so this accepts both and rejects
 # only the silent keep.
-_clean_run both -- --dist
+_clean_run both -- --all
 if [ "$_rc" -ne 0 ] && [ "$_cache" = present ]; then
   _pass end-of-options-does-not-smuggle-past-the-parser
 elif [ "$_rc" -eq 0 ] && [ "$_cache" = absent ]; then
   _pass end-of-options-does-not-smuggle-past-the-parser
 else
-  _bad end-of-options-does-not-smuggle-past-the-parser "'clean -- --dist' exited $_rc and left cache=$_cache -- neither refused nor honoured: $_said"
+  _bad end-of-options-does-not-smuggle-past-the-parser "'clean -- --all' exited $_rc and left cache=$_cache -- neither refused nor honoured: $_said"
 fi
 
 # --- the coupling nothing else would notice ---------------------------------
@@ -332,7 +334,7 @@ fi
 # Both directories by name. "Remove all build artifacts" called them one thing,
 # which is what made the cache a side effect rather than a decision.
 _wired help-names-the-build-tree mediaforge.sh 'clean              Remove the build tree and unpacked sources'
-_wired help-names-the-cache      mediaforge.sh '--dist                Also remove'
+_wired help-names-the-cache      mediaforge.sh '--all                 Also remove'
 
 printf 'DONE: clean-modes\n'
 exit "$_fail"

@@ -46,7 +46,7 @@ on_exit() {
 #   * $DISTDIR/<file>  — the downloaded archives
 #   * $DISTDIR/<dir>/.git — the git clones (every recipe that calls fetch_git)
 #
-# So the default removes the first group and keeps the second; --dist removes
+# So the default removes the first group and keeps the second; --all removes
 # both. GH-71 records what the old behaviour cost: a full clean discarded the
 # cache, one archive host answered with a bot challenge that minute, and the run
 # was blocked on a file it had held a verified copy of ten minutes earlier. x264
@@ -58,6 +58,17 @@ on_exit() {
 # `distclean` is the one that adds the distfiles; port-clean(1) makes --work the
 # default and --dist a separate request; makepkg(8) has no option that touches
 # SRCDEST at all.
+#
+# The flag is --all and NOT --dist, which looks backwards beside that sentence
+# and is not. Every system above that names a UNION names it with a verb --
+# ports and OpenWrt `distclean`, Yocto `cleanall` -- and MacPorts, the only one
+# that uses flags, splits the two: `--dist` is "Delete source code archives, the
+# so-called distfiles", an additive selector for the distfiles ALONE, while
+# `--all` is "Remove all temporary files. The same as specifying --archive,
+# --dist, --logs, and --work". Ours removes the build tree, the unpacked
+# sources, the archives and the clones together, so it is their --all. Borrowing
+# --dist would borrow the word while inverting what it means to anyone who knows
+# where it came from.
 #
 # KEEPING BYTES LONGER IS NOT A TRUST DECISION. A cached archive is re-verified
 # against its .hash sidecar on every reuse, not merely when it was first
@@ -133,7 +144,7 @@ prune_extracted_sources() {
 # or nothing at all when there is none.
 #
 # ONE counter, because two call sites make a claim about the same set: the
-# default says what it kept, and --dist says what it is about to discard. Two
+# default says what it kept, and --all says what it is about to discard. Two
 # counters would answer the same question differently the first time either
 # learned about a new kind of entry.
 #
@@ -188,7 +199,7 @@ full_cleanup() {
 report_kept_cache() {
   _kept=$(describe_cached_assets)
   [ -n "$_kept" ] || return 0
-  log "Kept $_kept in $DISTDIR (use 'clean --dist' to remove them too)."
+  log "Kept $_kept in $DISTDIR (use 'clean --all' to remove them too)."
 }
 
 # Register traps
