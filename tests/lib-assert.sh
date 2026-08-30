@@ -270,6 +270,79 @@ _wired() { # name  file  needle
   fi
 }
 
+# The 1-based line number where PATTERN first matches the text on stdin, empty
+# if it never does.
+#
+# The shape every ORDERING assertion needs: this call must come before that one,
+# and the claim is about position rather than presence. It was written out at
+# eight sites across five files -- tests/{clean-modes,debug-levels,storage-guard,
+# stamp-reconcile,ffmpeg-stamped}.sh -- each spelling `grep -n | head -1 |
+# cut -d: -f1` again, and one of them (storage-guard) additionally hand-rolling a
+# comment filter that `_code_only` already does properly.
+#
+# Text on STDIN rather than a filename, because those sites were split
+# between a file and a captured string, and stdin is the one interface that
+# takes both: `_match_line PAT < file`, or `printf '%s\n' "$out" | _match_line
+# PAT`. When reading source rather than output, pipe through _code_only first so
+# a call named in a comment cannot be mistaken for the call itself.
+#
+# EXITS 0 whether or not it matched, because `cut` is last in the pipeline and
+# it is `grep` that returns 1. Every caller assigns the result directly under
+# `set -eu` -- some through this function, the rest through _code_line -- and
+# tests/clean-modes.sh dropped its `|| true` on the strength of it, so the
+# property is load-bearing rather than incidental.
+#
+# NOT used by tests/debug-levels.sh's second grep, which deliberately collects
+# EVERY matching line number to find whether any of them follows a position.
+# That is a different question and stays spelled out where it is asked.
+_match_line() { # pattern   (text on stdin)
+  grep -nE -- "$1" | head -1 | cut -d: -f1
+}
+
+# The same question asked of a FILE's code: where does this first appear, with
+# comments stripped.
+#
+# Three sites spelled `_code_only F | _match_line P` and a fourth captured the
+# stripped source into a variable and wrapped it in a local helper -- one
+# concept, three spellings. Naming it matters more than the keystrokes it saves:
+# the rule that a source grep reads through _code_only is one every site
+# otherwise re-decides, and tests/debug-levels.sh got it wrong exactly that way:
+# BOTH halves of an ordering claim read raw source, so either could have matched
+# the symbol inside a COMMENT. Not a coordinate mismatch, and not a split
+# between the halves -- two earlier drafts of this sentence claimed each of
+# those. _code_only is a sed substitution that blanks rather than deletes, so
+# any two reads of one file always share a numbering. Making the correct form
+# the short form is what stops that recurring.
+#
+# MEASURED, so the claim is not stronger than the evidence: removing the strip
+# fails NO assertion today -- every pinned needle first matches at the same line
+# with the strip and without it. For two different reasons, and the split is by
+# PROPERTY, not by file.
+#
+# The LINE-ANCHORED needles (`^[[:space:]]*`) cannot match a `#`-prefixed
+# mention at all, whatever the prose says. Where such a needle is END-anchored
+# too, the strip is load-bearing in the opposite direction: a trailing
+# `# comment` on the real call would defeat the needle, which matches only
+# because _code_only removes the comment AND the whitespace before it.
+#
+# The UNANCHORED needles are safe only because each symbol's first occurrence is
+# its call rather than prose about it. That group is what this strip defends, and
+# `file "$PREFIX/bin/ffmpeg"` is the one to watch: it is unanchored, it lives in
+# a recipe whose comments quote calls verbatim, and nothing but habit keeps a
+# matching comment from appearing above it.
+#
+# Deliberately NO census here -- no count of needles, no numeral per group, no
+# roll-call of names. Every earlier draft of this paragraph carried one, each was
+# correct when written, and each was falsified by the next commit that added a
+# call site. 63f1830 is the shape of it: that commit fixed the numerals and, in
+# the same diff, added the two reset needles that invalidated them. A number in a
+# comment has no gate, and a list of names here is a second copy of what the call
+# sites already say. `grep -rn '_code_line ' tests/` recomputes both in a second,
+# which is what a reader who needs them should run.
+_code_line() { # file  pattern
+  _code_only "$1" | _match_line "$2"
+}
+
 # Reading shell SOURCE: fold continuations, then extract one function's body.
 #
 # Two tests need this and had one copy between them, which was about to become
@@ -280,7 +353,11 @@ _wired() { # name  file  needle
 #
 # Fold first: gsm, bzip2 and librtmp put the flags macro on the line AFTER
 # `run make`, and a line-oriented grep reads those as a bare make.
-_logical_lines() { # file
+# `-` reads stdin, which is what lets a caller fold a stream it assembled from
+# several sources rather than one file on disk -- tests/ffmpeg-stamped.sh scans
+# a recipe, mediaforge.sh and all of lib/ as one text. awk spells stdin `-`
+# itself, so this is a pass-through rather than a special case.
+_logical_lines() { # file, or - for stdin
   awk '{ if (sub(/\\$/, "")) { buf = buf $0; next } print buf $0; buf = "" }' "$1"
 }
 

@@ -186,11 +186,14 @@ stamp_check() {
 # the reverse (a stamp outliving its artifact) can make a build skip a recipe it
 # never built.
 #
-# An EMPTY stamp is still valid and still means "built". Every stamp written
-# before this change is empty, as is every stamp for a recipe that installs with
-# a bare shell `cp` and so stages nothing (gsm, ladspa, amf, ...). reconcile
-# reports those as `unverifiable` rather than as drift, which is the difference
-# between "no evidence" and "evidence of a problem".
+# An EMPTY stamp is still valid and still means "built": every stamp written
+# before this change is empty, and so is the stamp of a recipe that installs
+# nothing at all -- vaapi and waflib, the only two left in a built workspace.
+# reconcile reports those as `unverifiable` rather than as drift, which is the
+# difference between "no evidence" and "evidence of a problem".
+#
+# It used to be the state of every recipe installing with a bare shell `cp`
+# as well. GH-68 converted those; the category did not disappear, it emptied.
 #
 # The commit here is what makes the sub-package recipes attribute correctly:
 # recipes/audio/lv2.sh builds seven packages inside one pkg_install and calls

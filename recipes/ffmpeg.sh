@@ -87,7 +87,48 @@ eval "$_ffconf" > "$PREFIX/.logs/ffmpeg-configure.log" 2>&1 || {
 }
 
 run make -j "$MJOBS"
-run make install
+
+# FFmpeg's own install is staged and stamped like every recipe's, so the one
+# package that writes into the workspace without a manifest stops being an
+# exception (GH-77). Before this, every file FFmpeg installed was claimed by no
+# stamp -- 248 of them on a full build, and the largest single reason a
+# prefix-side orphan audit could not be a gate. Not the only one: a full rebuild
+# with FFmpeg stamped still leaves the meson bytecode caches unclaimed, because
+# they are written when meson RUNS rather than when it is installed (GH-77).
+#
+# DESTDIR on the command line, matching default_install and the GNU Coding
+# Standards. FFmpeg honours the environment too -- probed on 8.0.1, 248 files
+# staged either way, and ffbuild/config.mak references $(DESTDIR) without
+# assigning it -- but the command-line form is the one that survives an upstream
+# that starts assigning it, and that failure is silent.
+#
+# The stamp is EVIDENCE, NOT A GATE. Nothing consults it, and nothing should:
+# FFmpeg is the final target, and a stamp keyed on the version alone cannot
+# stand for a build whose configure line changes with --enable-gpl, --tls=, and
+# every other selector. Skipping on it would silently ignore the flags the
+# operator just changed. It is rewritten on every build, so a drifted one heals
+# itself.
+# Reset first, mirroring run_recipe: FFmpeg's window inherits whatever
+# MF_STAGE_PENDING and MF_STAGE_RESERVED the last recipe left, and a leak would
+# attribute another package's files to this stamp. They are empty here today,
+# which is a property of every predecessor's exit path rather than of this code.
+mf_stage_pending_reset
+mf_stage_reserved_reset
+mf_stage_begin
+run make install DESTDIR="$DESTDIR"
+# Commits as well as records -- the `file` read-back below reads $PREFIX, and
+# without the merge the binary is still sitting in the stage.
+#
+# INSIDE the window, where run_recipe writes its stamp after mf_stage_end, and
+# that is not a free choice: mf_stage_end deletes the stage dir, so a
+# stamp_write below it would find no staged tree, take mf_stage_commit's stray
+# branch, and record an EMPTY manifest -- FFmpeg back to being the unmanifested
+# exception this exists to remove. run_recipe can write afterwards only because
+# mf_stage_claim already committed inside its window and mf_stage_restore hands
+# the paths back; this recipe has neither. tests/ffmpeg-stamped.sh pins the
+# order for exactly that reason.
+stamp_write "ffmpeg" "$FFMPEG_VERSION"
+mf_stage_end
 
 # Verify the binary
 if command_exists "file"; then

@@ -618,7 +618,9 @@ cmd_build() {
     _reconcile_stamps
     if [ "$_rc_drifted" -gt 0 ]; then
       warn "$_rc_drifted build stamp(s) vouch for artifacts that are gone."
-      warn "  A real build would drop them and rebuild those recipes."
+      warn "  A real build would drop them and rebuild those recipes. A drifted"
+      warn "  FFmpeg stamp is dropped with the rest, but nothing gates on it: a real"
+      warn "  build rewrites it either way."
     fi
   else
     mf_build_preflight_stamps
@@ -1159,10 +1161,12 @@ _reconcile_stamps() {
 
     # An empty stamp is a stamp with no manifest, not a stamp with no files:
     # every stamp written before GH-59 is empty, as is every stamp for a recipe
-    # that installs through a bare shell `cp` and stages nothing. Reporting
-    # those as drift would be a false positive on a majority of a legacy
-    # workspace, which is the fastest way to teach someone to ignore this
-    # command.
+    # that installs nothing at all and correctly records nothing -- vaapi and
+    # waflib, the only two left in a built workspace, since GH-68 converted
+    # every recipe that used to stage nothing by installing with a shell cp.
+    # Reporting those as drift would be a false positive on a majority of a
+    # legacy workspace, which is the fastest way to teach someone to ignore
+    # this command.
     if [ ! -s "$_rc_stamp" ]; then
       _rc_unverifiable=$((_rc_unverifiable + 1))
       [ "$_rc_quiet" = true ] || log "  [unverifiable] $_rc_name — stamp carries no manifest"
@@ -1251,6 +1255,8 @@ mf_build_preflight_stamps() {
   [ "$_rc_drifted" -gt 0 ] || return 0
   warn "$_rc_drifted build stamp(s) vouch for artifacts that are no longer present."
   warn "  Dropping them so this build rebuilds those recipes rather than skipping them."
+  warn "  (An FFmpeg stamp among them is dropped too, and changes nothing: nothing"
+  warn "   gates on it and every build rewrites it.)"
   _reconcile_prune
 }
 
@@ -1267,10 +1273,13 @@ cmd_reconcile() {
         printf 'Reports each stamp as:\n'
         printf '  [verified]      every path in the stamp is present\n'
         printf '  [DRIFTED]       the stamp names a path that is gone — the next\n'
-        printf '                  build would SKIP this recipe without building it\n'
-        printf '  [unverifiable]  the stamp carries no manifest (written by an older\n'
-        printf '                  mediaforge, or by a recipe that installs with a\n'
-        printf '                  plain cp and so stages nothing)\n\n'
+        printf '                  build would SKIP that recipe without building it.\n'
+        printf '                  FFmpeg is the exception: nothing gates on its\n'
+        printf '                  stamp, so it rebuilds every run and heals its own\n'
+        printf '                  drift.\n'
+        printf '  [unverifiable]  the stamp carries no manifest: a recipe that\n'
+        printf '                  installs nothing and correctly records nothing, or\n'
+        printf '                  a stamp written by an older mediaforge\n\n'
         printf '  --prune    delete the drifted stamps, so the next build redoes\n'
         printf '             exactly those recipes\n'
         printf '  --quiet    report only problems: no per-stamp lines, no summary\n'

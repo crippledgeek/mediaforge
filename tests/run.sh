@@ -156,6 +156,14 @@ sh tests/stamp-reconcile.sh
 # listed were the ones with EMPTY stamps and six more had a per-file gap inside
 # a stamp that read `verified`.
 sh tests/staged-shell-installs.sh
+# Pins that FFmpeg's own install is staged and stamped (#77). cmd_build sources
+# recipes/ffmpeg.sh directly rather than through run_recipe, where the staging
+# window lives, so FFmpeg was the one package writing into the workspace with no
+# manifest behind it -- 248 files, the largest single class of unclaimed path in
+# a full prefix though not the last one. All the assertions are about ORDER,
+# which is what a green build cannot check: the binary installs correctly
+# whether or not the merge precedes the read-back.
+sh tests/ffmpeg-stamped.sh
 sh tests/assert-reporter.sh
 # Pins that the suite's verdict is a function of the TREE and not of the
 # developer's build state (#55). Eight files ran mediaforge with the repo as

@@ -57,8 +57,8 @@ _wired stage-discarded-on-exit lib/cleanup.sh  'mf_stage_discard'
 # (mutation-verified). Statement-anchored for the same reason: a mention inside
 # a comment is not a call.
 _body=$(_fn_body lib/framework.sh run_recipe)
-_ci=$(printf '%s\n' "$_body" | grep -nE '^[[:space:]]*mf_stage_claim[[:space:]]*$' | head -1 | cut -d: -f1)
-_pi=$(printf '%s\n' "$_body" | grep -nE '^[[:space:]]*pkg_post_install[[:space:]]*$' | head -1 | cut -d: -f1)
+_ci=$(printf '%s\n' "$_body" | _match_line '^[[:space:]]*mf_stage_claim[[:space:]]*$')
+_pi=$(printf '%s\n' "$_body" | _match_line '^[[:space:]]*pkg_post_install[[:space:]]*$')
 if [ -n "$_ci" ] && [ -n "$_pi" ] && [ "$_ci" -lt "$_pi" ]; then
   _pass publish-precedes-post-install
 else
