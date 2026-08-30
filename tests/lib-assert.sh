@@ -303,6 +303,16 @@ _match_line() { # pattern   (text on stdin)
 # otherwise re-decides, and tests/debug-levels.sh got it wrong exactly that way,
 # comparing a line number from stripped source against one from raw. Making the
 # correct form the short form is what stops that recurring.
+#
+# MEASURED, so the claim is not stronger than the evidence: removing the strip
+# fails NO assertion today. Every needle currently pinned -- mf_storage_guard,
+# save_stored_choices, and the MF_DEFAULT_OPT assignment -- first matches at the
+# same line with the strip and without it, because each symbol's first
+# occurrence in mediaforge.sh is its definition or call rather than the prose
+# about it. The
+# strip is defence against the next needle, not a property any test exercises --
+# and the one direction that would bite silently is a comment ABOVE the code it
+# describes, which is where this repo habitually quotes calls verbatim.
 _code_line() { # file  pattern
   _code_only "$1" | _match_line "$2"
 }
