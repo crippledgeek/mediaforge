@@ -38,6 +38,8 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/tests/lib-assert.sh"
 # shellcheck source=tests/lib-origin.sh
 . "$ROOT/tests/lib-origin.sh"
+# shellcheck source=tests/lib-fetch.sh
+. "$ROOT/tests/lib-fetch.sh"
 
 WORK=$(mktemp -d)
 trap '_origin_stop; rm -rf "$WORK"' EXIT
@@ -106,23 +108,10 @@ fi
 URL="http://127.0.0.1:$PORT/$ARCHIVE"
 
 # ---- the unit under test --------------------------------------------------
-# SCRIPT_DIR is how lib/utils.sh locates lib/stage.sh (GH-59); mediaforge.sh
-# sets it from $0, and a test sourcing the library supplies it itself.
-SCRIPT_DIR="$ROOT"
-# shellcheck source=lib/utils.sh
-. "$ROOT/lib/utils.sh"
-# shellcheck source=lib/download.sh
-. "$ROOT/lib/download.sh"
+# tests/lib-fetch.sh, shared with tests/fetch-fail-no-cache.sh: sources
+# lib/download.sh and exports the recipe state fetch() reads.
+_load_fetch "$ROOT" "$DIST"
 _fail=0
-
-# fetch() reads PKG_URL / PKG_FILENAME / PKG_DIRNAME through `${N:-$PKG_*}`
-# defaults, so under `set -u` an unset one aborts before the download and every
-# assertion below reads as a false pass.
-PKG_URL=''
-PKG_FILENAME=''
-PKG_DIRNAME=''
-DISTDIR="$DIST"
-export PKG_URL PKG_FILENAME PKG_DIRNAME DISTDIR
 
 # checksum_skipped() resolves the current recipe through recipe_key()
 # (lib/registry.sh), which this test does not source -- there is no recipe.
@@ -167,7 +156,7 @@ _run() {
   [ -n "$SEED" ] && cp "$SEED" "$DIST/$ARCHIVE"
   ( fetch "$URL" "$ARCHIVE" "" ) > "$LOG" 2>&1
   RC=$?
-  REQ=$(wc -l < "$COUNT" | tr -d ' ')
+  REQ=$(_origin_requests "$COUNT")
   # Both cleared HERE, not by each caller. A scenario appended after the cached
   # or the recordless one would otherwise inherit that state silently, measure
   # a branch it does not name, and keep passing.

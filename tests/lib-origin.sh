@@ -27,6 +27,14 @@
 # before this was shared; the change is deliberate and its assertions are
 # unaffected.
 #
+# A MALFORMED script is diagnosable but points the wrong way, so it is worth
+# knowing here: an empty SEQFILE indexes an empty list and a line with no space
+# fails to split, both of which kill the handler and close the connection. The
+# caller then reports "Failed to download ... after 3 attempts" -- a
+# network-shaped message for a fixture-shaped bug. socketserver prints the
+# traceback, so it is recoverable from a test that captures the origin's
+# stderr; a test that discards it sees only the download failure.
+#
 # The caller keeps its own EXIT trap and kills $ORIGIN_PID from it. POSIX
 # `trap` has no append form, so a trap registered here would silently replace
 # the caller's -- the same reason tests/lib-assert.sh registers only the signal
@@ -84,6 +92,15 @@ _origin_stop() {
   [ -n "${ORIGIN_PID:-}" ] && kill "$ORIGIN_PID" 2>/dev/null
   ORIGIN_PID=''
   return 0
+}
+
+# _origin_requests COUNTFILE
+# How many requests the origin has served. Kept here for the same reason the
+# kill is: tests/download-retry-verify.sh computes it inside its runner and
+# tests/fetch-fail-no-cache.sh needs it to prove the fixture was reached, and
+# two copies of `wc -l | tr -d ' '` is how a counter's shape starts to differ.
+_origin_requests() {
+  wc -l < "$1" | tr -d ' '
 }
 
 # _origin_port PORTFILE

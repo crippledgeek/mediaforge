@@ -28,6 +28,8 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/tests/lib-assert.sh"
 # shellcheck source=tests/lib-origin.sh
 . "$ROOT/tests/lib-origin.sh"
+# shellcheck source=tests/lib-fetch.sh
+. "$ROOT/tests/lib-fetch.sh"
 
 DISTDIR=$(mktemp -d)
 PORT_FILE=$(mktemp)
@@ -53,27 +55,12 @@ if ! PORT=$(_origin_port "$PORT_FILE"); then
   exit 1
 fi
 
-# Source utils (log/warn/die) and the unit under test (download.sh / fetch).
-# shellcheck source=lib/utils.sh
-# SCRIPT_DIR is how lib/utils.sh locates lib/stage.sh (GH-59). mediaforge.sh
-# sets it from $0; a test sourcing the library directly supplies it itself.
-SCRIPT_DIR="$ROOT"
-. "$ROOT/lib/utils.sh"
-# shellcheck source=lib/download.sh
-. "$ROOT/lib/download.sh"
+# The unit under test, from tests/lib-fetch.sh: lib/download.sh plus the
+# recipe state fetch() reads. Shared with tests/download-retry-verify.sh.
+_load_fetch "$ROOT" "$DISTDIR"
 _fail=0
-export DISTDIR
 
 _archive="gmp-6.3.0.tar.xz"
-
-# fetch() reads PKG_URL / PKG_FILENAME / PKG_DIRNAME via `${N:-$PKG_*}` defaults.
-# Under `set -u` an unset PKG_* would abort fetch before it ever downloads (a
-# false pass). Recipes always run with these defined, so define them here to
-# mirror the real environment. PKG_DIRNAME stays empty (fetch auto-derives it).
-PKG_URL=''
-PKG_FILENAME=''
-PKG_DIRNAME=''
-export PKG_URL PKG_FILENAME PKG_DIRNAME
 
 # die() calls exit 1, so run fetch in a subshell to capture the failure code.
 ( fetch "http://127.0.0.1:$PORT/$_archive" ) >/dev/null 2>&1
@@ -90,6 +77,17 @@ fi
 if [ -f "$DISTDIR/$_archive" ]; then
   _wrong="$_wrong the error body was cached as $_archive"
   _wrong="$_wrong ($(wc -c < "$DISTDIR/$_archive") bytes);"
+fi
+
+# ...and (c) the origin was actually REACHED. Connection-refused satisfies both
+# halves above exactly as a 502 does, so without this the claim passes against a
+# fixture that never started or died early -- measured: killing the origin after
+# the port is read leaves this test green having never seen a 502, which is the
+# thing it exists to guard. download_file makes three attempts before it dies.
+_reqs=$(_origin_requests "$COUNT_FILE")
+if [ "$_reqs" -ne 3 ]; then
+  _wrong="$_wrong the origin served $_reqs request(s), expected 3 --"
+  _wrong="$_wrong the 502 path may not have been exercised at all;"
 fi
 
 _verdict failed-fetch-caches-no-error-body "$_wrong"
