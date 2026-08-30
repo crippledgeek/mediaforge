@@ -86,8 +86,11 @@ if _code_only lib/framework.sh | grep -qE '^mf_pc_add_stdcxx\(\)'; then
     # shellcheck source=/dev/null
     . "$ROOT/lib/framework.sh" 2>/dev/null || true
     mf_pc_add_stdcxx probe ) >/dev/null 2>&1 || true
-  [ "$(grep -c -- '-lstdc++' "$_tmp/prefix/lib/pkgconfig/probe.pc")" = 1 ] \
-    || _reasons="$_reasons applying it twice appended twice."
+  # grep -o, not grep -c: -c counts matching LINES, so a doubled
+  # "-lstdc++ -lstdc++" on one line still counts as 1 and the check passes.
+  # Mutation-found -- removing the guard left this assertion green.
+  _n=$(grep -o -- '-lstdc++' "$_tmp/prefix/lib/pkgconfig/probe.pc" | wc -l | tr -d ' ')
+  [ "$_n" = 1 ] || _reasons="$_reasons applying it twice left $_n copies of -lstdc++."
 else
   _reasons=" mf_pc_add_stdcxx is not defined."
 fi
