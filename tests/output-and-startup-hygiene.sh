@@ -125,15 +125,28 @@ case "$_multi" in
   *) _bad payload-description-is-one-line "unexpected result from mf_printable_line: $_multi" ;;
 esac
 
-# The extraction actually replaced the original. A private copy left behind in
-# describe_payload would keep every assertion above green while the rule it
-# encodes quietly forked in two.
-if grep -q 'mf_printable_line' lib/download.sh &&
-   ! grep -q "tr -dc '\[:print:\]\[:blank:\]'" lib/download.sh; then
-  _pass payload-description-shares-the-helper
-else
-  _bad payload-description-shares-the-helper "lib/download.sh still carries its own printable filter, or no longer uses mf_printable"
-fi
+# The extraction actually replaced the original, and describe_payload is on the
+# single-line form rather than the general one.
+#
+# Read through _code_only (tests/lib-assert.sh), because the first version of
+# this grep matched the words in the COMMENT above the call: mutating the call
+# from mf_printable_line to mf_printable left the assertion green, since the
+# sentence explaining the choice still named it. A grep over shell source that
+# does not strip comments is asking what the file SAYS, not what it does.
+#
+# With comments stripped, the bare name IS the call, so the needle needs no
+# surrounding syntax -- which also keeps a `$(` out of a case pattern, where it
+# would either be parsed as a command substitution or need single quotes that
+# read as a mistake.
+_dl_code=$(_code_only lib/download.sh)
+case "$_dl_code" in
+  *"tr -dc '[:print:][:blank:]'"*)
+    _bad payload-description-shares-the-helper "lib/download.sh still carries its own printable filter" ;;
+  *mf_printable_line*)
+    _pass payload-description-shares-the-helper ;;
+  *)
+    _bad payload-description-shares-the-helper "describe_payload does not filter its text through mf_printable_line; an origin's newline could forge a line" ;;
+esac
 
 # All three reporters, not just the one that was easiest to reach. die() is the
 # one that prints operator-supplied argv, log() the one that runs thousands of
