@@ -230,31 +230,56 @@ else
 fi
 rm -rf "$_probe_dir"
 
-_wrong_cflags=$_wrong   # last handoff: no _want may follow this line
+_wrong_cflags=$_wrong
+_wrong=''
 
-if [ -z "$_wrong_rep" ]; then
-  _pass reporter-output-contract-holds
-else
-  _bad reporter-output-contract-holds "$_wrong_rep"
-fi
+# 16-18. _verdict is the fifth thing this library owns: the report of a COMPOUND
+# assertion, chosen by whether the caller's accumulator is empty. It is pinned
+# here for the same reason the pair below it is -- a defect in it does not fail
+# a test, it changes what a test PRINTS, and printing is what
+# tests/oracle-baseline.sh counts.
+#
+# This file's own four verdicts now route through it, which looks circular and
+# is not: the probes below run in isolated shells, and the exit at the foot of
+# this file keys on $_wrong rather than on $_fail precisely so a broken
+# reporter cannot report itself green.
+_got=$(_probe <<'EOF'
+_verdict eta ""
+EOF
+)
+_want 'verdict-empty-reasons-passes' "$_got" 'PASS [eta]'
+_want 'verdict-pass-stderr-silent' "$(cat "$_err")" ''
 
-if [ -z "$_wrong_ev" ]; then
-  _pass evidence-helper-contract-holds
-else
-  _bad evidence-helper-contract-holds "$_wrong_ev"
-fi
+# A non-empty accumulator must reach _bad WITH its detail: a _verdict that
+# reported the failure and dropped the reasons would leave every compound
+# assertion in the suite saying only that something was wrong.
+_got=$(_probe <<'EOF'
+_verdict theta " first;  second;"
+EOF
+)
+_want 'verdict-reasons-stdout-silent' "$_got" ''
+_want 'verdict-reasons-reach-the-detail' "$(cat "$_err")" 'FAIL [theta]  first;  second;'
 
-if [ -z "$_wrong_wired" ]; then
-  _pass wired-helper-contract-holds
-else
-  _bad wired-helper-contract-holds "$_wrong_wired"
-fi
+# The polarity, stated as its own probe. An accumulator holding the string
+# "0" or " " is NOT empty, and a _verdict testing truthiness rather than
+# emptiness would pass a failing claim -- `[ -z ]` is the contract.
+_got=$(_probe <<'EOF'
+_verdict iota "0"
+printf '%s' "$_fail"
+EOF
+)
+_want 'verdict-zero-string-is-not-empty' "$_got" '1'
 
-if [ -z "$_wrong_cflags" ]; then
-  _pass cflags-derivation-predicate-holds
-else
-  _bad cflags-derivation-predicate-holds "$_wrong_cflags"
-fi
+_wrong_verdict=$_wrong   # last handoff: no _want may follow this line
+
+_verdict reporter-output-contract-holds "$_wrong_rep"
+
+_verdict evidence-helper-contract-holds "$_wrong_ev"
+
+_verdict wired-helper-contract-holds "$_wrong_wired"
+
+_verdict cflags-derivation-predicate-holds "$_wrong_cflags"
+_verdict verdict-helper-contract-holds "$_wrong_verdict"
 
 printf 'DONE: assert-reporter\n'
 
@@ -264,5 +289,5 @@ printf 'DONE: assert-reporter\n'
 # line and still exit 0 -- measured: mutating `_fail=1` out of the library left
 # this file reporting the defect on stdout while tests/run.sh, which reads exit
 # status, went green.
-[ -z "$_wrong_rep$_wrong_ev$_wrong_wired$_wrong_cflags" ] || exit 1
+[ -z "$_wrong_rep$_wrong_ev$_wrong_wired$_wrong_cflags$_wrong_verdict" ] || exit 1
 exit 0

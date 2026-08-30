@@ -107,6 +107,40 @@ _bad() {
   _fail=1
 }
 
+# The verdict of a COMPOUND assertion: several things had to hold, and the
+# caller accumulated one sentence into REASONS for each that did not. REASONS
+# is REQUIRED -- empty means every half held, and a caller that omits it aborts
+# under `set -u` rather than passing quietly, which is the right way round for
+# what is always a mistake. (_bad's one-argument form does not extend here: a
+# verdict with no accumulator has nothing to decide.)
+#
+# `if [ -z "$_wrong" ]; then _pass NAME; else _bad NAME "$_wrong"; fi` is the
+# shape a multi-part claim ends with WHEN THE ACCUMULATOR IS THE DETAIL, and it
+# was written out at every such site -- including four times in
+# tests/assert-reporter.sh, which exists to pin this library. Where the detail
+# is DECORATED (`_bad NAME "not ignored:$_uncovered"`, a head -3 of it, a
+# three-way elif ladder) the site keeps its own `if`: what varies there is the
+# wording, not the mechanism. Those sites are legitimately in that state; this
+# helper has not converged them and should not.
+#
+# Two greps, because one only sees what it already took: `grep -rn _verdict
+# tests/` finds the converted sites, and
+# `grep -rnE 'if \[ -z "\$_[a-z_]+" \]' tests/` finds the candidates it has
+# not. That is the same blind spot this file names above for _pass/_bad, and it
+# gets the same complement rather than a list that rots.
+#
+# The accumulate-then-report shape is what lets one assertion state a claim
+# with several halves and still report ONE line, which is what
+# tests/oracle-baseline.sh counts -- reporting each half separately would let
+# the halves that are unchanged behaviour pass on the merge base.
+_verdict() { # name  reasons
+  if [ -z "$2" ]; then
+    _pass "$1"
+  else
+    _bad "$1" "$2"
+  fi
+}
+
 # Glob-match reporters. The pattern "run something, glob-match the result,
 # _pass or _bad with the actual value in the detail" was written five times
 # across tests/compiler-flags.sh and tests/debug-levels.sh, in two polarities.

@@ -12,6 +12,7 @@ sh tests/resolve-nonfree-aac.sh
 sh tests/flac-removed.sh
 sh tests/menu-stdin.sh
 sh tests/fetch-fail-no-cache.sh
+sh tests/download-retry-verify.sh
 # Was never wired in, which is why dry-run-matrix.sh's contradicting lcevc row
 # went unnoticed: the accurate test did not run and the inaccurate one did.
 # Dry-run only, so it needs no built workspace — unlike the four named on the
