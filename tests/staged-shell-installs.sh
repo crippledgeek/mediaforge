@@ -95,6 +95,14 @@ else
   elif ! grep -q DIED "$_tmp/mkdir-out"; then
     _reasons=" it failed without calling die, and no recipe checks the status, so the build would carry on."
   fi
+  # And an empty argument list, which is a mis-expansion rather than a request
+  # to do nothing: `for` over it returns 0, so the failure would surface later
+  # as the cp that had nowhere to land.
+  if ( PREFIX="$_tmp/p"; unset DESTDIR
+       die() { printf 'DIED\n'; exit 3; }
+       mf_dest_mkdir ) >"$_tmp/mkdir-none" 2>&1 || ! grep -q DIED "$_tmp/mkdir-none"; then
+    _reasons="$_reasons called with no directories it returned quietly instead of failing the build."
+  fi
   _verdict dest-mkdir-fails-loudly "$_reasons"
 fi
 
@@ -183,6 +191,34 @@ _recipe_stubs() {
   pkg_install()      { default_install; }
   pkg_post_install() { default_noop; }
   ffmpeg_version_ge() { return 0; }
+}
+
+# Drive ONE phase of a recipe, with the stage at its real path inside the
+# prefix.
+#
+# Separate from _install_into because these two phases cannot make its
+# assertions: libressl's COMMITS mid-flight, so it ends with its file in the
+# prefix by design, and lcevc's runs `ar` over archives that have to be in the
+# live prefix already. Both need the real stage layout, since what they exercise
+# is mf_stage_commit and a live/stage split rather than a plain staged copy.
+#
+# A caller needing an extra stub defines it before calling: POSIX function
+# definitions are global and a subshell inherits them, so no fourth parameter.
+_run_phase() { # recipe-path  work-dir  phase
+  (
+    set -eu
+    PREFIX="$2/prefix"
+    DESTDIR="$2/prefix/.stage/current"
+    export DESTDIR
+    mkdir -p "$PREFIX" "$DESTDIR"
+    _recipe_stubs
+    . "$ROOT/lib/stage.sh"
+    # shellcheck disable=SC1090
+    . "$ROOT/$1"
+    cd "$2/src"
+    "$3"
+    printf 'PENDING:%s\n' "$MF_STAGE_PENDING"
+  ) >"$2/out" 2>&1
 }
 
 _install_into() { # recipe-path  fixture-name  work-dir
@@ -314,27 +350,19 @@ TABLE
 # fails if the commit is dropped). The stage is at its REAL path here, inside
 # the prefix, because mf_stage_commit is what is under test rather than stubbed.
 _w="$_tmp/libressl"
-mkdir -p "$_w/prefix/.stage/current" "$_w/prefix/lib/pkgconfig" "$_w/src"
+mkdir -p "$_w/prefix/lib/pkgconfig" "$_w/src"
 : > "$_w/prefix/lib/pkgconfig/libtls.pc"
 : > "$_w/src/cert.pem"
-(
-  set -eu
-  PREFIX="$_w/prefix"
-  DESTDIR="$_w/prefix/.stage/current"
-  OPENSSLDIR=""
-  export DESTDIR
-  _recipe_stubs
-  # The real one probes the host; pinning it to the prefix fallback is what puts
-  # the read-back on the very path the cp writes, which is the case that matters.
-  # shellcheck disable=SC2329
-  resolve_openssldir() { OPENSSLDIR_RESOLVED="$PREFIX/etc/ssl"; }
-  . "$ROOT/lib/stage.sh"
-  # shellcheck disable=SC1091
-  . "$ROOT/recipes/crypto/libressl.sh"
-  cd "$_w/src"
-  pkg_post_install
-  printf 'PENDING:%s\n' "$MF_STAGE_PENDING"
-) >"$_w/out" 2>&1 || true
+# Read by the recipe, from a path the linter cannot follow.
+# shellcheck disable=SC2034
+OPENSSLDIR=""
+# The real one probes the host for a directory holding cert.pem and falls back
+# to its second argument. Taking the fallback unconditionally is what puts the
+# read-back on the very path the cp writes, which is the case that matters --
+# and $2 rather than $PREFIX because the recipe passes "$PREFIX/etc/ssl" itself.
+# shellcheck disable=SC2329,SC2034
+resolve_openssldir() { OPENSSLDIR_RESOLVED="$2"; }
+_run_phase recipes/crypto/libressl.sh "$_w" pkg_post_install || true
 _reasons=""
 grep -q '^PENDING:.*etc/ssl/cert.pem' "$_w/out" \
   || _reasons=" cert.pem was never staged, so no manifest names the file whose absence fails TLS closed: $(tail -2 "$_w/out" | tr '\n' ' ')"
@@ -344,27 +372,65 @@ grep -q 'baked trust store' "$_w/out" \
   && _reasons="$_reasons the advisory fired against a file the phase had just written, so the commit is missing."
 _verdict libressl-stages-and-commits-its-trust-store "$_reasons"
 
+# --- the phase that CREATES a library with ar -------------------------------
+# lcevc merges the eight split archives upstream installs into the single
+# liblcevc_dec.a that FFmpeg links, and `ar cr` creates a file: written to the
+# live prefix it was past the stage, so the one library the recipe exists to
+# produce was absent from a stamp that read `verified`, while the eight it
+# replaces were recorded and then deleted. Found in review, after two comments
+# on this branch had asserted no such case was left.
+#
+# The scanner cannot see it -- `ar` writes to a variable-bound path -- which is
+# exactly why it gets a behavioural assertion instead.
+_w="$_tmp/lcevc"
+mkdir -p "$_w/prefix/lib" "$_w/src/objs"
+: > "$_w/src/objs/one.o"
+: > "$_w/src/objs/two.o"
+# Real archives, because the phase runs a real `ar x` over them. ar and ranlib
+# accept members that are not objects, so no compiler is needed.
+( cd "$_w/src/objs" && ar cr "$_w/prefix/lib/liblcevc_dec_api.a" one.o \
+                    && ar cr "$_w/prefix/lib/liblcevc_dec_core.a" two.o ) >/dev/null 2>&1
+# A stale merged archive from an earlier build, which the phase must replace.
+: > "$_w/prefix/lib/liblcevc_dec.a"
+_run_phase recipes/other/lcevc.sh "$_w" pkg_post_install || true
+_reasons=""
+[ -e "$_w/prefix/.stage/current$_w/prefix/lib/liblcevc_dec.a" ] \
+  || _reasons=" the merged archive is not in the stage, so the one library FFmpeg links would be missing from lcevc's manifest: $(tail -2 "$_w/out" | tr '\n' ' ')"
+[ -e "$_w/prefix/lib/liblcevc_dec.a" ] \
+  && _reasons="$_reasons the stale merged archive is still in the live prefix."
+ls "$_w/prefix/lib"/liblcevc_dec_*.a >/dev/null 2>&1 \
+  && _reasons="$_reasons the split archives were not dropped, so a downstream can still link the broken set."
+_verdict lcevc-stages-the-archive-it-creates "$_reasons"
+
 # --- the class, not the instances ------------------------------------------
 # Every recipe converted here was found by hand, twice: the issue's survey
-# selected on EMPTY stamps and so missed five recipes whose build-system install
-# staged something while a hand-copy beside it did not (libcaca, svtav1, xeve,
-# xevd, libressl, shaderc -- the last two by reading, since neither is in the
-# default build). A per-file defect does not show up in a per-stamp survey, and
-# nothing stops the next recipe from reintroducing it.
+# selected on EMPTY stamps and so missed seven whose build-system install staged
+# something while a hand-copy beside it did not -- libcaca, svtav1, xeve, xevd,
+# libressl, shaderc, and lcevc, whose `ar cr` creates the one archive FFmpeg
+# links. A per-file defect does not show up in a per-stamp survey, and nothing
+# stops the next recipe from reintroducing it.
 #
 # So the rule is asserted over the whole tree instead of over a list: inside an
 # install phase, a command that CREATES a file at a literal "$PREFIX/... path
 # writes past the stage. `>>` is exempt and is the only exemption -- lv2 and
-# nv-codec append to $PREFIX/.extra_cflags, an accumulator the framework reads
-# after the build, and a staged append would be a fresh file that the merge then
-# writes over the accumulated one.
+# nv-codec append to $PREFIX/.extra_cflags and .extra_ldflags, accumulators the
+# framework reads after the build, and a staged append would be a fresh file
+# that the merge then writes over the accumulated one.
 #
 # RESIDUAL, stated rather than papered over: a path bound to a variable first
-# (`_pc="$PREFIX/lib/pkgconfig/xeve.pc"`) is not seen. The three in-tree cases
-# are all in-place rewrites of a file default_install already staged under the
-# same name, which are correct against the live prefix -- but a new recipe could
-# evade this scan that way. Catching it means resolving assignments, which is a
-# parser, not a grep.
+# (`_pc="$PREFIX/lib/pkgconfig/xeve.pc"`) is not seen. There are eleven such
+# bindings in install phases today and they are NOT all benign, which is the
+# part worth writing down -- an earlier draft of this comment claimed they were,
+# and lcevc was creating its merged archive in the live prefix underneath that
+# claim. Eight are in-place `.pc` rewrites (chromaprint, vmaf, srt, openh264,
+# vvenc, x265, xeve, xevd) that overwrite a file default_install already staged
+# under the same name, and so are correct against the live prefix. The other
+# three are a read source (shaderc's _src), an `rm` target (meson's _live), and
+# the directory lcevc reads its split archives from and then deletes them in
+# (_libdir). A twelfth was lcevc's `ar` destination; this branch moved it to the
+# stage, which is why it is no longer in the census. Closing the gap means
+# resolving assignments AND recognising the write-tmp-then-mv idiom the eight
+# use -- a parser, not a grep -- so what guards it is that the census is here.
 _scanned=0
 _offenders=""
 for _f in $(find recipes -name '*.sh' | sort); do
@@ -373,14 +439,14 @@ for _f in $(find recipes -name '*.sh' | sort); do
     [ -n "$_body" ] || continue
     _scanned=$((_scanned + 1))
     _hits=$(printf '%s\n' "$_body" | sed 's/[[:space:]]*#.*$//' \
-      | grep -nE '(^|[[:space:]])(cp|install|ln|tee|mv)([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^|;]*"[$]PREFIX/|[^>]>[[:space:]]*"[$]PREFIX/' \
+      | grep -nE '(^|[[:space:]])(cp|install|ln|tee|mv|ar)([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^|;]*"[$]PREFIX/|[^>]>[[:space:]]*"[$]PREFIX/' \
       || true)
     [ -n "$_hits" ] && _offenders="$_offenders $_f:$_fn:$(printf '%s' "$_hits" | head -1 | cut -d: -f1)"
   done
 done
 # A floor, because the scan is vacuous if _fn_body ever returns nothing: zero
 # offenders across zero phases is the same PASS as zero across all of them.
-if [ "$_scanned" -lt 40 ]; then
+if [ "$_scanned" -lt 50 ]; then
   _bad no-recipe-installs-past-the-stage "only $_scanned install phase(s) scanned — the scan found nothing because it read nothing"
 else
   _verdict no-recipe-installs-past-the-stage "$_offenders"
