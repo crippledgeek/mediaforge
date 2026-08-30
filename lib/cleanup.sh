@@ -90,20 +90,41 @@ workspace_cleanup() {
 # first non-negotiable) and would be this repo's first use of it in lib/. An
 # unmatched glob stays literal and fails the -d test, so an empty or absent
 # $DISTDIR needs no special case.
-prune_extracted_sources() {
+# Every top-level entry in $DISTDIR, one at a time, to the function named in $1.
+#
+# The walk is here rather than in each caller because two of them do it for
+# different reasons -- one prunes, one counts -- and the guard and the glob were
+# written out twice. The coupling is not cosmetic: which entries the walk can
+# SEE is a property of the walk, so the dot-entry gap below is a decision that
+# has to reach both callers, and two copies is how one of them gets missed.
+#
+# POSIX `*` skips dot-entries, and nothing lib/download.sh writes into $DISTDIR
+# begins with a dot, so that gap is recorded rather than closed. An unmatched
+# glob stays literal, which is why the entry's existence is tested before the
+# callback sees it.
+mf_each_dist_entry() { # callback
   [ -d "$DISTDIR" ] || return 0
-  _pruned=0
   for _entry in "$DISTDIR"/*; do
-    if [ -d "$_entry" ] && [ ! -L "$_entry" ] && ! mf_is_git_clone "$_entry"; then
-      # `${_entry:?}` for the reason lib/download.sh writes
-      # `rm -rf "${DISTDIR:?}/${_dir:?}"`: not because this one can go empty --
-      # it is the shell's own glob expansion and the -d above has already held
-      # -- but so a reader does not have to re-derive that before trusting the
-      # line.
-      rm -rf "${_entry:?}"
-      _pruned=$((_pruned + 1))
-    fi
+    [ -e "$_entry" ] || continue
+    "$1" "$_entry"
   done
+}
+
+# One entry, pruned if it is an unpacked source tree. A symlink is left alone
+# whatever it points at, and a clone belongs to the keep side.
+_prune_one_entry() {
+  [ -d "$1" ] && [ ! -L "$1" ] && ! mf_is_git_clone "$1" || return 0
+  # `${1:?}` for the reason lib/download.sh writes
+  # `rm -rf "${DISTDIR:?}/${_dir:?}"`: not because this one can go empty -- it
+  # is the shell's own glob expansion and the -d above has already held -- but
+  # so a reader does not have to re-derive that before trusting the line.
+  rm -rf "${1:?}"
+  _pruned=$((_pruned + 1))
+}
+
+prune_extracted_sources() {
+  _pruned=0
+  mf_each_dist_entry _prune_one_entry
   [ "$_pruned" -gt 0 ] || return 0
   log "Removed $_pruned unpacked source tree(s) from $DISTDIR"
 }
@@ -119,17 +140,18 @@ prune_extracted_sources() {
 # "cached" and not "verified": --skip-checksum and --skip-checksum=PKG
 # short-circuit verify_file (lib/download.sh, checksum_skipped), so an archive
 # in here has not necessarily been checked against anything.
+_count_one_entry() {
+  if [ -f "$1" ]; then
+    _downloads=$((_downloads + 1))
+  elif mf_is_git_clone "$1"; then
+    _clones=$((_clones + 1))
+  fi
+}
+
 describe_cached_assets() {
-  [ -d "$DISTDIR" ] || return 0
   _downloads=0
   _clones=0
-  for _entry in "$DISTDIR"/*; do
-    if [ -f "$_entry" ]; then
-      _downloads=$((_downloads + 1))
-    elif mf_is_git_clone "$_entry"; then
-      _clones=$((_clones + 1))
-    fi
-  done
+  mf_each_dist_entry _count_one_entry
   if [ "$_downloads" -gt 0 ] && [ "$_clones" -gt 0 ]; then
     printf '%s cached download(s) and %s git clone(s)' "$_downloads" "$_clones"
   elif [ "$_downloads" -gt 0 ]; then

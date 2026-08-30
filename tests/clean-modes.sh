@@ -291,8 +291,9 @@ _defs=$(_code_only lib/utils.sh | grep -c '^mf_is_git_clone()' || true)
 # not exist. `_users` is the dangerous direction: delete a real call site, leave
 # a comment quoting the call, and the count is preserved while the caller is
 # gone. This repo quotes calls in prose as a habit, and twice on this branch a
-# grep over unstripped source measured what a file SAYS.
-_lib_code() { for _f in lib/*.sh; do _code_only "$_f"; done; }
+# grep over unstripped source measured what a file SAYS. _lib_code is in
+# tests/lib-assert.sh, because this file and tests/output-and-startup-hygiene.sh
+# both needed it.
 _raw=$(_lib_code | grep -c -- '-d "[^"]*/[.]git"' || true)
 _users=$(_lib_code | grep -c 'mf_is_git_clone "' || true)
 if [ "$_defs" != 1 ]; then

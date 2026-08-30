@@ -49,15 +49,6 @@ _tmp=$(mktemp -d) || { printf 'FAIL [tmpdir]\n' >&2; exit 1; }
 trap 'rm -rf "$_tmp"' EXIT
 _cleanup_on_signal
 
-# lib/*.sh with comments stripped, as one stream. Every file in lib/, not a
-# named few: a copy of something this file forbids can grow in a file nobody
-# listed.
-_lib_code() {
-  for _f in "$ROOT"/lib/*.sh; do
-    _code_only "$_f"
-  done
-}
-
 # --- the startup half -------------------------------------------------------
 # First, and with no vacuity guard: a tree without the guard fails these two on
 # their own terms rather than reporting them as unmeasurable, so the file needs

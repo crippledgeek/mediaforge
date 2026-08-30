@@ -202,6 +202,22 @@ _code_only() { # file
   sed 's/[[:space:]]*#.*$//' "$1"
 }
 
+# Every file in lib/, comments stripped, as one stream. Requires the caller to
+# have set $ROOT, the same caller contract this file's header already states for
+# $_fail.
+#
+# Here rather than in each test because two of them grew identical copies within
+# two commits of each other -- and because the question they both ask is one a
+# plain grep answers WRONGLY: counting a call site or a forbidden idiom across
+# lib/ has to read what the files DO, and prose in this repo quotes calls
+# verbatim as a habit. Naming individual files is the other half of the trap: a
+# copy can grow in a file the list does not mention.
+_lib_code() {
+  for _lc_f in "$ROOT"/lib/*.sh; do
+    _code_only "$_lc_f"
+  done
+}
+
 # The value of a top-level shell assignment, read out of a file rather than by
 # sourcing it. `_shell_var profiles/ffmpeg-8.0.1.conf PKG_COMMIT_X264`.
 #
