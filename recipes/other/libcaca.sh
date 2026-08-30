@@ -23,5 +23,11 @@ pkg_build() {
 
 pkg_install() {
   run make -C caca install
+  # `make install` creates lib/pkgconfig in the STAGE since GH-59, not in the
+  # live prefix, so this cp no longer inherits the directory from the line above
+  # it. It happens to succeed anyway because an earlier recipe has always made
+  # the directory by the time libcaca builds -- an invisible ordering
+  # dependency, and one nothing in the tree would report if it broke.
+  mkdir -p "$PREFIX/lib/pkgconfig"
   run cp caca/caca.pc "$PREFIX/lib/pkgconfig/"
 }

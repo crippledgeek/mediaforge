@@ -79,6 +79,9 @@ fi
 
 # Source utils (log/warn/die) and the unit under test (download.sh / fetch).
 # shellcheck source=lib/utils.sh
+# SCRIPT_DIR is how lib/utils.sh locates lib/stage.sh (GH-59). mediaforge.sh
+# sets it from $0; a test sourcing the library directly supplies it itself.
+SCRIPT_DIR="$ROOT"
 . "$ROOT/lib/utils.sh"
 # shellcheck source=lib/download.sh
 . "$ROOT/lib/download.sh"

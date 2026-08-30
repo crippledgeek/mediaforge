@@ -13,10 +13,23 @@ pkg_configure() {
 }
 
 pkg_build() {
-  run cmake --build build --target install
+  # Headers only -- there is nothing to compile, so the build phase is a no-op
+  # and the install moved to pkg_install where it belongs (GH-59). It used to
+  # run `cmake --build build --target install` here, which installed from the
+  # BUILD phase: outside the staging window, so the 18 CL headers reached the
+  # prefix unrecorded and this recipe reported `unverifiable` for a reason that
+  # was the framework's rather than its own.
+  :
 }
 
 pkg_install() {
+  # The headers first, and LIVE before the sub-build below configures against
+  # them with -DCMAKE_PREFIX_PATH="$PREFIX". mf_stage_claim publishes them and
+  # takes them for this recipe's own stamp, out of reach of the nested
+  # stamp_write that follows -- the same rule recipes/audio/lv2.sh follows.
+  run cmake --build build --target install
+  mf_stage_claim
+
   if stamp_check "opencl-icd-loader" "$PKG_VERSION"; then
     fetch "https://github.com/KhronosGroup/OpenCL-ICD-Loader/archive/refs/tags/v${PKG_VERSION}.tar.gz" \
       "OpenCL-ICD-Loader-${PKG_VERSION}.tar.gz"

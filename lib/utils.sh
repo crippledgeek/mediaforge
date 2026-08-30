@@ -95,11 +95,32 @@ stamp_check() {
   return 0
 }
 
-# Mark package as built by creating a stamp file
+# Mark package as built, recording WHAT was built (GH-59).
+#
+# The stamp is this project's pkg-plist: one $PREFIX-relative path per line,
+# naming the files the staged install produced. It used to be an empty file, and
+# an empty file is a claim with no evidence behind it -- which is how three
+# stamps came to be missing while their libraries sat in workspace/lib, and how
+# the reverse (a stamp outliving its artifact) can make a build skip a recipe it
+# never built.
+#
+# An EMPTY stamp is still valid and still means "built". Every stamp written
+# before this change is empty, as is every stamp for a recipe that installs with
+# a bare shell `cp` and so stages nothing (gsm, ladspa, amf, ...). reconcile
+# reports those as `unverifiable` rather than as drift, which is the difference
+# between "no evidence" and "evidence of a problem".
+#
+# The commit here is what makes the sub-package recipes attribute correctly:
+# recipes/audio/lv2.sh builds seven packages inside one pkg_install and calls
+# this between them, so each stamp drains exactly the files staged since the
+# previous one. It is also what makes each sub-install LIVE before the next
+# sub-build configures against it.
 stamp_write() {
   _stampdir="$PREFIX/.stamps"
   mkdir -p "$_stampdir" 2>/dev/null
-  : > "$_stampdir/${1}-${2}"
+  mf_stage_commit
+  mf_stage_pending_extant > "$_stampdir/${1}-${2}"
+  mf_stage_pending_reset
 }
 
 # Print compiler flags
@@ -133,3 +154,14 @@ ffmpeg_version_ge() {
     exit 0
   }'
 }
+
+# Staged installs (GH-59). Sourced HERE rather than left to each caller, for the
+# reason lib/install.sh gives about its own dependency: stamp_write above calls
+# into it, and a dependency none of the callers names is one none of them can
+# forget. mediaforge.sh, the install test drivers and the recipes all reach
+# stamp_write through this file.
+#
+# Sourced at the END so log/warn/die are already defined -- lib/stage.sh calls
+# them, and does NOT source this file back.
+# shellcheck source=lib/stage.sh
+. "$SCRIPT_DIR/lib/stage.sh"

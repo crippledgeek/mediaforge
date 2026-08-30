@@ -98,6 +98,7 @@ cmd_help() {
   printf '  check-updates      Check for newer dependency versions\n'
   printf '  makesum            Fetch recipe sources and record their sha256/size sidecars\n'
   printf '  check-shadowers    Audit workspace .pc files for system-version shadowing\n'
+  printf '  reconcile          Check build stamps against the artifacts they vouch for\n'
   printf '  list-profiles      List available version profiles\n'
   printf '  help               Show this help\n'
   printf '  version            Show version\n'
@@ -572,6 +573,44 @@ cmd_build() {
   mkdir -p "$PREFIX/.stamps" 2>/dev/null
   mkdir -p "$PREFIX/.logs" 2>/dev/null
 
+  # mediaforge OWNS DestDIR for the duration of a build, so an operator's own is
+  # refused rather than half-honoured. It would be respected through the first
+  # recipe's prepare/configure/build and then gone from the second recipe
+  # onward, because mf_stage_end unsets it -- a build that is neither what the
+  # operator asked for nor a clean one, with nothing said about it. DESTDIR is
+  # THE packaging-standard variable, so a distro packager wrapping mediaforge
+  # plausibly has one set.
+  if [ -n "${DESTDIR:-}" ]; then
+    die "DESTDIR is set in the environment ($DESTDIR). mediaforge owns it for staged installs (lib/stage.sh) and cannot honour yours: unset it, and use 'install --prefix=PATH' to choose where the build is installed."
+  fi
+
+  # Preflight the stamps against the workspace before building anything
+  # (GH-59). A stamp whose artifact is gone is not evidence that a recipe was
+  # built, and leaving it in place is what makes the next build SKIP that
+  # recipe and fail later at FFmpeg's configure or link step, nowhere near the
+  # cause.
+  #
+  # Drifted stamps are DROPPED here rather than merely reported. Dropping one
+  # costs a rebuild of exactly that recipe; keeping one costs a build that
+  # cannot work and whose failure points somewhere else. Nothing the operator
+  # authored is touched -- a stamp is mediaforge's own bookkeeping. The
+  # reconcile subcommand is the read-only view of the same check.
+  #
+  # A DRY RUN reports and drops nothing. Its contract is "show what would
+  # build", and deleting files is not something a flag that promises to touch
+  # nothing may do -- the per-recipe dry-run short-circuit is in run_recipe,
+  # far below this point, so without this branch `build --dry-run` would prune.
+  if [ "${DRY_RUN:-false}" = true ]; then
+    _rc_quiet=true
+    _reconcile_stamps
+    if [ "$_rc_drifted" -gt 0 ]; then
+      warn "$_rc_drifted build stamp(s) vouch for artifacts that are gone."
+      warn "  A real build would drop them and rebuild those recipes."
+    fi
+  else
+    mf_build_preflight_stamps
+  fi
+
   # Reset the pc-skip queue at the start of every build. Recipes with
   # PKG_TRANSITIVE_UTIL=true append their .pc filenames; recipes/ffmpeg.sh
   # finalizes the queue after FFmpeg's configure has consumed the .pc files.
@@ -1040,6 +1079,196 @@ cmd_check_shadowers() {
   exit 0
 }
 
+# ─── Reconcile ───────────────────────────────────────────────────────
+#
+# Compare the workspace's build stamps against the artifacts they vouch for
+# (GH-59). Two directions, and they are not equally serious:
+#
+#   stamp present, artifact GONE   — the next build SKIPS a recipe it did not
+#                                    actually build, and the failure surfaces at
+#                                    FFmpeg's configure or link step, far from
+#                                    the cause. This is the direction worth a
+#                                    gate, and the one --prune fixes.
+#   artifact present, stamp GONE   — a silent rebuild of work already done.
+#                                    Wasteful, not incorrect, so it is reported
+#                                    and nothing more.
+#
+# Reading recipe metadata out of _order.conf follows cmd_check_shadowers, which
+# audits the same workspace from the other end.
+
+# Report each stamp as verified / drifted / unverifiable, printing the missing
+# paths for the drifted ones. Sets _rc_drifted to the count and _rc_drifted_list
+# to the stamp paths, one per line.
+#
+# The list is what --prune acts on, rather than prune re-deriving "which stamps
+# are drifted" from the filesystem a second time. One decision, made once: a
+# second copy of the rule would be free to disagree with the report the operator
+# just read, and prune is a DELETE.
+_reconcile_stamps() {
+  _rc_drifted=0
+  _rc_verified=0
+  _rc_unverifiable=0
+  _rc_drifted_list=""
+
+  for _rc_stamp in "$PREFIX/.stamps"/*; do
+    [ -f "$_rc_stamp" ] || continue
+    _rc_name=$(basename "$_rc_stamp")
+
+    # An empty stamp is a stamp with no manifest, not a stamp with no files:
+    # every stamp written before GH-59 is empty, as is every stamp for a recipe
+    # that installs through a bare shell `cp` and stages nothing. Reporting
+    # those as drift would be a false positive on a majority of a legacy
+    # workspace, which is the fastest way to teach someone to ignore this
+    # command.
+    if [ ! -s "$_rc_stamp" ]; then
+      _rc_unverifiable=$((_rc_unverifiable + 1))
+      [ "$_rc_quiet" = true ] || log "  [unverifiable] $_rc_name — stamp carries no manifest"
+      continue
+    fi
+
+    # Newline-separated, and filtered by the same helper lib/stage.sh uses to
+    # keep a manifest sound -- one definition of "is this recorded path still
+    # there", asked here in the opposite polarity. Space-separated with `for`
+    # would word-split a path containing a space into two bogus report lines and
+    # glob one containing `*` against the cwd; the drift DECISION would still be
+    # right, but the report is what the operator acts on.
+    _rc_missing=$(mf_stage_filter_paths missing < "$_rc_stamp")
+
+    if [ -n "$_rc_missing" ]; then
+      _rc_drifted=$((_rc_drifted + 1))
+      _rc_drifted_list="$_rc_drifted_list$_rc_stamp
+"
+      warn "  [DRIFTED]      $_rc_name — the stamp vouches for files that are gone:"
+      printf '%s\n' "$_rc_missing" | while IFS= read -r _rc_m; do
+        [ -n "$_rc_m" ] || continue
+        warn "                   $_rc_m"
+      done
+    else
+      _rc_verified=$((_rc_verified + 1))
+      [ "$_rc_quiet" = true ] || log "  [verified]     $_rc_name"
+    fi
+  done
+}
+
+# The other direction: a recipe with no stamp whose .pc is nonetheless sitting
+# in the workspace. Heuristic by construction — it can only ask about recipes
+# that ship a .pc, and PKG_PC_FILES defaults to PKG_NAME — so it is advisory and
+# never gates anything.
+_reconcile_orphan_artifacts() {
+  _rc_orphans=0
+  while IFS= read -r _rc_line; do
+    [ -z "$_rc_line" ] && continue
+    case "$_rc_line" in '#'*) continue ;; esac
+    _rc_recipe="$SCRIPT_DIR/$_rc_line"
+    [ -f "$_rc_recipe" ] || continue
+
+    _rc_meta=$(sh -c '. "$1" 2>/dev/null; printf "%s\n%s\n" "$PKG_NAME" "${PKG_PC_FILES:-$PKG_NAME}"' -- "$_rc_recipe")
+    _rc_pkg=$(printf '%s\n' "$_rc_meta" | sed -n 1p)
+    _rc_pcs=$(printf '%s\n' "$_rc_meta" | sed -n 2p)
+    [ -n "$_rc_pkg" ] || continue
+
+    _rc_stamped=false
+    for _rc_s in "$PREFIX/.stamps/${_rc_pkg}-"*; do
+      [ -f "$_rc_s" ] && _rc_stamped=true && break
+    done
+    [ "$_rc_stamped" = true ] && continue
+
+    for _rc_pc in $_rc_pcs; do
+      if [ -f "$PREFIX/lib/pkgconfig/${_rc_pc}.pc" ]; then
+        warn "  [lost stamp]   $_rc_pkg — lib/pkgconfig/${_rc_pc}.pc is present with no stamp; it will be rebuilt"
+        _rc_orphans=$((_rc_orphans + 1))
+        break
+      fi
+    done
+  done < "$SCRIPT_DIR/recipes/_order.conf"
+}
+
+# Delete the stamps _reconcile_stamps just reported as drifted.
+#
+# Shared by `reconcile --prune` and the build preflight so the two cannot
+# disagree about which stamps go: the list comes from the run that produced the
+# report the operator read, never from a second walk of the filesystem.
+_reconcile_prune() {
+  printf '%s' "$_rc_drifted_list" | while IFS= read -r _rc_stamp; do
+    [ -n "$_rc_stamp" ] || continue
+    log "Pruning stamp $(basename "$_rc_stamp")"
+    rm -f "$_rc_stamp"
+  done
+}
+
+# Build preflight: drop any stamp whose artifacts are gone, so this build redoes
+# exactly those recipes instead of skipping them (GH-59).
+#
+# Quiet on a clean workspace -- a preflight that prints a line per stamp on
+# every build is one nobody reads.
+mf_build_preflight_stamps() {
+  [ -d "$PREFIX/.stamps" ] || return 0
+  _rc_quiet=true
+  _reconcile_stamps
+  [ "$_rc_drifted" -gt 0 ] || return 0
+  warn "$_rc_drifted build stamp(s) vouch for artifacts that are no longer present."
+  warn "  Dropping them so this build rebuilds those recipes rather than skipping them."
+  _reconcile_prune
+}
+
+cmd_reconcile() {
+  _rc_prune=false
+  _rc_quiet=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --prune) _rc_prune=true ;;
+      --quiet|-q) _rc_quiet=true ;;
+      -h|--help)
+        printf 'Usage: %s reconcile [--prune] [--quiet]\n\n' "$PROGNAME"
+        printf 'Check each build stamp against the artifacts it vouches for.\n'
+        printf 'Reports each stamp as:\n'
+        printf '  [verified]      every path in the stamp is present\n'
+        printf '  [DRIFTED]       the stamp names a path that is gone — the next\n'
+        printf '                  build would SKIP this recipe without building it\n'
+        printf '  [unverifiable]  the stamp carries no manifest (written by an older\n'
+        printf '                  mediaforge, or by a recipe that installs with a\n'
+        printf '                  plain cp and so stages nothing)\n\n'
+        printf '  --prune    delete the drifted stamps, so the next build redoes\n'
+        printf '             exactly those recipes\n'
+        printf '  --quiet    report only problems: no per-stamp lines, no summary\n'
+        printf '             (the mediaforge version banner is printed by every\n'
+        printf '              subcommand and is not suppressed here)\n'
+        exit 0 ;;
+      *) die "Unknown option for reconcile: $1" ;;
+    esac
+    shift
+  done
+
+  [ -d "$PREFIX/.stamps" ] || die "No stamps at $PREFIX/.stamps — run '$PROGNAME build' first"
+
+  # --quiet means only problems, and that has to include the framing. A mode
+  # documented as "report only problems" that still prints a header, two blank
+  # lines and a summary on a clean workspace is not quiet, and the help text
+  # would be the false half of the pair.
+  if [ "$_rc_quiet" != true ]; then
+    log "Reconciling $PREFIX/.stamps against the workspace..."
+    log ""
+  fi
+  _reconcile_stamps
+  _reconcile_orphan_artifacts
+  if [ "$_rc_quiet" != true ]; then
+    log ""
+    log "verified: $_rc_verified   drifted: $_rc_drifted   unverifiable: $_rc_unverifiable   lost stamps: $_rc_orphans"
+  fi
+
+  if [ "$_rc_drifted" -gt 0 ]; then
+    if [ "$_rc_prune" = true ]; then
+      _reconcile_prune
+      log "Pruned $_rc_drifted drifted stamp(s). The next build will redo those recipes."
+      exit 0
+    fi
+    warn "$_rc_drifted stamp(s) vouch for artifacts that are gone."
+    warn "  Re-run with --prune to drop them so the next build redoes those recipes."
+    exit 1
+  fi
+  exit 0
+}
+
 # ─── Subcommand Dispatch ─────────────────────────────────────────────
 
 log "mediaforge v$SCRIPT_VERSION"
@@ -1058,6 +1287,7 @@ case "$_cmd" in
   check-updates)  cmd_check_updates "$@" ;;
   makesum)        cmd_makesum "$@" ;;
   check-shadowers) cmd_check_shadowers "$@" ;;
+  reconcile)      cmd_reconcile "$@" ;;
   list-profiles)  cmd_list_profiles "$@" ;;
   help|-h|--help) cmd_help ;;
   version|--version) cmd_version ;;

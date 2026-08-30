@@ -17,6 +17,13 @@ pkg_build() {
 
 pkg_install() {
   run ninja -C build install
+  # Claim lv2's OWN files before any sub-package stamp is written (GH-59).
+  # Attribution is by when a stamp drains the staging accumulator, and the
+  # framework does not get control again until this phase returns -- so without
+  # this line the very first sub-block below (waflib, which installs nothing at
+  # all) would take every file lv2 just installed into .stamps/waflib-b600c92,
+  # and lv2's own stamp would be written empty.
+  mf_stage_claim
 
   _lv2_saved_dir=$(pwd)
 

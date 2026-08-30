@@ -138,6 +138,9 @@ _apply() { # tag  bindir  state
     PATH="$2"; export PATH
     PREFIX="$_tmp/prefix-$_ap_tag"; export PREFIX
     # shellcheck source=lib/utils.sh
+    # SCRIPT_DIR is how lib/utils.sh locates lib/stage.sh (GH-59). mediaforge.sh
+    # sets it from $0; a test sourcing the library directly supplies it itself.
+    SCRIPT_DIR="$ROOT"
     . "$ROOT/lib/utils.sh"
     # shellcheck source=lib/ccache.sh
     . "$ROOT/lib/ccache.sh"

@@ -110,7 +110,39 @@ default_build() {
 }
 
 default_install() {
-  run make install
+  # DESTDIR on the COMMAND LINE, not merely in the environment.
+  #
+  # An assignment inside a makefile beats an environment variable of the same
+  # name; only a command-line assignment beats the makefile. xvidcore ships a
+  # bare `DESTDIR=` in build/generic/platform.inc, so it ignored the exported
+  # one entirely: measured 0 files staged through the environment against 3
+  # through the command line, on the same tree. Nothing failed and nothing
+  # warned -- the recipe installed straight to the live prefix exactly as it did
+  # before staging existed, and only its manifest came out empty, which reads
+  # identically to a recipe that installs with a shell cp.
+  #
+  # `make install DESTDIR=...` is the form the GNU Coding Standards document,
+  # so this is the canonical spelling rather than a workaround for one recipe.
+  if [ -n "${DESTDIR:-}" ]; then
+    run make install DESTDIR="$DESTDIR"
+  else
+    run make install
+  fi
+  # Publish immediately, so a recipe can manipulate what it just installed
+  # (GH-59). Under staging `make install` writes to $DESTDIR, and a recipe that
+  # goes on to touch "$PREFIX/..." in the SAME phase would otherwise act on a
+  # prefix the files have not reached yet.
+  #
+  # That is not hypothetical: recipes/video/xeve.sh and recipes/video/xevd.sh
+  # both call default_install and then `rm -f "$PREFIX/lib/libxeve.so"` to drop
+  # the shared library upstream ships beside the static one. Without this commit
+  # the rm matches nothing, the merge publishes the .so anyway, and FFmpeg's
+  # static link can resolve -lxeve against it -- the exact outcome those two
+  # lines exist to prevent, silently undone.
+  #
+  # A recipe that overrides pkg_install with a raw `ninja -C build install` or
+  # `cmake --install` and then edits $PREFIX must commit for the same reason.
+  mf_stage_commit
 }
 
 default_noop() {
@@ -423,14 +455,61 @@ run_recipe() {
     export CFLAGS
   fi
 
-  # Run phases
+  # Run phases.
+  #
+  # Staging (GH-59) wraps the two INSTALL phases only. DESTDIR is meaningful
+  # nowhere else -- the GNU Coding Standards scope it to install targets -- and
+  # narrowing the window keeps configure and build seeing exactly the
+  # environment they saw before.
+  #
+  # That is true of the PHASES, not of everything that runs inside them. Four
+  # recipes run a full configure+compile within the window (lv2's seven
+  # sub-packages and opencl's ICD loader in pkg_install, libcdio's paranoia in
+  # pkg_post_install, rav1e's cargo cinstall), so their sub-builds see DESTDIR
+  # set. That is harmless for a build that does not install, and correct for one
+  # that does -- but a NEW sub-build whose compile performs an internal install
+  # to an absolute path outside $PREFIX would have it redirected into the stage
+  # and discarded. That is exactly what a widened window did to gettext's
+  # textstyle install before it was reverted, and it is why the window was
+  # narrowed rather than widened.
+  #
+  # mf_stage_pending_reset before rather than after: a recipe that dies mid-build
+  # leaves its accumulator behind, and the next recipe must not inherit it and
+  # write another package's files into its own stamp.
+  mf_stage_pending_reset
+  mf_stage_reserved_reset
   pkg_prepare
   pkg_configure
   pkg_build
-  pkg_install
-  pkg_post_install
 
-  # Mark as done
+  mf_stage_begin
+  pkg_install
+  # Merge BEFORE pkg_post_install, which is the load-bearing ordering here.
+  # Thirteen recipes' post_install reads back or deletes a file pkg_install put
+  # in the live prefix: nine rewrite or rename an installed .pc (chromaprint,
+  # srt, vmaf, openh264, vvenc, x265, xevd, xeve, and shaderc which renames
+  # one), brotli and xvidcore delete shared libraries make install produced,
+  # lcevc reads its own archives back, and libressl asserts libtls.pc exists.
+  # Every one of them would read a path still sitting in the stage if this merge
+  # waited for the stamp.
+  #
+  # CLAIM rather than merely commit: this recipe's own files must be out of
+  # reach before any nested stamp_write can drain them. libcdio builds
+  # libcdio-paranoia in its pkg_post_install and stamps it, which would
+  # otherwise take all ~100 of libcdio's files into the paranoia stamp and leave
+  # libcdio's own stamp empty. See mf_stage_claim.
+  mf_stage_claim
+  pkg_post_install
+  # Catches the two recipes that INSTALL from post_install: x264's
+  # `make install-lib-static` and libcdio's second `make install`. Both honour
+  # DESTDIR, so both stage; without this their files would reach the prefix but
+  # never a manifest. libcdio's paranoia build has already taken its own share
+  # through its own stamp_write, so what this claims is whatever is left.
+  mf_stage_claim
+  mf_stage_end
+
+  # Mark as done, draining this recipe's claimed files into the stamp.
+  mf_stage_restore
   stamp_write "$PKG_NAME" "$PKG_VERSION"
 
   accumulate_ffmpeg_opt
