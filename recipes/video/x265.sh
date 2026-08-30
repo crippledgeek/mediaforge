@@ -83,8 +83,5 @@ pkg_install() {
 }
 
 pkg_post_install() {
-  if [ -n "$LDEXEFLAGS" ]; then
-    _pc="$PREFIX/lib/pkgconfig/x265.pc"
-    awk '/^Libs/ {gsub(/-lgcc_s/, "-lgcc_eh")} {print}' "$_pc" > "$_pc.tmp" && mv "$_pc.tmp" "$_pc"
-  fi
+  mf_pc_static_libgcc x265
 }

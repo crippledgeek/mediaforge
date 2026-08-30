@@ -68,6 +68,12 @@ sh tests/cmake-single-entry.sh
 # flags, six of them in lv2 alone. Grep-based, so it also covers the sites inside stamp_check
 # guards that a behaviour diff cannot reach.
 sh tests/meson-single-entry.sh
+# The .pc sibling of the two above. Eight recipes hand-rolled the same two
+# rewrites -- six byte-identical awk programs appending -lstdc++, two swapping
+# -lgcc_s for -lgcc_eh -- and every one of them ran `awk ... > tmp && mv` with no
+# check that the .pc was there, so a library whose upstream .pc name changed
+# would link without the flag its recipe exists to add and nothing would say so.
+sh tests/pc-rewrite-single-entry.sh
 # Pins dav1d as library-only. FFmpeg links libdav1d.a and never runs the CLI,
 # and dav1d's tools include the system xxhash.h, whose always_inline helpers
 # make the recipe unbuildable below -O2 -- so the setting is what keeps dav1d

@@ -91,6 +91,49 @@ mf_meson() {
   fi
 }
 
+# Rewrite an installed .pc in place, once.
+#
+# Eight recipes did this by hand and in two mechanisms: six appended -lstdc++ to
+# Libs: (chromaprint, vmaf, openh264, vvenc, xeve, xevd) with byte-identical awk
+# programs, and two swapped -lgcc_s for -lgcc_eh under LDEXEFLAGS (srt, x265),
+# guard included. Only the .pc filename varied.
+#
+# All eight shared a silent failure. `awk prog "$_pc" > "$_pc.tmp" && mv ...` on
+# a .pc that is not there fails the awk, skips the mv, and leaves the recipe
+# having quietly not applied its fix -- so a library whose pkg-config name or
+# layout changed upstream would link without the flag the recipe exists to add,
+# and nothing would say so. The existence check is the reason to have one
+# definition rather than eight.
+#
+# The path is the LIVE prefix, not the stage, and that is correct: this runs in
+# pkg_post_install, after the framework has merged what pkg_install staged, and
+# it overwrites a file already named in the recipe's manifest under the same
+# name. See lib/stage.sh on why a create at a live-prefix path would not be.
+mf_pc_rewrite() { # pc-name  awk-program
+  _pc="$PREFIX/lib/pkgconfig/${1}.pc"
+  [ -f "$_pc" ] || die "$PKG_NAME: expected $_pc to rewrite (upstream .pc name or layout changed?)"
+  awk "$2" "$_pc" > "$_pc.tmp" || die "$PKG_NAME: failed to rewrite $_pc"
+  mv "$_pc.tmp" "$_pc" || die "$PKG_NAME: failed to replace $_pc"
+}
+
+# C++ libraries whose upstream .pc omits -lstdc++, which a --static link needs.
+mf_pc_add_stdcxx() { # pc-name
+  # $0 is awk's whole-record variable, so the single quotes are the point and
+  # expanding it would be the bug. The linter cannot see that the argument is an
+  # awk program rather than shell, which it could when awk was called inline
+  # here -- the one thing this extraction costs.
+  # shellcheck disable=SC2016
+  mf_pc_rewrite "$1" '/^Libs:/ && !/-lstdc\+\+/ {$0 = $0 " -lstdc++"} {print}'
+}
+
+# -lgcc_s is the shared unwinder; a fully static executable needs -lgcc_eh.
+# Guarded here rather than at each call site, because both callers carried the
+# same `[ -n "$LDEXEFLAGS" ]` test and a third would have to remember it.
+mf_pc_static_libgcc() { # pc-name
+  [ -n "${LDEXEFLAGS:-}" ] || return 0
+  mf_pc_rewrite "$1" '/^Libs/ {gsub(/-lgcc_s/, "-lgcc_eh")} {print}'
+}
+
 # Default phase functions
 default_configure() {
   if [ "$PKG_CMAKE" = true ]; then
