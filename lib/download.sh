@@ -486,6 +486,18 @@ describe_payload() {
   _dp_desc=$(printf '%s' "$_dp_full" | cut -c1-160)
   [ "$_dp_desc" = "$_dp_full" ] || _dp_desc="$_dp_desc..."
 
+  # The UNTRUNCATED description decides, and the truncated one is only
+  # displayed. Where the cut landed must not decide whether the line prints at
+  # all: file(1) echoes payload-derived text, so a keyword sitting past the cap
+  # would otherwise announce a real archive as "not an archive".
+  #
+  # The trade that buys, stated rather than left to be rediscovered: an origin
+  # can put "archive" past character 160 and SILENCE this diagnostic while the
+  # operator sees only the truncated prefix. That costs a diagnostic line, and
+  # nothing else -- verify_file has already refused the bytes by the time this
+  # runs, and silence here accepts nothing. The reverse (a genuine archive
+  # misdiagnosed) is the failure this function exists to remove, so it is the
+  # one worth paying to avoid.
   case "$_dp_full" in
     # Anything file(1) recognises as an archive: this failure is about the
     # bytes, not about what was served, and there is nothing to add. Two
