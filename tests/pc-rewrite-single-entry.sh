@@ -112,17 +112,27 @@ _verdict missing-pc-is-fatal "$_reasons"
 # build one from PKG_PC_FILES, which recipes already declare. Inert today, which
 # is why it is asserted rather than assumed: the failure mode is a write outside
 # lib/pkgconfig, and nothing else in the tree would notice.
+#
+# A REACHABLE target is planted first, and that is the whole difficulty. With no
+# guard, "../escaped" resolves to $PREFIX/lib/escaped.pc -- and if nothing is
+# there the existence check dies anyway, so an assertion that only looks for
+# `DIED` passes either way. Mutation-found: the first version of this was blind
+# for exactly that reason. So the file exists, and what is asserted is that it
+# comes back UNTOUCHED and that the refusal is the reason given.
 _reasons=""
-for _bad_name in '../../escaped' 'has space' '' 'semi;colon'; do
+_escaped="$_tmp/prefix/lib/escaped.pc"
+printf 'Name: escaped\nLibs: -lescaped\n' > "$_escaped"
+_escaped_before=$(cat "$_escaped")
+for _bad_name in '../escaped' 'has space' '' 'semi;colon'; do
   : > "$_tmp/out"
   if _drive mf_pc_add_stdcxx "$_bad_name" ''; then
     _reasons="$_reasons '$_bad_name' was accepted."
-  elif ! grep -q '^DIED' "$_tmp/out"; then
-    _reasons="$_reasons '$_bad_name' failed without reaching die."
+  elif ! grep -q 'refusing .pc name' "$_tmp/out"; then
+    _reasons="$_reasons '$_bad_name' was rejected for the wrong reason: $(tail -1 "$_tmp/out")"
   fi
 done
-[ -e "$_tmp/prefix/lib/escaped.pc" ] || [ -e "$_tmp/escaped.pc" ] \
-  && _reasons="$_reasons a traversing name wrote outside lib/pkgconfig."
+[ "$(cat "$_escaped")" = "$_escaped_before" ] \
+  || _reasons="$_reasons a traversing name rewrote a file outside lib/pkgconfig."
 _verdict pc-name-must-be-a-bare-name "$_reasons"
 
 # --- -lstdc++: appended once, and only to Libs: -----------------------------
