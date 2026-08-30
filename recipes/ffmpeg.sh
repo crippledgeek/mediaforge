@@ -87,7 +87,31 @@ eval "$_ffconf" > "$PREFIX/.logs/ffmpeg-configure.log" 2>&1 || {
 }
 
 run make -j "$MJOBS"
-run make install
+
+# FFmpeg's own install is staged and stamped like every recipe's, so the one
+# package that writes into the workspace without a manifest stops being an
+# exception (GH-77). Before this, every file FFmpeg installed was claimed by no
+# stamp -- 248 of them on a full build, and the entire reason a prefix-side
+# orphan audit had to be advisory rather than a gate.
+#
+# DESTDIR on the command line, matching default_install and the GNU Coding
+# Standards. FFmpeg honours the environment too -- probed on 8.0.1, 248 files
+# staged either way, and ffbuild/config.mak references $(DESTDIR) without
+# assigning it -- but the command-line form is the one that survives an upstream
+# that starts assigning it, and that failure is silent.
+#
+# The stamp is EVIDENCE, NOT A GATE. Nothing consults it, and nothing should:
+# FFmpeg is the final target, and a stamp keyed on the version alone cannot
+# stand for a build whose configure line changes with --enable-gpl, --tls=, and
+# every other selector. Skipping on it would silently ignore the flags the
+# operator just changed. It is rewritten on every build, so a drifted one heals
+# itself.
+mf_stage_begin
+run make install DESTDIR="$DESTDIR"
+# Commits as well as records -- the `file` read-back below reads $PREFIX, and
+# without the merge the binary is still sitting in the stage.
+stamp_write "ffmpeg" "$FFMPEG_VERSION"
+mf_stage_end
 
 # Verify the binary
 if command_exists "file"; then
