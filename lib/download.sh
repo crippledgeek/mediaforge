@@ -164,7 +164,7 @@ fetch_git() {
     die "fetch_git: '$_commit' is not a 40-character commit SHA. Pin a commit, not a tag or branch — a tag is mutable server-side and authenticates nothing."
   fi
 
-  if [ -d "$_dest/.git" ]; then
+  if mf_is_git_clone "$_dest"; then
     _have=$(git -C "$_dest" rev-parse HEAD 2>/dev/null || printf '')
     if [ "$_have" = "$_commit" ]; then
       log "$_dest already at $_commit"

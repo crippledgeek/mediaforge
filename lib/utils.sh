@@ -35,6 +35,21 @@ mf_printable() {
   fi
 }
 
+# "Is this directory a git clone?" -- asked by fetch_git before it decides a
+# destination is reusable, and by lib/cleanup.sh before it decides one is
+# prunable. Those two answers MUST agree: a directory cleanup keeps is one
+# fetch_git will reuse, and one cleanup prunes is one fetch_git would have
+# replaced anyway. They agreed by coincidence while the test was written out at
+# three call sites, and a review found the third had already drifted out of
+# reach of the assertion meant to watch it.
+#
+# `-d` and not `-e`: a worktree or submodule checkout has .git as a FILE, which
+# this reads as "not a clone". That is deliberate rather than overlooked --
+# fetch_git replaces any destination failing this same test, so answering
+# otherwise would keep a directory only until the next build, at the cost of the
+# two answers disagreeing. Nothing lib/download.sh creates has that shape.
+mf_is_git_clone() { [ -d "$1/.git" ]; }
+
 # Logging
 log()  { printf '[mediaforge] %s\n' "$(mf_printable "$*")"; }
 warn() { printf '[mediaforge] WARNING: %s\n' "$(mf_printable "$*")" >&2; }

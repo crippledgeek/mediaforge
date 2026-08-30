@@ -76,19 +76,10 @@ workspace_cleanup() {
 # from. An entry carrying .git is a clone rather than an unpacked archive:
 # re-creating it needs the forge, so it stays on the keep side.
 #
-# `-d` on the .git, and DELIBERATELY the same test fetch_git makes before
-# deciding a destination is reusable (lib/download.sh, `if [ -d "$_dest/.git" ]`
-# ... else "exists but is not a git clone, replacing it"). The two must agree:
-# an entry this keeps is one fetch_git will reuse, and an entry this prunes is
-# one fetch_git would have replaced anyway, so nothing is lost that was going to
-# survive.
-#
-# That matters for the shape it gets wrong. A worktree or submodule checkout has
-# .git as a FILE, and `-d` reads that as "not a clone" -- but fetch_git reads it
-# the same way and rm -rf's it on the next build, so answering `-e` here would
-# only keep it until then, while putting the two predicates out of step. The
-# agreement is silent, so tests/clean-modes.sh asserts it rather than leaving it
-# to be rediscovered.
+# The clone test is mf_is_git_clone (lib/utils.sh), which fetch_git calls too --
+# see there for why the two must agree and why the predicate is `-d`. It is a
+# shared function rather than a repeated `[ -d ... ]` because it was repeated,
+# and the repetition had already outgrown the assertion watching it.
 #
 # Entries that are themselves symlinks are left alone entirely: what one points
 # at is not ours to judge, and `rm -rf` on it would remove the link while the
@@ -103,7 +94,7 @@ prune_extracted_sources() {
   [ -d "$DISTDIR" ] || return 0
   _pruned=0
   for _entry in "$DISTDIR"/*; do
-    if [ -d "$_entry" ] && [ ! -L "$_entry" ] && [ ! -d "$_entry/.git" ]; then
+    if [ -d "$_entry" ] && [ ! -L "$_entry" ] && ! mf_is_git_clone "$_entry"; then
       # `${_entry:?}` for the reason lib/download.sh writes
       # `rm -rf "${DISTDIR:?}/${_dir:?}"`: not because this one can go empty --
       # it is the shell's own glob expansion and the -d above has already held
@@ -135,7 +126,7 @@ describe_cached_assets() {
   for _entry in "$DISTDIR"/*; do
     if [ -f "$_entry" ]; then
       _downloads=$((_downloads + 1))
-    elif [ -d "$_entry/.git" ]; then
+    elif mf_is_git_clone "$_entry"; then
       _clones=$((_clones + 1))
     fi
   done

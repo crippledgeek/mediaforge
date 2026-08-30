@@ -122,7 +122,7 @@ if [ "$_have" = false ]; then
             bare-operand-is-rejected end-of-options-does-not-smuggle-past-the-parser \
             default-removes-the-unpacked-sources default-keeps-git-clones \
             all-says-what-it-discards-before-discarding-it default-says-what-it-kept \
-            clone-predicate-matches-fetch-git \
+            clone-predicate-has-one-definition \
             help-names-the-build-tree help-names-the-cache; do
     _bad "$_a" "the workspace-only default is absent — claim would be vacuous"
   done
@@ -259,22 +259,37 @@ else
 fi
 
 # --- the coupling nothing else would notice ---------------------------------
-# prune_extracted_sources decides "is this a clone" with the SAME test fetch_git
-# uses to decide "is this destination reusable". They have to agree: if cleanup
-# kept a shape fetch_git rejects, the kept directory would be deleted by the next
-# build anyway; if cleanup pruned a shape fetch_git reuses, a bare `clean` would
-# cost a re-clone. Neither is visible from either file alone, and both read
-# correctly on their own -- so this asserts the agreement rather than the
-# spelling of either.
-# `[$]` rather than a bare `$`: this is a regex, so the bracket form is how a
-# literal dollar is written -- and it is also what makes the pattern honestly
-# not-an-expansion, rather than an expansion silenced with a disable comment.
-_cleanup_pred=$(grep -c -- '-d "[$]_entry/[.]git"' lib/cleanup.sh || true)
-_fetch_pred=$(grep -c -- '-d "[$]_dest/[.]git"' lib/download.sh || true)
-if [ "$_cleanup_pred" -ge 1 ] && [ "$_fetch_pred" -ge 1 ]; then
-  _pass clone-predicate-matches-fetch-git
+# Cleanup decides "is this a clone" with the same test fetch_git uses to decide
+# "is this destination reusable". They have to agree: if cleanup kept a shape
+# fetch_git rejects, the kept directory would be deleted by the next build
+# anyway; if cleanup pruned a shape fetch_git reuses, a bare `clean` would cost a
+# re-clone. Neither is visible from either file alone, and both read correctly on
+# their own.
+#
+# So the assertion is that there is ONE definition and no private copies -- not
+# that two greps happen to match. The first version of this assertion counted
+# occurrences per file, and a THIRD copy inside describe_cached_assets satisfied
+# the count while the prune's own predicate drifted: mutating `-d` to `-e` left
+# this green. Convergence is the only form of the claim a grep can hold.
+# Counted through one `cat` rather than per-file arithmetic. The first version
+# summed `grep -c` across three files and passed `--no-filename` AFTER `--`,
+# where it is an operand and not an option: grep then looked for a file by that
+# name, printed filename-prefixed counts for the real ones, and the
+# `paste -sd+ | bc` behind it produced nothing at all. So the assertion reported
+# a failure it had not measured -- the shape this whole file exists to prevent,
+# in its own code.
+_defs=$(grep -c '^mf_is_git_clone()' lib/utils.sh || true)
+_raw=$(cat lib/utils.sh lib/cleanup.sh lib/download.sh | grep -c -- '-d "[$][A-Za-z0-9_]*/[.]git"' || true)
+_users=$(cat lib/cleanup.sh lib/download.sh | grep -c 'mf_is_git_clone "' || true)
+if [ "$_defs" != 1 ]; then
+  _bad clone-predicate-has-one-definition "expected exactly one mf_is_git_clone definition in lib/utils.sh, found $_defs"
+elif [ "$_raw" != 1 ]; then
+  # The one permitted `-d ... /.git` is inside mf_is_git_clone itself.
+  _bad clone-predicate-has-one-definition "$_raw raw .git directory tests across lib/ -- a call site is carrying its own copy again"
+elif [ "$_users" -lt 3 ]; then
+  _bad clone-predicate-has-one-definition "only $_users call sites use mf_is_git_clone; prune, the counter and fetch_git should all be on it"
 else
-  _bad clone-predicate-matches-fetch-git "cleanup tests .git $_cleanup_pred time(s), fetch_git $_fetch_pred -- one changed shape without the other"
+  _pass clone-predicate-has-one-definition
 fi
 
 # --- the help text ----------------------------------------------------------
