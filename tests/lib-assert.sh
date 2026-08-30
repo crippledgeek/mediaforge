@@ -198,7 +198,12 @@ _glob_not() { # name  actual  glob  detail-prefix
 # grep should have caught. A caller asking the opposite question -- "the code
 # must CONTAIN this" -- has to consider it, which is why it is stated here
 # rather than left to be rediscovered.
-_code_only() { # file
+# `-` reads stdin, for a caller that has already assembled the text -- slicing a
+# function's body out first, say. Without it such a caller inlines the sed and
+# there is a seventh spelling of the strip in the tree, which is what this
+# helper exists to prevent. sed spells stdin `-` itself, so this is a
+# pass-through rather than a special case.
+_code_only() { # file, or - for stdin
   sed 's/[[:space:]]*#.*$//' "$1"
 }
 
