@@ -123,6 +123,8 @@ _fixture() { # name  dir
       : > "$2/meson-$PKG_VERSION_MESON/mesonbuild/__init__.py" ;;
     quirc)
       mkdir -p "$2/lib"; : > "$2/lib/quirc.h"; : > "$2/libquirc.a" ;;
+    shaderc)
+      : ;;  # its input is the .pc planted in the live prefix, not a source file
     vapoursynth)
       mkdir -p "$2/include"; : > "$2/include/VapourSynth4.h" ;;
     *) return 1 ;;
@@ -154,6 +156,35 @@ _unseed() { # prefix-root  $PREFIX-relative-dir
 # configure and a build to observe a copy. The recipe file is SOURCED, so its
 # top-level code (amf's layout case, quirc's version guard) runs as it does in a
 # real build.
+# What lib/framework.sh gives a recipe, reduced to what its install phases
+# reach for. Defined once because two drivers need it: the table below, and the
+# libressl block at the end, whose phase merges mid-flight and so cannot use the
+# same assertions.
+#
+# The phase defaults mirror reset_recipe's, and must be in place BEFORE the
+# recipe is sourced so it can override them -- a recipe that defines neither
+# (shaderc) is otherwise not runnable at all. Function definitions are global in
+# POSIX sh, so making them here reaches the caller.
+#
+# Everything here is invoked from the sourced recipe, which the linter's call
+# graph does not reach: `run` by most install phases, `die` by their failure
+# arms, `ffmpeg_version_ge` by quirc at source time, `warn`/`log` by libressl.
+# `default_noop` is not reached by these two phases -- meson uses it for
+# configure and build -- and is here so a recipe that grows one fails on its own
+# terms rather than on a missing stub.
+# shellcheck disable=SC2329
+_recipe_stubs() {
+  die()  { printf 'die: %s\n' "$*" >&2; exit 1; }
+  run()  { "$@"; }
+  log()  { printf 'log: %s\n' "$*"; }
+  warn() { printf 'warn: %s\n' "$*" >&2; }
+  default_noop()     { :; }
+  default_install()  { :; }
+  pkg_install()      { default_install; }
+  pkg_post_install() { default_noop; }
+  ffmpeg_version_ge() { return 0; }
+}
+
 _install_into() { # recipe-path  fixture-name  work-dir
   (
     set -eu
@@ -168,33 +199,16 @@ _install_into() { # recipe-path  fixture-name  work-dir
     # its own -- which is the precondition the added mkdir/install -d calls
     # exist for. Pre-creating it would hide their removal.
     mkdir -p "$PREFIX" "$DESTDIR"
-    # shellcheck disable=SC2329
-    die() { printf 'die: %s\n' "$*" >&2; exit 1; }
-    # Invoked from the sourced recipe, which the linter's call graph does not
-    # reach: `run` by most install phases, `die` by their failure arms, and
-    # `ffmpeg_version_ge` by quirc at source time. `default_noop` is NOT reached
-    # by these two phases -- meson uses it for configure/build -- and is here so
-    # that a recipe which grows one fails on its own terms rather than on a
-    # missing stub.
-    # shellcheck disable=SC2329
-    run() { "$@"; }
-    # shellcheck disable=SC2329
-    default_noop() { :; }
-    # shellcheck disable=SC2329
-    ffmpeg_version_ge() { return 0; }
+    _recipe_stubs
     . "$ROOT/lib/stage.sh"
     # shellcheck disable=SC1090
     . "$ROOT/$1"
     cd "$3/src/$2"
     pkg_install
-    # bzip2 writes its hand-made .pc here, and post_install runs inside the same
-    # staging window (lib/framework.sh claims again after it), so it is part of
-    # what this recipe stages. An `&&` here would make the subshell's status the
-    # test for a phase most recipes do not define, and report every one of them
-    # as a failed install.
-    if command -v pkg_post_install >/dev/null 2>&1; then
-      pkg_post_install
-    fi
+    # post_install runs inside the same staging window (lib/framework.sh claims
+    # again after it), so what it writes is part of what this recipe stages --
+    # bzip2's hand-made .pc, shaderc's renamed one.
+    pkg_post_install
   ) >"$3/out" 2>&1
 }
 
@@ -207,16 +221,20 @@ while read -r _name _recipe _expected; do
   [ -n "$_name" ] || continue
   _work="$_tmp/$_name"
   _fixture "$_name" "$_work/src/$_name" || { _bad "$_name-installs-into-the-stage" "no fixture"; continue; }
-  # amf and meson keep an `rm -rf` aimed at the LIVE prefix while installing to
-  # the stage, because the merge only ever adds and neither would otherwise drop
-  # a header or a module the new version stopped shipping. That split is the
-  # diff's most delicate decision and an empty prefix cannot observe it: a
-  # mutation pointing either rm at the stage leaves every other assertion green.
-  # So the stale file is planted, and its removal asserted.
+  # Three recipes delete from the LIVE prefix while installing to the stage, and
+  # an empty prefix cannot observe that: a mutation aiming any of those deletes
+  # at the stage instead leaves every other assertion green. So the file each
+  # one must remove is planted, and its removal asserted.
+  #
+  # amf and meson drop what a previous version installed and this one does not,
+  # since the merge only ever adds. shaderc's is different in kind and the same
+  # to test: the .pc it replaces is its own INPUT, so planting it is the phase's
+  # precondition as well as the thing that must be gone afterwards.
   _stale=""
   case "$_name" in
-    amf)   _stale=include/AMF/dropped-by-upstream.h ;;
-    meson) _stale=share/meson/mesonbuild/dropped_by_upstream.py ;;
+    amf)     _stale=include/AMF/dropped-by-upstream.h ;;
+    meson)   _stale=share/meson/mesonbuild/dropped_by_upstream.py ;;
+    shaderc) _stale=lib/pkgconfig/shaderc_static.pc ;;
   esac
   if [ -n "$_stale" ]; then
     mkdir -p "$_work/prefix/${_stale%/*}"
@@ -251,6 +269,7 @@ gsm recipes/audio/gsm.sh include/gsm/gsm.h lib/libgsm.a
 ladspa recipes/other/ladspa.sh include/ladspa.h
 meson recipes/tools/meson.sh share/meson/meson.py share/meson/mesonbuild/__init__.py bin/meson
 quirc recipes/other/quirc.sh include/quirc.h lib/libquirc.a lib/pkgconfig/libquirc.pc
+shaderc recipes/hwaccel/shaderc.sh lib/pkgconfig/shaderc.pc
 vapoursynth recipes/other/vapoursynth.sh include/vapoursynth/VapourSynth4.h
 TABLE
 
@@ -280,6 +299,50 @@ quirc recipes/other/quirc.sh lib/pkgconfig/libquirc.pc
 bzip2 recipes/syslib/bzip2.sh lib/pkgconfig/bzip2.pc
 meson recipes/tools/meson.sh bin/meson
 TABLE
+
+# --- the one phase that merges mid-flight ----------------------------------
+# libressl cannot use the assertions above, and the difference is the point.
+# Its post_install writes cert.pem -- the one file whose absence fails TLS
+# closed at handshake time, with no SSL_CERT_FILE to fall back on -- and then,
+# ten lines later, READS THAT PATH BACK to decide whether to advise the
+# operator. Staging the write without committing would make that advisory fire
+# on every build against a file still sitting in the stage.
+#
+# So two things are asserted together: the file was STAGED (which is what puts
+# it in the manifest, and is what fails on the merge base, where the cp went
+# straight to the live prefix), and the advisory stayed silent (which is what
+# fails if the commit is dropped). The stage is at its REAL path here, inside
+# the prefix, because mf_stage_commit is what is under test rather than stubbed.
+_w="$_tmp/libressl"
+mkdir -p "$_w/prefix/.stage/current" "$_w/prefix/lib/pkgconfig" "$_w/src"
+: > "$_w/prefix/lib/pkgconfig/libtls.pc"
+: > "$_w/src/cert.pem"
+(
+  set -eu
+  PREFIX="$_w/prefix"
+  DESTDIR="$_w/prefix/.stage/current"
+  OPENSSLDIR=""
+  export DESTDIR
+  _recipe_stubs
+  # The real one probes the host; pinning it to the prefix fallback is what puts
+  # the read-back on the very path the cp writes, which is the case that matters.
+  # shellcheck disable=SC2329
+  resolve_openssldir() { OPENSSLDIR_RESOLVED="$PREFIX/etc/ssl"; }
+  . "$ROOT/lib/stage.sh"
+  # shellcheck disable=SC1091
+  . "$ROOT/recipes/crypto/libressl.sh"
+  cd "$_w/src"
+  pkg_post_install
+  printf 'PENDING:%s\n' "$MF_STAGE_PENDING"
+) >"$_w/out" 2>&1 || true
+_reasons=""
+grep -q '^PENDING:.*etc/ssl/cert.pem' "$_w/out" \
+  || _reasons=" cert.pem was never staged, so no manifest names the file whose absence fails TLS closed: $(tail -2 "$_w/out" | tr '\n' ' ')"
+[ -e "$_w/prefix/etc/ssl/cert.pem" ] \
+  || _reasons="$_reasons it never reached the prefix either."
+grep -q 'baked trust store' "$_w/out" \
+  && _reasons="$_reasons the advisory fired against a file the phase had just written, so the commit is missing."
+_verdict libressl-stages-and-commits-its-trust-store "$_reasons"
 
 # --- the class, not the instances ------------------------------------------
 # Every recipe converted here was found by hand, twice: the issue's survey
