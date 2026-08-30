@@ -91,6 +91,79 @@ mf_meson() {
   fi
 }
 
+# Rewrite an installed .pc in place, once.
+#
+# Eight recipes did this by hand and in two mechanisms: six appended -lstdc++ to
+# Libs: (chromaprint, vmaf, openh264, vvenc, xeve, xevd) with byte-identical awk
+# programs, and two swapped -lgcc_s for -lgcc_eh under LDEXEFLAGS (srt, x265),
+# guard included. Only the .pc filename varied.
+#
+# All eight shared a silent failure. `awk prog "$_pc" > "$_pc.tmp" && mv ...` on
+# a .pc that is not there fails the awk, skips the mv, and leaves the recipe
+# having quietly not applied its fix -- so a library whose pkg-config name or
+# layout changed upstream would link without the flag the recipe exists to add,
+# and nothing would say so. The existence check is the reason to have one
+# definition rather than eight.
+#
+# The path is the LIVE prefix, not the stage, and that is correct: this runs in
+# pkg_post_install, after the framework has merged what pkg_install staged, and
+# it overwrites a file already named in the recipe's manifest under the same
+# name. See lib/stage.sh on why a create at a live-prefix path would not be.
+# Leading underscore: framework-INTERNAL. It takes an arbitrary awk program, so
+# a recipe calling it directly is back to N spellings of the rewrite with only
+# the existence check shared -- the thing this replaced. The two wrappers below
+# are the recipe-facing surface, and tests/pc-rewrite-single-entry.sh asserts no
+# recipe names this one.
+#
+# _mf_pc, not _pc: POSIX sh has no locals, and lib/install.sh and mediaforge.sh
+# both use a bare _pc as a loop variable. Unreachable today -- neither loop runs
+# a recipe phase -- but the two neighbours in this file namespace theirs (_mf_bt,
+# _mf_builddir) for the same reason.
+_mf_pc_rewrite() { # pc-name  awk-program
+  # An allowlist, not a blocklist, because $1 becomes a PATH. Every caller
+  # passes a literal today and the wrappers are the only callers, so this is
+  # inert -- but PKG_PC_FILES already exists in the tree as a recipe-DECLARED
+  # value, so a future caller interpolating one is a short step, and the cost of
+  # being wrong is a write outside lib/pkgconfig. `..` is rejected separately
+  # because `.` has to be allowed: real .pc names carry versions (gtk+-3.0).
+  case "$1" in
+    ''|*[!A-Za-z0-9._+-]*|*..*)
+      die "$PKG_NAME: refusing .pc name '$1' -- expected a bare name, not a path" ;;
+  esac
+  _mf_pc="$PREFIX/lib/pkgconfig/${1}.pc"
+  [ -f "$_mf_pc" ] || die "$PKG_NAME: expected $_mf_pc to rewrite (upstream .pc name or layout changed?)"
+  awk "$2" "$_mf_pc" > "$_mf_pc.tmp" || { rm -f "$_mf_pc.tmp"; die "$PKG_NAME: failed to rewrite $_mf_pc"; }
+  mv "$_mf_pc.tmp" "$_mf_pc" || { rm -f "$_mf_pc.tmp"; die "$PKG_NAME: failed to replace $_mf_pc"; }
+}
+
+# C++ libraries whose upstream .pc omits -lstdc++, which a --static link needs.
+#
+# For a .pc the BUILD GENERATES, patch the generator in pkg_prepare instead --
+# recipes/image/libjxl.sh does that for this same problem. This is for one
+# already installed, which is a different operation on a different artifact.
+mf_pc_add_stdcxx() { # pc-name
+  # $0 is awk's whole-record variable, so the single quotes are the point and
+  # expanding it would be the bug. The linter cannot see that the argument is an
+  # awk program rather than shell, which it could when awk was called inline
+  # here -- the one thing this extraction costs.
+  # shellcheck disable=SC2016
+  _mf_pc_rewrite "$1" '/^Libs:/ && !/-lstdc\+\+/ {$0 = $0 " -lstdc++"} {print}'
+}
+
+# -lgcc_s is the shared unwinder; a fully static executable needs -lgcc_eh.
+# Guarded here rather than at each call site, because both callers carried the
+# same `[ -n "$LDEXEFLAGS" ]` test and a third would have to remember it.
+#
+# The guard costs the safety net asymmetrically, and that is deliberate rather
+# than an oversight: mf_pc_add_stdcxx dies the moment its .pc name rots
+# upstream, while this one returns before looking, so the same rot in srt's or
+# x265's .pc surfaces only on an --enable-static run. Matching the old
+# semantics -- a non-static build had no reason to touch those files.
+mf_pc_static_libgcc() { # pc-name
+  [ -n "${LDEXEFLAGS:-}" ] || return 0
+  _mf_pc_rewrite "$1" '/^Libs/ {gsub(/-lgcc_s/, "-lgcc_eh")} {print}'
+}
+
 # Default phase functions
 default_configure() {
   if [ "$PKG_CMAKE" = true ]; then

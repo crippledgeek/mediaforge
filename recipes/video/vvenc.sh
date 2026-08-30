@@ -31,6 +31,5 @@ pkg_configure() {
 
 # vvenc is C++ but its pkgconfig omits -lstdc++ for static linking.
 pkg_post_install() {
-  _pc="$PREFIX/lib/pkgconfig/libvvenc.pc"
-  awk '/^Libs:/ && !/-lstdc\+\+/ {$0 = $0 " -lstdc++"} {print}' "$_pc" > "$_pc.tmp" && mv "$_pc.tmp" "$_pc"
+  mf_pc_add_stdcxx libvvenc
 }

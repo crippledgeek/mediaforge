@@ -24,6 +24,5 @@ pkg_install() {
 
 # openh264 is C++ but its pkgconfig omits -lstdc++ for static linking
 pkg_post_install() {
-  _pc="$PREFIX/lib/pkgconfig/openh264.pc"
-  awk '/^Libs:/ && !/-lstdc\+\+/ {$0 = $0 " -lstdc++"} {print}' "$_pc" > "$_pc.tmp" && mv "$_pc.tmp" "$_pc"
+  mf_pc_add_stdcxx openh264
 }

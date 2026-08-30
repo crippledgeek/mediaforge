@@ -11,6 +11,5 @@ PKG_CMAKE_FLAGS="-DBUILD_TOOLS=OFF -DBUILD_TESTS=OFF -DFFT_LIB=kissfft"
 
 # chromaprint is C++ but its pkgconfig omits -lstdc++ for static linking
 pkg_post_install() {
-  _pc="$PREFIX/lib/pkgconfig/libchromaprint.pc"
-  awk '/^Libs:/ && !/-lstdc\+\+/ {$0 = $0 " -lstdc++"} {print}' "$_pc" > "$_pc.tmp" && mv "$_pc.tmp" "$_pc"
+  mf_pc_add_stdcxx libchromaprint
 }
