@@ -81,7 +81,7 @@ Checksum verification (loud; never persisted to the stored choice matrix):
                             (repeatable, comma-separated ok)
 
 Clean options (used by the clean subcommand):
-  --dist                     Also remove the downloaded archives and git clones
+  --dist                    Also remove the downloaded archives and git clones
                             in packages/, which only an upstream can serve again
 
 Install/uninstall options:

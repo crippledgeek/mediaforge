@@ -470,10 +470,11 @@ describe_payload() {
   # payload here is whatever an origin chose to serve. Printed raw, an ANSI
   # escape inside a "description" rewrites the very line the operator is
   # reading to diagnose the failure. So it is reduced to printable characters
-  # by mf_printable (lib/utils.sh, which every reporter now shares) and capped
+  # by mf_printable_line -- the single-line form, because unlike our own
+  # messages this text could otherwise forge a line of its own -- and capped
   # -- a diagnosis is one line, and a crafted one is otherwise as long as the
   # attacker likes.
-  _dp_full=$(mf_printable "$(file -b "$_dp_file" 2>/dev/null)")
+  _dp_full=$(mf_printable_line "$(file -b "$_dp_file" 2>/dev/null)")
   [ -n "$_dp_full" ] || return 0
 
   # The cap is MARKED. A description cut at 160 characters otherwise ends

@@ -14,9 +14,20 @@
 # reason (the payload there is chosen by whoever answers the request); it now
 # calls this, so the rule exists once.
 #
-# One `tr` per reported line. A build's log lines are a few thousand against
-# hours of compilation, and run() already forks per command, so the cost is not
-# measurable against what it protects.
+# NEWLINE IS RETAINED. `[:print:]` does not include it, and `tr -d` deletes
+# rather than replaces, so stripping it does not merely join two lines -- it
+# jams the last word of one against the first of the next ("hash file X:line two
+# here"). Nineteen calls across lib/ pass deliberately multi-line text, among
+# them fetch_git's three-line tag-vs-commit instruction, and the first version of
+# this helper mangled every one of them: a hardening that damaged the operator
+# surface it was added to protect. A newline cannot move the cursor back over
+# what is already printed, which is the threat here, so it is not the character
+# to spend that on. CR and ESC stay deleted.
+#
+# One `tr` per reported line, and log() is the hot caller rather than run(). A
+# full build reports a few thousand lines against hours of compilation, so the
+# cost is not measurable -- but it is this function's own cost, not one already
+# being paid elsewhere.
 #
 # The `command -v` is not defensive decoration: tests/ccache.sh runs mediaforge
 # under a sandbox PATH holding only the binaries the case is about, and without
@@ -29,7 +40,20 @@
 # builtin, so asking costs no fork.
 mf_printable() {
   if command -v tr >/dev/null 2>&1; then
-    printf '%s' "$*" | LC_ALL=C tr -dc '[:print:][:blank:]'
+    printf '%s' "$*" | LC_ALL=C tr -dc '[:print:][:blank:]\n'
+  else
+    printf '%s' "$*"
+  fi
+}
+
+# The same filter for text whose author is not us. describe_payload reports what
+# an origin chose to serve, and a retained newline there would let that text
+# forge a line of its own -- a convincing `[mediaforge] ...` one. Its output is
+# a single capped line by construction, so collapsing is free; nothing else
+# should use this, because for our own messages the newline is the formatting.
+mf_printable_line() {
+  if command -v tr >/dev/null 2>&1; then
+    mf_printable "$*" | tr -d '\n'
   else
     printf '%s' "$*"
   fi

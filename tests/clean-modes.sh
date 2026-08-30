@@ -279,8 +279,14 @@ fi
 # a failure it had not measured -- the shape this whole file exists to prevent,
 # in its own code.
 _defs=$(grep -c '^mf_is_git_clone()' lib/utils.sh || true)
-_raw=$(cat lib/utils.sh lib/cleanup.sh lib/download.sh | grep -c -- '-d "[$][A-Za-z0-9_]*/[.]git"' || true)
-_users=$(cat lib/cleanup.sh lib/download.sh | grep -c 'mf_is_git_clone "' || true)
+# Every file in lib/, and a pattern that survives the spellings a regrowth would
+# plausibly use. Naming three files could not see a fourth growing a copy, and
+# `[$][A-Za-z0-9_]*` missed both `${_entry}/.git` (braces) and
+# `$DISTDIR/$_dir/.git` (two expansions, which is download.sh's house style for
+# paths) -- measured, not assumed. Matching any quoted path ending in /.git
+# catches all four.
+_raw=$(cat lib/*.sh | grep -c -- '-d "[^"]*/[.]git"' || true)
+_users=$(cat lib/*.sh | grep -c 'mf_is_git_clone "' || true)
 if [ "$_defs" != 1 ]; then
   _bad clone-predicate-has-one-definition "expected exactly one mf_is_git_clone definition in lib/utils.sh, found $_defs"
 elif [ "$_raw" != 1 ]; then

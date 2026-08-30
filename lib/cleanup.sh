@@ -46,12 +46,12 @@ on_exit() {
 #   * $DISTDIR/<file>  — the downloaded archives
 #   * $DISTDIR/<dir>/.git — the git clones (every recipe that calls fetch_git)
 #
-# So the default removes the first group and keeps the second; --dist adds
-# the second. GH-71 records
-# what the old behaviour cost: a full clean discarded the cache, one archive
-# host answered with a bot challenge that minute, and the run was blocked on a
-# file it had held a verified copy of ten minutes earlier. x264 is cloned from
-# that same host, which is why the clones are on the keep side of the line.
+# So the default removes the first group and keeps the second; --dist removes
+# both. GH-71 records what the old behaviour cost: a full clean discarded the
+# cache, one archive host answered with a bot challenge that minute, and the run
+# was blocked on a file it had held a verified copy of ten minutes earlier. x264
+# is cloned from that same host, which is why the clones are on the keep side of
+# the line.
 #
 # This is also the convention everywhere else, including the part that was
 # missing at first: ports(7) `clean` is "Remove the expanded source code" and

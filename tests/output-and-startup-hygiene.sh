@@ -39,17 +39,27 @@ trap 'rm -rf "$_tmp"' EXIT
 _cleanup_on_signal
 
 # --- the output half --------------------------------------------------------
-if ! command -v mf_printable >/dev/null 2>&1 && ! grep -q 'mf_printable()' lib/utils.sh; then
+# Guarded per HALF, not per file. The startup assertions below are about the
+# $TOPDIR guard and have nothing to do with the sanitizer, so a tree carrying
+# one and not the other must report the absent one and MEASURE the other --
+# reporting "mf_printable is absent" against a $TOPDIR regression would send the
+# next reader to the wrong file.
+#
+# The condition is a grep and not `command -v`: lib/utils.sh is not sourced
+# until after this block, so a function-existence test here could only ever be
+# false and would make the guard look stricter than it is.
+_have_printable=true
+grep -q 'mf_printable()' lib/utils.sh || _have_printable=false
+if [ "$_have_printable" = false ]; then
   for _a in escape-stripped-from-a-fatal control-chars-stripped-from-a-warning \
-            printable-text-survives message-survives-without-tr \
-            payload-description-shares-the-helper \
-            reporters-share-the-helper startup-refuses-a-deleted-workdir \
-            startup-names-the-cause; do
+            printable-text-survives newlines-survive-in-our-own-messages \
+            message-survives-without-tr payload-description-is-one-line \
+            payload-description-shares-the-helper reporters-share-the-helper; do
     _bad "$_a" "mf_printable is absent — claim would be vacuous"
   done
-  printf 'DONE: output-and-startup-hygiene\n'
-  exit "$_fail"
 fi
+
+if [ "$_have_printable" = true ]; then
 
 # shellcheck source=lib/utils.sh
 SCRIPT_DIR="$ROOT"
@@ -87,10 +97,38 @@ case "$_out" in
   *) _bad printable-text-survives "ordinary text did not come through intact: $_out" ;;
 esac
 
+# R2, and the reason this file exists twice over: `[:print:]` does not include
+# newline and `tr -d` DELETES rather than replaces, so the first version of
+# mf_printable turned a two-line message into one line with the words jammed
+# together at the seam ("hash file X:line two here"). Nineteen calls in lib/ pass
+# deliberately multi-line text. The single-line needle above cannot see any of
+# that, which is precisely what its own comment warned about -- a filter that
+# eats ordinary text while both escape assertions stay green.
+_out=$( (warn "first line
+second line") 2>&1 || true )
+case "$_out" in
+  *"first line
+second line"*) _pass newlines-survive-in-our-own-messages ;;
+  *) _bad newlines-survive-in-our-own-messages "a deliberately multi-line message did not survive as two lines: $(printf '%s' "$_out" | tr '\n' '|')" ;;
+esac
+
+# The exception, and why the helper has two forms. describe_payload reports text
+# an ORIGIN chose; a newline retained there would let it forge a line of its own,
+# and a convincing `[mediaforge] ` one at that. So that path collapses newlines
+# while ours keep them.
+_multi=$(mf_printable_line "one
+two")
+case "$_multi" in
+  *"
+"*) _bad payload-description-is-one-line "mf_printable_line let a newline through, so an origin can forge a line" ;;
+  onetwo) _pass payload-description-is-one-line ;;
+  *) _bad payload-description-is-one-line "unexpected result from mf_printable_line: $_multi" ;;
+esac
+
 # The extraction actually replaced the original. A private copy left behind in
 # describe_payload would keep every assertion above green while the rule it
 # encodes quietly forked in two.
-if grep -q 'mf_printable' lib/download.sh &&
+if grep -q 'mf_printable_line' lib/download.sh &&
    ! grep -q "tr -dc '\[:print:\]\[:blank:\]'" lib/download.sh; then
   _pass payload-description-shares-the-helper
 else
@@ -127,6 +165,8 @@ case "$_out" in
   *"cause worth keeping"*) _pass message-survives-without-tr ;;
   *) _bad message-survives-without-tr "with no tr on PATH the reason was stripped from the message: $_out" ;;
 esac
+
+fi
 
 # --- the startup half -------------------------------------------------------
 # The working directory is removed while the shell is still in it, which is what
