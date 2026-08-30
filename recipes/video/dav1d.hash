@@ -14,3 +14,7 @@ size    1595517  dav1d-1.4.1.tar.gz
 # Locally calculated 2026-08-25
 sha256  88a023e58d955e0886faf49c72940e0e90914a948a8e60c1326ce3e09e7a6099  dav1d-1.4.3.tar.gz
 size    1630254  dav1d-1.4.3.tar.gz
+
+# Locally calculated 2026-08-30
+sha256  732010aa5ef461fa93355ed2c6c5fedb48ddc4b74e697eaabe8907eaeb943011  dav1d-1.5.3.tar.xz
+size    1022836  dav1d-1.5.3.tar.xz

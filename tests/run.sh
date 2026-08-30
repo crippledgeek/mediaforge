@@ -32,6 +32,12 @@ sh tests/lcevc-default-off.sh
 sh tests/libressl-pin-asm.sh
 sh tests/libressl-trust-store.sh
 sh tests/git-commit-pinning.sh
+# Pins that no recipe fetches a FORGE-GENERATED archive (#69). Those tarballs
+# are computed per request, so no digest can pin them (av1/gitiles, #19), and
+# generating them is expensive enough that code.videolan.org fronts the
+# endpoint with bot protection -- which serves a challenge page as HTTP 200 and
+# killed two clean builds before the recipes moved off it.
+sh tests/generated-archive-urls.sh
 sh tests/install-containment.sh
 sh tests/install-privileged-execs.sh
 # Pins #15: install reconciles against the previous manifest instead of

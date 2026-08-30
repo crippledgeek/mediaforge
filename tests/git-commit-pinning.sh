@@ -1,7 +1,8 @@
 #!/bin/sh
-# Commit-pinning regression tests for the three git-sourced recipes
+# Commit-pinning regression tests for the git-sourced recipes
 # (recipes/other/librtmp.sh, recipes/hwaccel/libplacebo.sh,
-# recipes/video/av1.sh).
+# recipes/video/av1.sh, and since GH-69 recipes/video/x264.sh and
+# recipes/other/librist.sh).
 #
 # THE BUG THIS PINS. librtmp cloned with `--branch "v${PKG_VERSION}"`, which
 # accepts only branches and tags. Every profile sets PKG_VERSION_LIBRTMP to a
@@ -196,7 +197,7 @@ fi
 # Comment lines are stripped first: both recipes now DESCRIBE the removed
 # `--branch "v${PKG_VERSION}"` shape in a comment explaining the pin, and an
 # oracle that matched prose would fail on the fixed tree for the wrong reason.
-for _r in recipes/other/librtmp.sh recipes/hwaccel/libplacebo.sh; do
+for _r in recipes/other/librtmp.sh recipes/hwaccel/libplacebo.sh recipes/video/x264.sh recipes/other/librist.sh; do
   if sed 's/[[:space:]]*#.*$//' "$_r" | grep -qE 'branch[^|]*\$\{?PKG_VERSION'; then
     _bad "no-branch-from-version-$_r" "still builds a ref from PKG_VERSION"
   else

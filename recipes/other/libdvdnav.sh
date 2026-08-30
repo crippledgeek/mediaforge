@@ -6,8 +6,10 @@
 # is inherited from dvdread, which mediaforge builds without libdvdcss.
 PKG_NAME="libdvdnav"
 PKG_VERSION="${PKG_VERSION_LIBDVDNAV:-7.0.0}"
-PKG_URL="https://code.videolan.org/videolan/libdvdnav/-/archive/${PKG_VERSION}/libdvdnav-${PKG_VERSION}.tar.gz"
-PKG_FILENAME="libdvdnav-${PKG_VERSION}.tar.gz"
+# VideoLAN's release server, not the generated GitLab archive (GH-69):
+# that endpoint is Anubis-fronted and serves a challenge page as HTTP 200.
+PKG_URL="https://download.videolan.org/pub/videolan/libdvdnav/${PKG_VERSION}/libdvdnav-${PKG_VERSION}.tar.xz"
+PKG_FILENAME="libdvdnav-${PKG_VERSION}.tar.xz"
 PKG_GPL=true
 
 # --enable-libdvdnav requires FFmpeg >= 7.0 (FFmpeg probes pkg-config dvdnav).
