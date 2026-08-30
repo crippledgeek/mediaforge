@@ -142,6 +142,29 @@ _glob_not() { # name  actual  glob  detail-prefix
   esac
 }
 
+# The value of a top-level shell assignment, read out of a file rather than by
+# sourcing it. `_shell_var profiles/ffmpeg-8.0.1.conf PKG_COMMIT_X264`.
+#
+# Sourcing is what this exists to avoid: a profile or a recipe is shell, so
+# reading it that way executes it, and a recipe additionally expects framework
+# state a test does not have. Reading the text answers the narrower question a
+# test actually asks -- "what does the FILE say" -- and a value the file never
+# sets comes back empty, which every caller already distinguishes.
+#
+# Extracted once there were four call sites in two files, in two spellings: the
+# keyword-parameterised form in tests/git-commit-pinning.sh and a hardcoded
+# `/^PKG_NAME=/` in tests/recipe-identity.sh. Both are now this.
+#
+# Returns the FIRST double-quoted field, so the answer for a defaulted
+# assignment (`PKG_COMMIT="${PKG_COMMIT_LIBRIST:-<sha>}"`) is the whole
+# `${...:-...}` expression rather than the SHA inside it. That is the honest
+# answer to "what does the file say"; a caller wanting the default extracts it
+# from the result. NAME is used as an ERE, which every caller in-tree satisfies
+# by being an ordinary `[A-Z_]+` variable name.
+_shell_var() { # file  name
+  awk -F'"' -v k="^$2=" '$0 ~ k { print $2; exit }' "$1"
+}
+
 # "Is this wiring present in that file?" -- a literal grep reported as a named
 # assertion. Defined here after being written twice: tests/debug-levels.sh and
 # tests/ccache.sh had character-identical copies that already disagreed on the

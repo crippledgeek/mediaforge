@@ -64,7 +64,7 @@ _require_fn() {
 # Sorted rather than left in glob order: the shell's order depends on the
 # locale's collation, so an unsorted comparison passes here and fails elsewhere.
 _diverge=$(for _f in "$ROOT"/recipes/*/*.sh; do
-  _n=$(awk -F'"' '/^PKG_NAME=/ { print $2; exit }' "$_f")
+  _n=$(_shell_var "$_f" PKG_NAME)
   _b=${_f##*/}; _b=${_b%.sh}
   [ "$_n" = "$_b" ] || printf '%s\n' "$_b"
 done | LC_ALL=C sort | tr '\n' ' ')

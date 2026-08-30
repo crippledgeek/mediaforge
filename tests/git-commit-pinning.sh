@@ -21,14 +21,30 @@
 # network, so these run in tests/run.sh with the rest of the suite.
 #
 # ORACLE EVIDENCE, RECORDED BY HAND. tests/oracle-baseline.sh only gates test
-# files a branch ADDED; this one is MODIFIED by the av1 work, so that gate SKIPs
-# it (its own header documents the gap). Verified manually instead by exporting
-# the merge base and running this file against it:
-#   base a806750 -> 24 PASS, 13 FAIL, DONE printed.
-# The 13 failures are this branch's real oracles: the non-clone-DEST and
-# dangling-symlink cases, the two av1 fetch assertions, PKG_COMMIT_AV1 unset in
-# all four profiles, and PKG_VERSION_AV1 holding a SHA in all four (the #28
-# shape, on the base).
+# files a branch ADDED; this one is MODIFIED, so that gate SKIPs it (its own
+# header documents the gap). Verified manually instead by exporting the merge
+# base, dropping THIS file and tests/lib-assert.sh into the export, and running
+# it there -- so the assertions are the branch's and the code under test is the
+# base's:
+#   git archive <base> | tar -x -C "$T"
+#   cp tests/git-commit-pinning.sh tests/lib-assert.sh "$T/tests/"
+#   ( cd "$T" && sh tests/git-commit-pinning.sh )
+#
+# GH-69, base d8f670d -> 40 PASS, 14 FAIL, DONE printed. The 14 are this
+# branch's real oracles:
+#   * tag-object-pin-refused-before-checkout -- the librist defect (below, 5b).
+#   * PKG_COMMIT_X264 and PKG_COMMIT_LIBRIST unset in all four profiles (8),
+#     since both recipes were tarball-sourced on the base.
+#   * the librist peeled-commit pin, in the recipe and all four profiles (5).
+#
+# The earlier record here (base a806750 -> 24 PASS, 13 FAIL, from the av1 work)
+# described a different merge base and a smaller file; it is superseded, not
+# merely re-counted.
+#
+# Two assertions here deliberately pass on the base and are NOT oracles:
+# peeled-commit-of-a-tag-still-fetches is the control that stops an over-broad
+# guard from satisfying 5b, and fixture-annotated-tag speaks only when the
+# fixture itself stops posing the question.
 #
 # Usage: tests/git-commit-pinning.sh
 # Exit 0 = pass, 1 = regression.
@@ -283,7 +299,7 @@ fi
 for _p in profiles/ffmpeg-*.conf; do
   for _v in PKG_COMMIT_LIBRTMP PKG_COMMIT_LIBPLACEBO PKG_COMMIT_AV1 \
             PKG_COMMIT_X264 PKG_COMMIT_LIBRIST; do
-    _val=$(awk -F'"' -v k="^$_v=" '$0 ~ k { print $2; exit }' "$_p")
+    _val=$(_shell_var "$_p" "$_v")
     _hex=$(printf '%s' "$_val" | tr -d '0-9a-f')
     _len=${#_val}
     if [ -z "$_val" ]; then
@@ -308,15 +324,14 @@ done
 # version bump must update this line, which is the intent: re-resolving the pin
 # is exactly when the peel gets dropped again.
 _RIST_COMMIT=c526858020ce14c1ef156c0c68a655ba8dfe8b00
-_rist_default=$(awk -F'"' '/^PKG_COMMIT=/ { print $0; exit }' recipes/other/librist.sh |
-                grep -oE '[0-9a-f]{40}')
+_rist_default=$(_shell_var recipes/other/librist.sh PKG_COMMIT | grep -oE '[0-9a-f]{40}')
 if [ "$_rist_default" = "$_RIST_COMMIT" ]; then
   _pass librist-recipe-pins-the-peeled-commit
 else
   _bad librist-recipe-pins-the-peeled-commit "got=[$_rist_default] want=[$_RIST_COMMIT]"
 fi
 for _p in profiles/ffmpeg-*.conf; do
-  _val=$(awk -F'"' '/^PKG_COMMIT_LIBRIST=/ { print $2; exit }' "$_p")
+  _val=$(_shell_var "$_p" PKG_COMMIT_LIBRIST)
   if [ "$_val" = "$_RIST_COMMIT" ]; then
     _pass "librist-profile-pins-the-peeled-commit-$(basename "$_p")"
   else
@@ -333,7 +348,7 @@ done
 # records the lie.
 for _p in profiles/ffmpeg-*.conf; do
   for _v in PKG_VERSION_LIBRTMP PKG_VERSION_LIBPLACEBO PKG_VERSION_AV1; do
-    _val=$(awk -F'"' -v k="^$_v=" '$0 ~ k { print $2; exit }' "$_p")
+    _val=$(_shell_var "$_p" "$_v")
     _hex=$(printf '%s' "$_val" | tr -d '0-9a-f')
     if [ "${#_val}" -eq 40 ] && [ -z "$_hex" ]; then
       _bad "version-var-is-not-a-sha-$(basename "$_p")-$_v" "holds a SHA: $_val"
