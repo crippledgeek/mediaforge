@@ -5,9 +5,10 @@
 # recipe installing by hand at an absolute "$PREFIX/..." path wrote straight
 # past the staging window GH-59 opened around it: it staged nothing, its stamp
 # carried no manifest, and `reconcile` reported it `unverifiable` forever --
-# honest, and unfalsifiable. Eight recipes were in that state outright. Six more
-# were worse: a build-system install staged files beside a hand-copy that did
-# not, so the stamp read `verified` while missing a file it had installed.
+# honest, and unfalsifiable. Eight recipes were in that state outright. Seven
+# more were worse: a build-system install staged files beside a hand-placed one
+# that did not, so the stamp read `verified` while missing a file it had
+# installed.
 #
 # The failure this guards is SILENT in both directions, which is why it is
 # tested behaviourally rather than by grep. A recipe that reverts to $PREFIX
@@ -78,10 +79,12 @@ else
 fi
 
 # The directory step has to FAIL THE BUILD when it cannot create the directory.
-# That is the whole reason mf_dest_mkdir exists: the call sites it replaced
-# spelled this four ways, and five of them could not tell you their mkdir had
-# failed. A non-zero return is not enough on its own -- no recipe checks the
-# status -- so what is asserted is that die() is reached.
+# That is the whole reason mf_dest_mkdir exists -- the call sites it replaced
+# spelled the step five ways and only two of them reported a failure; the census
+# is in lib/stage.sh and is not repeated here, because two copies of a count are
+# two things to keep true. A non-zero return is not enough to assert on its own,
+# since no recipe checks the status, so what is asserted is that die() is
+# reached.
 if ! command -v mf_dest_mkdir >/dev/null 2>&1; then
   _bad dest-mkdir-fails-loudly "lib/stage.sh defines no mf_dest_mkdir, so an install phase whose mkdir fails carries on to write nothing, quietly"
 else
@@ -202,8 +205,10 @@ _recipe_stubs() {
 # live prefix already. Both need the real stage layout, since what they exercise
 # is mf_stage_commit and a live/stage split rather than a plain staged copy.
 #
-# A caller needing an extra stub defines it before calling: POSIX function
+# A caller needing an EXTRA stub defines it before calling: POSIX function
 # definitions are global and a subshell inherits them, so no fourth parameter.
+# Not an override of one _recipe_stubs defines -- that runs inside the subshell,
+# after the caller, and would silently win.
 _run_phase() { # recipe-path  work-dir  phase
   (
     set -eu
@@ -370,6 +375,11 @@ grep -q '^PENDING:.*etc/ssl/cert.pem' "$_w/out" \
   || _reasons="$_reasons it never reached the prefix either."
 grep -q 'baked trust store' "$_w/out" \
   && _reasons="$_reasons the advisory fired against a file the phase had just written, so the commit is missing."
+# Out of scope again before the next block. They are this block's stubs, and a
+# resolve_openssldir silently in scope for a driver added later is the trap the
+# caller-defines-extra-stubs contract otherwise sets.
+unset -f resolve_openssldir
+unset OPENSSLDIR
 _verdict libressl-stages-and-commits-its-trust-store "$_reasons"
 
 # --- the phase that CREATES a library with ar -------------------------------
@@ -412,7 +422,10 @@ _verdict lcevc-stages-the-archive-it-creates "$_reasons"
 #
 # So the rule is asserted over the whole tree instead of over a list: inside an
 # install phase, a command that CREATES a file at a literal "$PREFIX/... path
-# writes past the stage. `>>` is exempt and is the only exemption -- lv2 and
+# writes past the stage. `ar` is matched only in its creating modes (c/q/r),
+# because its first argument is an operation selector rather than a flag, and
+# `ar x` at a prefix path READS an archive -- which is legitimate, and is what
+# lcevc does. `>>` is exempt and is the only exemption -- lv2 and
 # nv-codec append to $PREFIX/.extra_cflags and .extra_ldflags, accumulators the
 # framework reads after the build, and a staged append would be a fresh file
 # that the merge then writes over the accumulated one.
@@ -425,9 +438,11 @@ _verdict lcevc-stages-the-archive-it-creates "$_reasons"
 # claim. Eight are in-place `.pc` rewrites (chromaprint, vmaf, srt, openh264,
 # vvenc, x265, xeve, xevd) that overwrite a file default_install already staged
 # under the same name, and so are correct against the live prefix. The other
-# three are a read source (shaderc's _src), an `rm` target (meson's _live), and
-# the directory lcevc reads its split archives from and then deletes them in
-# (_libdir). A twelfth was lcevc's `ar` destination; this branch moved it to the
+# three are shaderc's _src (read, then removed once its replacement is staged),
+# meson's _live (an `rm` target, and the path baked into the launcher's
+# contents), and the directory lcevc reads its split archives from and then
+# deletes them in (_libdir). None of the three CREATES a file at its path, which
+# is what the scan is looking for. A twelfth was lcevc's `ar` destination; this branch moved it to the
 # stage, which is why it is no longer in the census. Closing the gap means
 # resolving assignments AND recognising the write-tmp-then-mv idiom the eight
 # use -- a parser, not a grep -- so what guards it is that the census is here.
@@ -439,7 +454,7 @@ for _f in $(find recipes -name '*.sh' | sort); do
     [ -n "$_body" ] || continue
     _scanned=$((_scanned + 1))
     _hits=$(printf '%s\n' "$_body" | sed 's/[[:space:]]*#.*$//' \
-      | grep -nE '(^|[[:space:]])(cp|install|ln|tee|mv|ar)([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^|;]*"[$]PREFIX/|[^>]>[[:space:]]*"[$]PREFIX/' \
+      | grep -nE '(^|[[:space:]])(cp|install|ln|tee|mv)([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^|;]*"[$]PREFIX/|(^|[[:space:]])ar[[:space:]]+-?[a-zA-Z]*[cqr][a-zA-Z]*[[:space:]]+[^|;]*"[$]PREFIX/|[^>]>[[:space:]]*"[$]PREFIX/' \
       || true)
     [ -n "$_hits" ] && _offenders="$_offenders $_f:$_fn:$(printf '%s' "$_hits" | head -1 | cut -d: -f1)"
   done
