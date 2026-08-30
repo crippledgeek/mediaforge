@@ -142,6 +142,32 @@ _glob_not() { # name  actual  glob  detail-prefix
   esac
 }
 
+# A file's CODE, with its prose removed: everything from an unquoted `#` to end
+# of line, plus the leading whitespace before it.
+#
+# Every caller wants it for one reason. A recipe that stopped doing X almost
+# always gains a COMMENT explaining that it used to do X and why it no longer
+# does -- so an assertion grepping for X matches the explanation and fails on
+# the fixed tree, reporting the fix as the defect. Stripping comments first is
+# what makes "this file does not do X" mean the code rather than the prose.
+#
+# Extracted once there were six character-identical copies across two files
+# (three in tests/git-commit-pinning.sh, three in tests/generated-archive-urls.sh,
+# the latter added by GH-69). They agreed only by inspection.
+#
+# KNOWN LIMIT, inherited unchanged from those copies: this is a text strip, not
+# a shell parser, so a `#` inside a quoted value truncates the line early -- a
+# URL fragment (`.../x.tar.gz#sha=...`) or a literal `#` in a flag would lose
+# everything after it. That direction is safe for the assertions in-tree, which
+# all ask "does the code contain X": losing trailing text can only produce a
+# false NEGATIVE on the match, never a false positive that passes a file the
+# grep should have caught. A caller asking the opposite question -- "the code
+# must CONTAIN this" -- has to consider it, which is why it is stated here
+# rather than left to be rediscovered.
+_code_only() { # file
+  sed 's/[[:space:]]*#.*$//' "$1"
+}
+
 # The value of a top-level shell assignment, read out of a file rather than by
 # sourcing it. `_shell_var profiles/ffmpeg-8.0.1.conf PKG_COMMIT_X264`.
 #

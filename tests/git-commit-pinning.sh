@@ -260,7 +260,7 @@ fi
 # `--branch "v${PKG_VERSION}"` shape in a comment explaining the pin, and an
 # oracle that matched prose would fail on the fixed tree for the wrong reason.
 for _r in recipes/other/librtmp.sh recipes/hwaccel/libplacebo.sh recipes/video/x264.sh recipes/other/librist.sh; do
-  if sed 's/[[:space:]]*#.*$//' "$_r" | grep -qE 'branch[^|]*\$\{?PKG_VERSION'; then
+  if _code_only "$_r" | grep -qE 'branch[^|]*\$\{?PKG_VERSION'; then
     _bad "no-branch-from-version-$_r" "still builds a ref from PKG_VERSION"
   else
     _pass "no-branch-from-version-$_r"
@@ -280,13 +280,13 @@ done
 # Asserted as PRESENCE of the fetch_git call rather than mere absence of the
 # string '+archive': absence alone stays green if PKG_URL is repointed at some
 # other unpinned mirror, or if fetch_git is dropped entirely.
-if sed 's/[[:space:]]*#.*$//' recipes/video/av1.sh \
+if _code_only recipes/video/av1.sh \
    | grep -qE 'fetch_git[^#]*PKG_COMMIT'; then
   _pass av1-fetches-via-fetch-git-at-commit
 else
   _bad av1-fetches-via-fetch-git-at-commit "no fetch_git call using PKG_COMMIT"
 fi
-if sed 's/[[:space:]]*#.*$//' recipes/video/av1.sh | grep -q '+archive'; then
+if _code_only recipes/video/av1.sh | grep -q '+archive'; then
   _bad av1-not-a-gitiles-archive-tarball "PKG_URL still uses +archive"
 else
   _pass av1-not-a-gitiles-archive-tarball

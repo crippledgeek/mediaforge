@@ -37,7 +37,7 @@ _fail=0
 # first assertion, which is how this file first ran to exit 1 with no output.
 _hits=$(for _r in recipes/*/*.sh recipes/ffmpeg.sh; do
           [ -f "$_r" ] || continue
-          if sed 's/[[:space:]]*#.*$//' "$_r" | grep -qE '/-/archive/|/\+archive/'; then
+          if _code_only "$_r" | grep -qE '/-/archive/|/\+archive/'; then
             printf '%s ' "$_r"
           fi
         done)
@@ -83,7 +83,7 @@ for _pair in "recipes/video/dav1d.sh:dav1d" \
              "recipes/other/libdvdread.sh:libdvdread" \
              "recipes/other/libdvdnav.sh:libdvdnav"; do
   _r=${_pair%%:*}; _n=${_pair#*:}
-  if sed 's/[[:space:]]*#.*$//' "$_r" | grep -q 'PKG_URL="https://download.videolan.org/pub/videolan/'; then
+  if _code_only "$_r" | grep -q 'PKG_URL="https://download.videolan.org/pub/videolan/'; then
     _pass "release-server-$_n"
   else
     _bad "release-server-$_n" "$_r does not fetch from download.videolan.org"
@@ -97,7 +97,7 @@ done
 # .hash sidecar.
 for _pair in "recipes/video/x264.sh:x264" "recipes/other/librist.sh:librist"; do
   _r=${_pair%%:*}; _n=${_pair#*:}
-  _body=$(sed 's/[[:space:]]*#.*$//' "$_r")
+  _body=$(_code_only "$_r")
   _sha=$(printf '%s\n' "$_body" | sed -n 's/^PKG_COMMIT=.*:-\([0-9a-f]*\)}"$/\1/p' | head -1)
   if printf '%s\n' "$_body" | grep -q 'fetch_git ' && [ "${#_sha}" -eq 40 ]; then
     _pass "git-pinned-$_n"
