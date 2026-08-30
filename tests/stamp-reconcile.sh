@@ -65,6 +65,20 @@ else
   _bad publish-precedes-post-install "expected a claim/publish before pkg_post_install inside run_recipe (claim=${_ci:-none} post_install=${_pi:-none})"
 fi
 
+# run_recipe must CALL the reserved reset, not merely have one available.
+#
+# The behavioural assertion below drives mf_stage_reserved_reset directly, so
+# deleting its call site left the suite green (mutation-verified) -- the same
+# definition-versus-use trap as the preflight and default_install assertions.
+# Statement-anchored inside run_recipe's own body for the same reason.
+if printf '%s\n' "$_body" | grep -qE '^[[:space:]]*mf_stage_reserved_reset[[:space:]]*$'; then
+  _pass run-recipe-resets-the-reserved-pool
+else
+  _bad run-recipe-resets-the-reserved-pool "run_recipe never calls mf_stage_reserved_reset, so a stranded claim reaches the next recipe's stamp"
+fi
+
+# The staging window opens before pkg_BUILD, not before pkg_install.
+
 # --- the recording half ----------------------------------------------------
 if [ -f "$ROOT/lib/stage.sh" ]; then
   # A fake prefix, sourced with the two globals lib/stage.sh reads. No build is
