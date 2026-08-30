@@ -618,8 +618,9 @@ cmd_build() {
     _reconcile_stamps
     if [ "$_rc_drifted" -gt 0 ]; then
       warn "$_rc_drifted build stamp(s) vouch for artifacts that are gone."
-      warn "  A real build would drop them and rebuild those recipes — except FFmpeg's,"
-      warn "  which nothing gates on and which a real build rewrites regardless."
+      warn "  A real build would drop them and rebuild those recipes. A drifted"
+      warn "  FFmpeg stamp is dropped with the rest, but nothing gates on it: a real"
+      warn "  build rewrites it either way."
     fi
   else
     mf_build_preflight_stamps
@@ -1252,7 +1253,8 @@ mf_build_preflight_stamps() {
   [ "$_rc_drifted" -gt 0 ] || return 0
   warn "$_rc_drifted build stamp(s) vouch for artifacts that are no longer present."
   warn "  Dropping them so this build rebuilds those recipes rather than skipping them."
-  warn "  (FFmpeg is rebuilt every run either way; dropping its stamp changes nothing.)"
+  warn "  (An FFmpeg stamp among them is dropped too, and changes nothing: nothing"
+  warn "   gates on it and every build rewrites it.)"
   _reconcile_prune
 }
 

@@ -282,9 +282,12 @@ _wired() { # name  file  needle
 # a call named in a comment cannot be mistaken for the call itself.
 #
 # EXITS 0 whether or not it matched, because `cut` is last in the pipeline and
-# it is `grep` that returns 1. Five call sites assign it directly under
-# `set -eu` and tests/clean-modes.sh dropped its `|| true` on the strength of
-# that, so the property is load-bearing rather than incidental.
+# it is `grep` that returns 1. Every caller assigns the result directly under
+# `set -eu` -- four through this function, the rest through _code_line -- and
+# tests/clean-modes.sh dropped its `|| true` on the strength of it, so the
+# property is load-bearing rather than incidental. Counted rather than
+# remembered: an earlier draft said "five call sites", which was the number of
+# FILES.
 #
 # NOT used by tests/debug-levels.sh's second grep, which deliberately collects
 # EVERY matching line number to find whether any of them follows a position.
@@ -305,14 +308,22 @@ _match_line() { # pattern   (text on stdin)
 # correct form the short form is what stops that recurring.
 #
 # MEASURED, so the claim is not stronger than the evidence: removing the strip
-# fails NO assertion today. Every needle currently pinned -- mf_storage_guard,
-# save_stored_choices, and the MF_DEFAULT_OPT assignment -- first matches at the
-# same line with the strip and without it, because each symbol's first
-# occurrence in mediaforge.sh is its definition or call rather than the prose
-# about it. The
-# strip is defence against the next needle, not a property any test exercises --
-# and the one direction that would bite silently is a comment ABOVE the code it
-# describes, which is where this repo habitually quotes calls verbatim.
+# fails NO assertion today. All eight pinned needles first match at the same
+# line with the strip and without it -- but for two different reasons, and an
+# earlier draft gave only the first and named only three of the eight.
+#
+# The three in mediaforge.sh (mf_storage_guard, save_stored_choices, the
+# MF_DEFAULT_OPT assignment) are safe because each symbol's first occurrence
+# there is its definition or call, ahead of any prose about it. The five in
+# recipes/ffmpeg.sh are safe for an unrelated reason: they are line-anchored
+# (`^[[:space:]]*mf_stage_end[[:space:]]*$`), so a `#`-prefixed mention cannot
+# match them at all -- which matters, because mf_stage_end IS named in a comment
+# above its own call, exactly the direction flagged below.
+#
+# So the strip is defence against the next needle, not a property any test
+# exercises. The direction that bites silently is an unanchored needle whose
+# symbol appears in a comment ABOVE the code, which is how this repo habitually
+# writes.
 _code_line() { # file  pattern
   _code_only "$1" | _match_line "$2"
 }
@@ -327,7 +338,11 @@ _code_line() { # file  pattern
 #
 # Fold first: gsm, bzip2 and librtmp put the flags macro on the line AFTER
 # `run make`, and a line-oriented grep reads those as a bare make.
-_logical_lines() { # file
+# `-` reads stdin, which is what lets a caller fold a stream it assembled from
+# several sources rather than one file on disk -- tests/ffmpeg-stamped.sh scans
+# a recipe, mediaforge.sh and all of lib/ as one text. awk spells stdin `-`
+# itself, so this is a pass-through rather than a special case.
+_logical_lines() { # file, or - for stdin
   awk '{ if (sub(/\\$/, "")) { buf = buf $0; next } print buf $0; buf = "" }' "$1"
 }
 

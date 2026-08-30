@@ -108,14 +108,25 @@ run make -j "$MJOBS"
 # every other selector. Skipping on it would silently ignore the flags the
 # operator just changed. It is rewritten on every build, so a drifted one heals
 # itself.
+# Reset first, mirroring run_recipe: FFmpeg's window inherits whatever
+# MF_STAGE_PENDING and MF_STAGE_RESERVED the last recipe left, and a leak would
+# attribute another package's files to this stamp. They are empty here today,
+# which is a property of every predecessor's exit path rather than of this code.
+mf_stage_pending_reset
+mf_stage_reserved_reset
 mf_stage_begin
 run make install DESTDIR="$DESTDIR"
 # Commits as well as records -- the `file` read-back below reads $PREFIX, and
-# without the merge the binary is still sitting in the stage. That is why the
-# stamp is written INSIDE the window here while run_recipe writes it after
-# mf_stage_end: the order is interchangeable (mf_stage_commit reads
-# mf_stage_dir, never $DESTDIR) and this way round keeps the merge next to the
-# read-back that depends on it.
+# without the merge the binary is still sitting in the stage.
+#
+# INSIDE the window, where run_recipe writes its stamp after mf_stage_end, and
+# that is not a free choice: mf_stage_end deletes the stage dir, so a
+# stamp_write below it would find no staged tree, take mf_stage_commit's stray
+# branch, and record an EMPTY manifest -- FFmpeg back to being the unmanifested
+# exception this exists to remove. run_recipe can write afterwards only because
+# mf_stage_claim already committed inside its window and mf_stage_restore hands
+# the paths back; this recipe has neither. tests/ffmpeg-stamped.sh pins the
+# order for exactly that reason.
 stamp_write "ffmpeg" "$FFMPEG_VERSION"
 mf_stage_end
 

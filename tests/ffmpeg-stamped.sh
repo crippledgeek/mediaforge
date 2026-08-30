@@ -34,6 +34,7 @@ _read=$(_code_line "$_recipe" 'file "[$]PREFIX/bin/ffmpeg"')
 # 1. The window exists at all, and wraps the install.
 _reasons=""
 [ -n "$_begin" ] || _reasons=" no mf_stage_begin, so make install writes straight to the live prefix and nothing records it."
+[ -n "$_inst" ]  || _reasons="$_reasons no install line inside the window, so the assertion would pass over a recipe that installs nothing."
 [ -n "$_stamp" ] || _reasons="$_reasons no stamp_write for ffmpeg, so its 248 files are claimed by nobody."
 [ -n "$_end" ]   || _reasons="$_reasons no mf_stage_end, so DESTDIR stays set past the install."
 if [ -n "$_begin" ] && [ -n "$_inst" ] && [ -n "$_stamp" ] && [ -n "$_end" ]; then
@@ -70,14 +71,20 @@ _verdict ffmpeg-passes-destdir-on-the-command-line "$_reasons"
 #    the operator just changed. Paired with the write above in ONE assertion,
 #    because "does not call stamp_check" is true of the merge base too and would
 #    otherwise pass there having verified nothing.
-#    Both files, because the natural place to add the gate is not this recipe:
-#    cmd_build owns the line that sources it and already short-circuits above
-#    that line for --dry-run, so a stamp_check there would leave a recipe-only
-#    grep green.
+#    THREE scopes, because the recipe is the least likely of them: cmd_build
+#    owns the line that sources it and already short-circuits above that line
+#    for --dry-run, and lib/framework.sh is where run_recipe's own stamp_check
+#    already lives. A recipe-only grep would go blind on either.
+#
+#    Folded through _logical_lines first: grep is line-oriented, and a gate
+#    split over a backslash continuation evaded this needle until it was. The
+#    needle stops at `)` rather than `(` so that a computed name --
+#    stamp_check "$(pkg_name)" ffmpeg -- does not slip past on the paren.
 _reasons=""
 [ -n "$_stamp" ] || _reasons=" ffmpeg writes no stamp at all."
-{ _code_only "$_recipe"; _code_only mediaforge.sh; } \
-  | grep -qE '(^|[^_[:alnum:]])stamp_check[^(]*ffmpeg' \
+{ _code_only "$_recipe"; _code_only mediaforge.sh; _lib_code; } \
+  | _logical_lines - \
+  | grep -qE '(^|[^_[:alnum:]])stamp_check[^)]*ffmpeg' \
   && _reasons="$_reasons it gates on a stamp, so changing --enable-gpl or --tls= would skip the rebuild that change asks for."
 _verdict ffmpeg-stamp-is-evidence-not-a-gate "$_reasons"
 
@@ -88,7 +95,7 @@ _verdict ffmpeg-stamp-is-evidence-not-a-gate "$_reasons"
 #    prose: reword the help and this assertion asks you to confirm the claim
 #    still holds.
 _reasons=""
-_code_only mediaforge.sh | grep -qE "^[[:space:]]*printf '.*FFmpeg is the exception" \
+_fn_body mediaforge.sh cmd_reconcile | grep -qE "^[[:space:]]*printf '.*FFmpeg is the exception" \
   || _reasons=" reconcile's help no longer tells the reader that the one stamp nothing gates on is exempt from the skip it promises."
 _verdict reconcile-help-names-the-ungated-stamp "$_reasons"
 
