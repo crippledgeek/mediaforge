@@ -107,6 +107,28 @@ _bad() {
   _fail=1
 }
 
+# The verdict of a COMPOUND assertion: several things had to hold, and the
+# caller accumulated one sentence into $2 for each that did not. Empty means
+# every half held.
+#
+# `if [ -z "$_wrong" ]; then _pass NAME; else _bad NAME "$_wrong"; fi` is the
+# shape every multi-part claim in the suite ends with, and it was written out
+# at every one of them -- including four times in tests/assert-reporter.sh,
+# which exists to pin this library. `grep -rn _verdict tests/` is the census;
+# no list is written here, for the reason the head of this file gives.
+#
+# The accumulate-then-report shape is what lets one assertion state a claim
+# with several halves and still report ONE line, which is what
+# tests/oracle-baseline.sh counts -- reporting each half separately would let
+# the halves that are unchanged behaviour pass on the merge base.
+_verdict() { # name  reasons
+  if [ -z "$2" ]; then
+    _pass "$1"
+  else
+    _bad "$1" "$2"
+  fi
+}
+
 # Glob-match reporters. The pattern "run something, glob-match the result,
 # _pass or _bad with the actual value in the detail" was written five times
 # across tests/compiler-flags.sh and tests/debug-levels.sh, in two polarities.

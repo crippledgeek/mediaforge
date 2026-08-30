@@ -116,10 +116,6 @@ if [ -f "$DISTDIR/$_archive" ]; then
   _wrong="$_wrong ($(wc -c < "$DISTDIR/$_archive") bytes);"
 fi
 
-if [ -z "$_wrong" ]; then
-  _pass failed-fetch-caches-no-error-body
-else
-  _bad failed-fetch-caches-no-error-body "$_wrong"
-fi
+_verdict failed-fetch-caches-no-error-body "$_wrong"
 
 exit "$_fail"

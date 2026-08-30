@@ -265,22 +265,14 @@ _wrong=''
 [ "$_good_cached" = yes ] || _wrong="$_wrong no $ARCHIVE was left in DISTDIR;"
 [ "$_good_matches" = yes ] || _wrong="$_wrong the cached copy is not the good archive;"
 [ "$_good_extracted" = yes ] || _wrong="$_wrong the archive was not extracted;"
-if [ -z "$_wrong" ]; then
-  _pass fresh-mismatch-retried-once-then-builds
-else
-  _bad fresh-mismatch-retried-once-then-builds "$_wrong"
-fi
+_verdict fresh-mismatch-retried-once-then-builds "$_wrong"
 
 # ---- 2. two fresh failures still refuse to build, leaving nothing ----------
 _wrong=''
 [ "$_html_rc" -ne 0 ] || _wrong="$_wrong fetch returned 0 on two bad payloads;"
 [ "$_html_req" -eq 2 ] || _wrong="$_wrong made $_html_req request(s), expected exactly 2;"
 [ "$_html_left" = no ] || _wrong="$_wrong the bad payload was left in DISTDIR;"
-if [ -z "$_wrong" ]; then
-  _pass two-fresh-failures-die-after-one-retry-with-nothing-cached
-else
-  _bad two-fresh-failures-die-after-one-retry-with-nothing-cached "$_wrong"
-fi
+_verdict two-fresh-failures-die-after-one-retry-with-nothing-cached "$_wrong"
 
 # ---- 3. the retry is scoped to a MISMATCH: rc 3 keeps the file and stops ---
 # Stated as the contrast, deliberately. "A missing record dies with the file
@@ -296,11 +288,7 @@ case "$_norec_log" in
   *) _wrong="$_wrong the missing-record failure never mentions makesum;" ;;
 esac
 [ "$_html_req" -eq 2 ] || _wrong="$_wrong a mismatch made $_html_req request(s), expected 2 -- the retry it is being contrasted with never happened;"
-if [ -z "$_wrong" ]; then
-  _pass retry-covers-mismatch-not-missing-record
-else
-  _bad retry-covers-mismatch-not-missing-record "$_wrong"
-fi
+_verdict retry-covers-mismatch-not-missing-record "$_wrong"
 
 # ---- 4. one retry, in BOTH branches -- the cached path is not doubled ------
 # Measured together because "the cached branch still retries once" is unchanged
@@ -310,11 +298,7 @@ _wrong=''
 [ "$_cached_req" -eq 1 ] || _wrong="$_wrong a cached mismatch made $_cached_req request(s), expected exactly 1;"
 [ "$_cached_left" = no ] || _wrong="$_wrong a cached mismatch left the bad file behind;"
 [ "$_html_req" -eq 2 ] || _wrong="$_wrong a fresh mismatch made $_html_req request(s), expected 2;"
-if [ -z "$_wrong" ]; then
-  _pass cached-and-fresh-mismatch-each-retry-exactly-once
-else
-  _bad cached-and-fresh-mismatch-each-retry-exactly-once "$_wrong"
-fi
+_verdict cached-and-fresh-mismatch-each-retry-exactly-once "$_wrong"
 
 # ---- 5. the payload is diagnosed, and only when it is not an archive -------
 _wrong=''
@@ -329,11 +313,7 @@ esac
 case "$_trunc_log" in
   *"not an archive"*) _wrong="$_wrong a truncated ARCHIVE was diagnosed as not an archive;" ;;
 esac
-if [ -z "$_wrong" ]; then
-  _pass html-payload-diagnosed-truncated-archive-not
-else
-  _bad html-payload-diagnosed-truncated-archive-not "$_wrong"
-fi
+_verdict html-payload-diagnosed-truncated-archive-not "$_wrong"
 
 # ---- 6. the diagnosis is advisory: the verdict is the same either way ------
 # The two runs compared here differ ONLY in whether the payload earned a
@@ -358,11 +338,7 @@ case "$_html_log" in
   *"not an archive"*) ;;
   *) _wrong="$_wrong the diagnosed run carried no diagnosis, so the comparison is vacuous;" ;;
 esac
-if [ -z "$_wrong" ]; then
-  _pass diagnosis-does-not-change-the-verdict
-else
-  _bad diagnosis-does-not-change-the-verdict "$_wrong"
-fi
+_verdict diagnosis-does-not-change-the-verdict "$_wrong"
 
 # ---- 7. the description is reduced before it reaches the terminal ---------
 # file(1) ECHOES payload bytes for several types (a shebang line, an embedded
@@ -378,12 +354,17 @@ fi
 # file(1) hands it, what leaves is printable and bounded -- and a stub is the
 # only way to state it. `command_exists` is `command -v`, which finds a shell
 # function, so the stub is reached exactly as the binary would be.
+#
+# PRINTABILITY only. The bound the same pipeline applies is section 8's, and
+# splitting them keeps a length claim from diluting this one.
 _evil_desc=$(printf 'CABINET \033[31mred\033[0m data%s' \
              "$(awk 'BEGIN { while (i++ < 400) printf "x" }')")
 # _stub_diag DESCRIPTION -- what describe_payload prints when file(1) says
-# exactly that. The stub is defined inside the command substitution, so it is
-# scoped to that subshell and the assertions using the real binary are
-# unaffected.
+# exactly that. The stub lives in the helper's OWN subshell, not in whatever
+# substitution a caller wraps it in, so the assertions that exercise the real
+# binary (5, 6, 9) are unaffected however this is called. $_sd_desc is set
+# outside that subshell and does reach the caller -- harmless and `_`-prefixed,
+# but it is the stub that is scoped, not everything here.
 _stub_diag() {
   _sd_desc="$1"
   (
@@ -406,13 +387,9 @@ case "$_diag" in
   *) _wrong="$_wrong the description never reached the message, so nothing was measured;" ;;
 esac
 [ "$_ctl" -eq 0 ] || _wrong="$_wrong $_ctl control character(s) survived into the message;"
-if [ -z "$_wrong" ]; then
-  _pass payload-description-is-printable
-else
-  _bad payload-description-is-printable "$_wrong"
-fi
+_verdict payload-description-is-printable "$_wrong"
 
-# ---- 9. the cap is pinned AT 160, not somewhere comfortably past it --------
+# ---- 8. the cap is pinned AT 160, not somewhere comfortably past it --------
 # A length assertion placed well beyond the cap passes at 240 as happily as at
 # 160, so it guards the branch and not the threshold. These two are one
 # character apart: 160 must survive whole, 161 must come back cut and MARKED,
@@ -431,13 +408,17 @@ case "$_over_desc" in
   *...) ;;
   *) _wrong="$_wrong a truncated description carries no marker, so it reads as complete;" ;;
 esac
-if [ -z "$_wrong" ]; then
-  _pass description-cap-holds-at-its-boundary
-else
-  _bad description-cap-holds-at-its-boundary "$_wrong"
-fi
+# And the cut must not decide whether the line prints AT ALL. file(1) can put
+# the archive keyword past the cap -- it echoes payload-derived text -- so
+# classifying on the truncated form would announce a real archive as "not an
+# archive", which is the false first line this whole function exists to remove,
+# arriving through the fix for the truncation being silent. Classification
+# reads the untruncated description; this is what says so.
+_late=$(_stub_diag "$(_pad 200) archive data")
+[ -z "$_late" ] || _wrong="$_wrong an archive whose keyword sits past the cap was announced as not an archive;"
+_verdict description-cap-holds-at-its-boundary "$_wrong"
 
-# ---- 8. a web page is called a web page, not asserted to be HTML ----------
+# ---- 9. a web page is called a web page, not asserted to be HTML ----------
 # The diagnostic's whole justification is that the first line an operator reads
 # is TRUE. Reporting `XML 1.0 document` as "is HTML" and pointing at bot
 # challenges would reproduce the misdiagnosis in a new place.
@@ -453,11 +434,7 @@ case "$_xml_log" in
   *"XML 1.0"*) ;;
   *) _wrong="$_wrong the message does not quote what file(1) actually said;" ;;
 esac
-if [ -z "$_wrong" ]; then
-  _pass xml-body-diagnosed-without-claiming-html
-else
-  _bad xml-body-diagnosed-without-claiming-html "$_wrong"
-fi
+_verdict xml-body-diagnosed-without-claiming-html "$_wrong"
 
 printf 'DONE: download-retry-verify\n'
 exit "$_fail"
