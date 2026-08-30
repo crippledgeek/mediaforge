@@ -170,7 +170,7 @@ GITHUB_TOKEN=ghp_xxx ./mediaforge.sh check-updates
 
 # Check the build stamps against the workspace they vouch for
 ./mediaforge.sh reconcile                    # exit 1 if any stamp has lost its artifact
-./mediaforge.sh reconcile --quiet            # report only problems
+./mediaforge.sh reconcile --quiet            # only problems: no per-stamp lines, no summary
 ./mediaforge.sh reconcile --prune            # drop the drifted stamps and exit 0
 
 # Record/update checksum sidecars

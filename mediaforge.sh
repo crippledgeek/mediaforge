@@ -1230,7 +1230,9 @@ cmd_reconcile() {
         printf '                  plain cp and so stages nothing)\n\n'
         printf '  --prune    delete the drifted stamps, so the next build redoes\n'
         printf '             exactly those recipes\n'
-        printf '  --quiet    report only problems (no header, no summary)\n'
+        printf '  --quiet    report only problems: no per-stamp lines, no summary\n'
+        printf '             (the mediaforge version banner is printed by every\n'
+        printf '              subcommand and is not suppressed here)\n'
         exit 0 ;;
       *) die "Unknown option for reconcile: $1" ;;
     esac
