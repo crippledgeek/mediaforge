@@ -80,10 +80,11 @@ mf_stage_dir() {
 # install target, and nothing else. A recipe that installs with `cp`, `install`
 # or a redirect aimed at an absolute "$PREFIX/..." path writes straight past the
 # stage, so it stages nothing, records nothing, and its stamp reports
-# `unverifiable` forever -- honest, but unfalsifiable. Eleven stamps read that
-# way after GH-59. Writing through this function instead puts those files in the
-# stage like any other install, and the merge carries them to the same paths
-# they reached before.
+# `unverifiable` forever -- honest, but unfalsifiable. A full workspace reported
+# ten such stamps, eight of them recipes that install something (the other two,
+# vaapi and waflib, install nothing and are right to record nothing). Writing
+# through this function instead puts those files in the stage like any other
+# install, and the merge carries them to the same paths they reached before.
 #
 # It is the destination only. A path that ends up in a file's CONTENTS -- a .pc
 # prefix= line, meson's launcher -- keeps using $PREFIX directly, because
