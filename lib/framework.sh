@@ -120,6 +120,16 @@ mf_meson() {
 # a recipe phase -- but the two neighbours in this file namespace theirs (_mf_bt,
 # _mf_builddir) for the same reason.
 _mf_pc_rewrite() { # pc-name  awk-program
+  # An allowlist, not a blocklist, because $1 becomes a PATH. Every caller
+  # passes a literal today and the wrappers are the only callers, so this is
+  # inert -- but PKG_PC_FILES already exists in the tree as a recipe-DECLARED
+  # value, so a future caller interpolating one is a short step, and the cost of
+  # being wrong is a write outside lib/pkgconfig. `..` is rejected separately
+  # because `.` has to be allowed: real .pc names carry versions (gtk+-3.0).
+  case "$1" in
+    ''|*[!A-Za-z0-9._+-]*|*..*)
+      die "$PKG_NAME: refusing .pc name '$1' -- expected a bare name, not a path" ;;
+  esac
   _mf_pc="$PREFIX/lib/pkgconfig/${1}.pc"
   [ -f "$_mf_pc" ] || die "$PKG_NAME: expected $_mf_pc to rewrite (upstream .pc name or layout changed?)"
   awk "$2" "$_mf_pc" > "$_mf_pc.tmp" || { rm -f "$_mf_pc.tmp"; die "$PKG_NAME: failed to rewrite $_mf_pc"; }

@@ -107,6 +107,24 @@ else
 fi
 _verdict missing-pc-is-fatal "$_reasons"
 
+# --- a .pc name that is a path is refused ------------------------------------
+# $1 becomes a path, and the helper is now general enough for a future caller to
+# build one from PKG_PC_FILES, which recipes already declare. Inert today, which
+# is why it is asserted rather than assumed: the failure mode is a write outside
+# lib/pkgconfig, and nothing else in the tree would notice.
+_reasons=""
+for _bad_name in '../../escaped' 'has space' '' 'semi;colon'; do
+  : > "$_tmp/out"
+  if _drive mf_pc_add_stdcxx "$_bad_name" ''; then
+    _reasons="$_reasons '$_bad_name' was accepted."
+  elif ! grep -q '^DIED' "$_tmp/out"; then
+    _reasons="$_reasons '$_bad_name' failed without reaching die."
+  fi
+done
+[ -e "$_tmp/prefix/lib/escaped.pc" ] || [ -e "$_tmp/escaped.pc" ] \
+  && _reasons="$_reasons a traversing name wrote outside lib/pkgconfig."
+_verdict pc-name-must-be-a-bare-name "$_reasons"
+
 # --- -lstdc++: appended once, and only to Libs: -----------------------------
 # Libs.private is in the fixture to pin the `^Libs:` anchor: without it the
 # probe has one Libs line and loosening the pattern to /Libs/ survives.
