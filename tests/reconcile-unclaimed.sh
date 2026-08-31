@@ -51,6 +51,13 @@
 #   * Individual descriptive lines of the --help paragraph — the assertion pins
 #     the class name and the two falsifiable claims; pinning every line of prose
 #     would fit the test to the wording rather than the contract.
+#   * `PYTHONDONTWRITEBYTECODE=1` -> `=0` — CPython treats any non-empty value as
+#     set, so the two are the same instruction.
+#
+# NOT equivalent, and listed here so it is not mistaken for one: dropping
+# `tr -d ' '` from the count survives on Linux ONLY. BSD `wc -l` pads its output
+# with leading spaces, so `unclaimed: N$` kills it on the macOS builds this
+# project supports. Platform-conditional coverage, not a gap.
 set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT"
 _fail=0
@@ -63,16 +70,28 @@ _cleanup_on_signal
 
 # --- the fixture -----------------------------------------------------------
 #
-# Five files, chosen so every assertion below has both a positive and a
-# negative to separate: a claimed file and an unclaimed one, a nested dotfile
-# and a top-level one, and a symlink.
-_ws="$_tmp/topdir"
+# Files chosen so every assertion below has both a positive and a negative to
+# separate: a claimed file and an unclaimed one, a nested dotfile and a top-level
+# one, a symlink, and a name containing a SPACE.
+#
+# The space is in the workspace PATH as well as in a filename, and both are
+# load-bearing. Nothing in this file used to contain one, so the report's quoting
+# was pinned nowhere -- and two unquoted-expansion mutants are catastrophic
+# rather than cosmetic. Unquoting the awk stamp operands, or the `set --` that
+# builds them, splits the stamp path and loses the claimed set wholesale, so
+# every correctly-claimed file lands in a list whose trailer invites manual
+# deletion. Unquoting the report loop splits one name into two entries that name
+# no file at all, and the count then disagrees with the list beneath it. The
+# file already builds a whole fixture for the rarest form of this (a newline in a
+# name) while leaving the overwhelmingly common form untested.
+_ws="$_tmp/top dir"
 mkdir -p "$_ws/workspace/.stamps" "$_ws/workspace/lib" "$_ws/workspace/share/pkg" \
          "$_ws/workspace/.stage/lib"
 
 echo claimed > "$_ws/workspace/lib/libclaimed.a"
 echo orphan  > "$_ws/workspace/lib/liborphan.a"
 echo nested  > "$_ws/workspace/share/pkg/.hidden"
+echo spaced  > "$_ws/workspace/share/pkg/two words.a"
 echo state   > "$_ws/workspace/.mediaforge-choices"
 # A non-dot file INSIDE a top-level dot-DIRECTORY. The skip has to happen at the
 # walk root: a path filter spelled `-not -path '*/.*'` would drop this, and a
@@ -123,6 +142,11 @@ _reports_not 'lib/libclaimed\.a' || _wrong="$_wrong claimed-file-reported-as-unc
 # findings block to carry the same class name, so renaming it there survived
 # everything. Text and behaviour drift apart silently.
 _reports '\[unclaimed\]' || _wrong="$_wrong findings-block-not-labelled;"
+# A name with a space, reported whole. Unquoting the report loop splits it into
+# two entries naming no file; unquoting the awk operands or the `set --` that
+# builds them loses the claimed set entirely, which the libclaimed.a negative
+# above then catches from the other side.
+_reports 'share/pkg/two words\.a' || _wrong="$_wrong space-in-a-name-split-the-report;"
 _verdict unclaimed-reported-claimed-is-not "$_wrong"
 
 # The decision, as an assertion. `verified` in the same breath because a base
@@ -148,7 +172,7 @@ _wrong=''
 _reports 'lib/liborphan\.so' || _wrong="$_wrong symlink-not-enumerated;"
 _verdict symlink-is-enumerated "$_wrong"
 
-# The count, not just the lines: three unclaimed entries, and the stamp under
+# The count, not just the lines: four unclaimed entries, and the stamp under
 # .stamps is not a fourth.
 #
 # ANCHORED. Unanchored, `unclaimed: 3` is also satisfied by `unclaimed: 3+`,
@@ -157,13 +181,13 @@ _verdict symlink-is-enumerated "$_wrong"
 # learned this twice (`\?` as a BRE quantifier, then `unclaimed: 0$`) and did not
 # carry it back to the assertion the lesson came from.
 _wrong=''
-_reports 'unclaimed: 3$' \
+_reports 'unclaimed: 4$' \
   || _wrong="$_wrong summary=[$(printf '%s\n' "$_out" | _evidence 1 'unclaimed|verified')];"
 # The PLURAL arm of the noun branch. The dangling-symlink fixture reaches the
 # singular one; nothing reached this, so flipping the default to 'entry' made
 # this run say "3 entry" and passed the whole file. "3 entry" reads exactly as
 # badly as the "1 entries" the branch exists to avoid.
-_reports '3 entries in the prefix' || _wrong="$_wrong plural-noun-not-used;"
+_reports '4 entries in the prefix' || _wrong="$_wrong plural-noun-not-used;"
 _verdict summary-counts-the-unclaimed "$_wrong"
 
 # The COMPLETE side of the same boundary. Everything above pins what a partial
@@ -173,7 +197,7 @@ _verdict summary-counts-the-unclaimed "$_wrong"
 # about a walk that ran fine.
 _wrong=''
 _reports_not 'could not be read' || _wrong="$_wrong healthy-walk-claimed-incomplete;"
-_reports 'unclaimed: 3$'         || _wrong="$_wrong summary-not-an-exact-count;"
+_reports 'unclaimed: 4$'         || _wrong="$_wrong summary-not-an-exact-count;"
 _verdict complete-walk-reports-an-exact-count "$_wrong"
 
 # --- the all-clear ---------------------------------------------------------
@@ -293,7 +317,15 @@ _verdict unclaimed-audit-is-called "$_wrong"
 # (`PYTHONDONTWRITEBYTECODE=1 run meson setup ...`), which is exactly the
 # regression this exists to catch, so the needle carries `export`.
 _wrong=''
-_fn_code lib/framework.sh mf_meson '(^|[[:space:]])export[[:space:]]+PYTHONDONTWRITEBYTECODE' \
+#
+# BOUNDED ON BOTH SIDES. The left anchor was added for precision and the right
+# one was not, so the needle matched `export PYTHONDONTWRITEBYTECODEX=1` as a
+# prefix: renaming the variable at all three sites disables the fix completely --
+# Python never reads the renamed name, so meson writes its bytecode back into the
+# prefix -- and all three of these assertions stayed green. The `=` rejects the
+# rename and also keeps rejecting a bare `export PYTHONDONTWRITEBYTECODE` with no
+# value.
+_fn_code lib/framework.sh mf_meson '(^|[[:space:]])export[[:space:]]+PYTHONDONTWRITEBYTECODE=' \
   || _wrong="$_wrong mf_meson-does-not-export-it;"
 _verdict meson-bytecode-suppressed-at-source "$_wrong"
 
@@ -306,7 +338,7 @@ _verdict meson-bytecode-suppressed-at-source "$_wrong"
 # pins that the export is not narrowed to one command, this one pins that it is
 # not left unbounded.
 _wrong=''
-_fn_code lib/framework.sh reset_recipe 'unset PYTHONDONTWRITEBYTECODE' \
+_fn_code lib/framework.sh reset_recipe 'unset[[:space:]]+PYTHONDONTWRITEBYTECODE([[:space:]]|$)' \
   || _wrong="$_wrong reset_recipe-does-not-clear-it;"
 _verdict bytecode-export-is-cleared-between-recipes "$_wrong"
 
@@ -316,7 +348,7 @@ _verdict bytecode-export-is-cleared-between-recipes "$_wrong"
 # FFmpeg's configure, build, and do_install. Benign today (neither runs Python),
 # asserted because the invariant is stated as absolute in two comments.
 _wrong=''
-_fn_code mediaforge.sh cmd_build 'unset PYTHONDONTWRITEBYTECODE' \
+_fn_code mediaforge.sh cmd_build 'unset[[:space:]]+PYTHONDONTWRITEBYTECODE([[:space:]]|$)' \
   || _wrong="$_wrong ffmpeg-source-path-inherits-the-export;"
 _verdict bytecode-export-cleared-before-ffmpeg "$_wrong"
 

@@ -1447,6 +1447,14 @@ _reconcile_unclaimed() {
   # `[ -e ] || [ -L ]` and not `-e` alone: -e is FALSE on a dangling symlink, and
   # a dangling symlink at the prefix root is exactly the sort of leftover this
   # audit exists to name. find enumerates it as -type l without following.
+  #
+  # The guard carries a second case the first reason does not cover: a prefix
+  # holding stamps and no installed files matches no non-dot entry, so `*` stays
+  # LITERAL, and the guard is what stops `./*` reaching find -- which would fail,
+  # set the incomplete flag, and warn that a healthy empty prefix could not be
+  # read. Both cases are pinned (dangling-symlink-and-singular-noun,
+  # empty-prefix-is-not-reported-incomplete); replacing this with anything
+  # symlink-specific reintroduces the second.
   _rc_incomplete=false
   _rc_walk=$( cd "$PREFIX" 2>/dev/null || exit 1
               _rc_st=0
