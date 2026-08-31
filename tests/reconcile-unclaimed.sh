@@ -428,7 +428,12 @@ else
   _dout=$( cd "$_dws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _drc=0 || _drc=$?
   _wrong=''
   _says "$_dout" 'is not a readable directory' || _wrong="$_wrong no-skip-warning;"
-  _says "$_dout" 'unclaimed: \?' || _wrong="$_wrong summary-still-claims-a-count;"
+  # `[?]`, never `\?`. _says greps with a BRE, where GNU's `\?` is the OPTIONAL
+  # QUANTIFIER rather than an escaped literal -- so `unclaimed: \?` reads as
+  # "unclaimed: followed by nothing optional" and matches `unclaimed: 0` just as
+  # happily. That spelling passed against the exact mutation this assertion
+  # exists to catch; the bracket expression is the portable literal.
+  _says "$_dout" 'unclaimed: [?]' || _wrong="$_wrong summary-still-claims-a-count;"
   [ "$_drc" = 0 ] || _wrong="$_wrong exit=$_drc;"
   _verdict unreadable-prefix-degrades-to-unknown "$_wrong"
   chmod 755 "$_dws/workspace" 2>/dev/null || true
