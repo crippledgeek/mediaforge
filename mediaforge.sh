@@ -1286,7 +1286,13 @@ _reconcile_unclaimed() {
   set --
   for _rc_s in "$PREFIX"/.stamps/*; do
     [ -f "$_rc_s" ] || continue
-    [ -r "$_rc_s" ] || warn "  [unclaimed]    stamp $(basename "$_rc_s") is unreadable; the files it claims are listed below as unclaimed"
+    # mf_printable_line HERE, unlike the per-line report below, and the
+    # difference is the whole distinction: this hands a whole name to ONE warn,
+    # which is exactly the shape where an embedded newline buys a line of its
+    # own. Its fail-closed behaviour is affordable here too -- without `tr` the
+    # message still says a stamp is unreadable, where in the report the name is
+    # the entire product.
+    [ -r "$_rc_s" ] || warn "  [unclaimed]    stamp $(mf_printable_line "$(basename "$_rc_s")") is unreadable; the files it claims are listed below as unclaimed"
     set -- "$@" "$_rc_s"
   done
 
