@@ -146,6 +146,13 @@ sh tests/output-and-startup-hygiene.sh
 # FFmpeg's link step instead. Covers both the recording half (staged installs,
 # lib/stage.sh) and the reporting half (the reconcile subcommand).
 sh tests/stamp-reconcile.sh
+# The audit direction the file above cannot reach (#77): a file in the prefix
+# that no stamp claims at all, rather than a stamp whose files went missing.
+# Pins that it reports without gating -- the exit status is the decision, not a
+# detail -- that the exclusion is the prefix's TOP-LEVEL dotfiles and not
+# anything hidden at any depth, and that meson's bytecode is stopped at the
+# generator instead of excluded from the audit.
+sh tests/reconcile-unclaimed.sh
 # Pins that a recipe installing by hand writes into the stage and not the live
 # prefix (#68). DESTDIR redirects a build system's install target and nothing
 # else, so a shell cp at "$PREFIX/..." staged nothing and went unrecorded. Both

@@ -706,6 +706,18 @@ cmd_build() {
   fi
 
   # Build FFmpeg
+  #
+  # reset_recipe is what bounds mf_meson's PYTHONDONTWRITEBYTECODE export to one
+  # recipe, and this source path does not reach it -- recipes/ffmpeg.sh is
+  # sourced directly rather than through run_recipe/load_recipe. So if the last
+  # meson recipe in _order.conf ran before this, the export would still be live
+  # through FFmpeg's whole configure and build, and through do_install below.
+  # Harmless today, since neither runs Python; cleared anyway, because the
+  # invariant reset_recipe documents is worth being true rather than annotated.
+  # This mirrors the mf_stage_pending_reset/mf_stage_reserved_reset that
+  # recipes/ffmpeg.sh already does for the same "inherits whatever the last
+  # recipe left" reason.
+  unset PYTHONDONTWRITEBYTECODE
   . "$SCRIPT_DIR/recipes/ffmpeg.sh"
 
   # Install (unless --no-install)
@@ -1157,7 +1169,33 @@ _reconcile_stamps() {
 
   for _rc_stamp in "$PREFIX/.stamps"/*; do
     [ -f "$_rc_stamp" ] || continue
-    _rc_name=$(basename "$_rc_stamp")
+    # Sanitized ONCE, here, rather than at each of the four sites that
+    # interpolate it -- two log, two warn. A stamp filename is not our text; it
+    # is whatever stamp_write was handed, and every one of those messages puts
+    # our own words AFTER the name, which is the shape where a retained newline
+    # closes our line and leaves the remainder to stand as its own. Reproduced:
+    # a stamp named `ev<LF>[mediaforge] WARNING: ...` split "[unverifiable] ev"
+    # from "the stamp is unreadable", and the forged half read as a mediaforge
+    # line because the payload supplied the prefix itself.
+    _rc_name=$(mf_printable_line "$(basename "$_rc_stamp")")
+    # mf_printable_line fails closed -- no `tr`, no output -- and an empty name
+    # would leave `[DRIFTED]  the stamp vouches for files that are gone:` naming
+    # no stamp at all. A PATH without `tr` is reachable in this suite
+    # (tests/ccache.sh builds one). The placeholder keeps every message
+    # well-formed without letting an unprintable byte through; --prune is
+    # unaffected either way, since it acts on _rc_drifted_list, not on this.
+    #
+    # The placeholder carries a `/`, which basename output never can, so no real
+    # stamp can collide with it -- a printable placeholder would otherwise be
+    # indistinguishable from a stamp literally named that.
+    #
+    # KNOWN GAP, stated rather than papered over: deliberately unasserted, and
+    # mutation-confirmed unasserted. Reaching it needs a PATH with no `tr`, which
+    # means enumerating every other tool reconcile calls into a sandbox bin dir;
+    # that enumeration is a list that rots, and getting it wrong fails the test
+    # for the wrong reason. tests/ccache.sh's _link_tools builds such a PATH if
+    # this ever earns one.
+    [ -n "$_rc_name" ] || _rc_name='<unprintable/stamp/name>'
 
     # An empty stamp is a stamp with no manifest, not a stamp with no files:
     # every stamp written before GH-59 is empty, as is every stamp for a recipe
@@ -1170,6 +1208,26 @@ _reconcile_stamps() {
     if [ ! -s "$_rc_stamp" ]; then
       _rc_unverifiable=$((_rc_unverifiable + 1))
       [ "$_rc_quiet" = true ] || log "  [unverifiable] $_rc_name — stamp carries no manifest"
+      continue
+    fi
+
+    # Unreadable is unverifiable, and saying so has to happen HERE rather than
+    # fall through. `-s` reads the size, which needs no read permission, so a
+    # non-empty unreadable stamp clears the gate above; the redirect below then
+    # fails, the command substitution yields empty, and empty means "nothing
+    # missing" -- so the stamp reports [verified] on the strength of a file
+    # nothing could read. GH-77's unclaimed audit made that visible by printing
+    # "secret-1.0 is unreadable" two lines under "[verified] secret-1.0", but the
+    # wrong verdict predates it and the contradiction is the smaller half: an
+    # operator who reads [verified] does not act on the warning below it.
+    #
+    # `continue` also keeps the failing redirect from ever running, and with it
+    # the raw `Permission denied` the shell writes to stderr with no [mediaforge]
+    # prefix -- the same unprefixed-line class this command's own report is
+    # asserted against.
+    if [ ! -r "$_rc_stamp" ]; then
+      _rc_unverifiable=$((_rc_unverifiable + 1))
+      warn "  [unverifiable] $_rc_name -- the stamp is unreadable"
       continue
     fi
 
@@ -1230,6 +1288,265 @@ _reconcile_orphan_artifacts() {
   done < "$SCRIPT_DIR/recipes/_order.conf"
 }
 
+# The audit tier: a file in the prefix that no stamp claims at all (GH-77).
+#
+# _reconcile_stamps asks each stamp about its own files. That cannot see a file
+# nothing ever recorded -- GH-68's harder half, where a recipe installing beside
+# its build system left a per-file hole INSIDE a stamp reading `verified`. PR #76
+# closed that at the source, routing every by-hand install through the stage, so
+# the staged tree and the stamp are now the same set by construction. What is
+# left for this to find is whatever reached the prefix by some other route,
+# across however many builds: a disabled recipe's leftovers, or an artifact from
+# a build whose inputs differed.
+#
+# ADVISORY. It does not touch the exit status, and --prune still means stamps.
+# The systems that make this fatal -- rpm's %_unpackaged_files_terminate_build,
+# dh_missing since compat 13, Yocto's installed-vs-shipped -- all gate a
+# PER-PACKAGE staging root, where an orphan means one recipe under-declared and
+# a manifest edit fixes it. mediaforge gates that direction already, in PR #76.
+# The durable-prefix family this belongs to is advisory everywhere it exists:
+# brew doctor's stray-file checks (which `brew install` never consults),
+# cruft-ng, Gentoo's qcheck. The local evidence agreed before the prior art did:
+# the first orphans this found were two lv2 example UI plugins left by a build
+# whose meson detected a GUI toolkit the next build did not. No recipe was
+# wrong, and no declaration a recipe author could write would have predicted it.
+_reconcile_unclaimed() {
+  _rc_unclaimed=0
+
+  # FIRST, before the stamp loop below, because that loop can WARN. On a prefix
+  # that is traversable but not readable -- both conditions this branch already
+  # documents as reachable -- an unreadable stamp there printed "the files it
+  # claims are listed below as unclaimed" and then this guard printed "skipped",
+  # with no list below either line. A warning contradicted by the next line is
+  # the defect this function has now had three times; ordering removes this one
+  # rather than wording around it. Nothing in the guard depends on the stamps.
+  # REACHABLE through the CLI, which an earlier version of this comment denied by
+  # conflating readable with traversable: `[ -d "$PREFIX/.stamps" ]` in
+  # cmd_reconcile needs only SEARCH permission on $PREFIX, while this tests -r.
+  # A mode-0111 prefix satisfies that guard and lands here, so the path is
+  # asserted rather than excused.
+  #
+  # Of the three conditions only `! -r` is reachable today, measured: with
+  # $PREFIX absent, a regular file, or mode 000, cmd_reconcile's own
+  # `[ -d "$PREFIX/.stamps" ] || die` fires first, because -d on the child needs
+  # the parent to be a directory AND searchable. The other two are belt-and-
+  # braces for a second caller -- there is exactly one today -- and are named
+  # here rather than left for the next reader to test one at a time, which is
+  # what the previous version of this comment cost.
+  #
+  # Both degrade paths set the count to `?` rather than leaving it 0. A warn plus
+  # `unclaimed: 0` in the summary is still the wrong answer stated confidently --
+  # it converts a silent failure into a warned one and then contradicts the
+  # warning on the next line. `?` is only ever interpolated into that summary, so
+  # a non-numeric value is safe here.
+  if [ ! -d "$PREFIX" ] || [ ! -r "$PREFIX" ] || [ ! -x "$PREFIX" ]; then
+    warn "  [unclaimed]    skipped: $PREFIX is not a readable directory"
+    _rc_unclaimed="?"
+    return 0
+  fi
+
+
+  # The stamp files, guarded the same way _reconcile_stamps guards its own loop:
+  # a subdirectory under .stamps is not a stamp. Measured, the guard is the
+  # clearer spelling rather than a load-bearing one -- `-e` produces byte-
+  # identical output, because a directory in ARGV is a getline of -1 and
+  # contributes nothing either way.
+  #
+  # A function's positional parameters are its own and the caller's are restored
+  # on return, so `set --` here cannot disturb cmd_reconcile. Empty is a
+  # meaningful value: no stamps means nothing is claimed, so everything the walk
+  # finds is reported -- the same over-report direction the awk below takes on
+  # any other doubt.
+  # Inclusion is gated on -f, never on -r. An unreadable stamp still goes in the
+  # list, where awk's getline returns -1 and it contributes nothing -- so every
+  # path it claims is reported as unclaimed. That over-report is the safe
+  # direction, but it is silent, and on a root-owned prefix one unreadable stamp
+  # turns a hundred correctly-claimed files into a list an operator is being
+  # invited to delete by hand. Gating on -r instead would drop the stamp just as
+  # quietly, so the fix is to say so.
+  set --
+  for _rc_s in "$PREFIX/.stamps"/*; do
+    [ -f "$_rc_s" ] || continue
+    # mf_printable_line HERE, unlike the per-line report below, and the
+    # difference is the whole distinction: this hands a whole name to ONE warn,
+    # which is exactly the shape where an embedded newline buys a line of its
+    # own. Its fail-closed behaviour is affordable here too -- without `tr` the
+    # message still says a stamp is unreadable, where in the report the name is
+    # the entire product.
+    [ -r "$_rc_s" ] || warn "  [unclaimed]    stamp $(mf_printable_line "$(basename "$_rc_s")") is unreadable; the files it claims are listed below as unclaimed"
+    set -- "$@" "$_rc_s"
+  done
+
+  # The exclusion is the shell's own glob, not a pattern list: `*` does not match
+  # a leading dot, so .stamps, .logs, .stage and whatever else the framework puts
+  # at the prefix's top level are skipped by construction, including the next one
+  # someone adds. An enumerated list here would be a census that rots -- and it
+  # already had: the first draft of this comment listed eight and missed
+  # .extra_ldflags. The rule is deliberately TOP-LEVEL only, and applied at the
+  # WALK ROOT rather than as a path filter -- a dotfile deeper in the tree is a
+  # recipe's file and stays in scope.
+  #
+  # What makes it safe is an OBSERVATION, not a mechanism: no recipe stages a
+  # top-level dotfile, and the ones at the prefix root are all framework-written.
+  # mf_stage_commit enforces no whitelist -- it records `find . ... | sed
+  # 's|^\./||'` over the stage, so a recipe that staged $PREFIX/.foo would get
+  # .foo into its stamp. If one ever did, this walk would skip it and the audit
+  # would under-report by that file -- or by the whole subtree, if the top-level
+  # entry is a directory. It can never produce a false positive,
+  # which is the direction that matters for a report inviting manual deletion.
+  #
+  # awk holds the claimed set in a hash and reads the walk on stdin, which is one
+  # pass and no intermediate file. The alternatives both cost more than they look:
+  # `grep -Fxv -f` is Aho-Corasick on GNU grep but loops the pattern set per input
+  # line on a BSD grep, i.e. quadratic on the macOS builds this project supports,
+  # and its no-match exit 1 is the NORMAL case here, so the `|| true` that makes
+  # it usable at all also swallows a real error's 2 (grep does distinguish the
+  # two; the guard that has to wrap it is what cannot); `comm`
+  # needs both sides sorted in ITS collation, the contract lib/install.sh's
+  # manifest diff documents at length. Neither wants a scratch file in a prefix
+  # this command otherwise only reads.
+  #
+  # Emptying ARGV as each stamp is consumed is what makes awk fall through to
+  # stdin afterwards; POSIX specifies both halves -- an ARGV element set to the
+  # null string is not treated as an argument operand, and awk reads standard
+  # input once no file operands remain -- so this does not depend on FILENAME
+  # being spelled "-" for stdin.
+  #
+  # The LC_ALL=C sort is now COSMETIC and kept deliberately: the awk lookup is a
+  # hash, so ordering cannot change the verdict, but find's directory order is
+  # unspecified and a report someone diffs between runs should be stable. Do not
+  # carry the `comm` argument above onto it -- nothing here needs sorted input.
+  #
+  # A PRECONDITION, checked here rather than inferred from the pipeline below,
+  # because the pipeline structurally cannot carry the answer:
+  # `$(... | sort | awk ...) || degrade` reads the LAST command's status, so a
+  # failed `cd` inside the subshell would end only that subshell and leave sort
+  # and awk to succeed on empty input -- reporting `unclaimed: 0`. An audit whose
+  # whole product is a count, printing the reassuring answer when it in fact
+  # looked at nothing, is the same silent failure the awk rewrite removed one
+  # layer down.
+  #
+  # `./` prefixed and stripped afterwards, the idiom lib/stage.sh's manifest walk
+  # already uses: a top-level entry whose name begins with `-` would otherwise be
+  # parsed by find as an operand rather than a path. Vanishingly unlikely at a
+  # prefix root, and the guard costs one sed for the whole walk.
+  #
+  # The walk is its OWN command substitution, not the head of the pipeline, so
+  # its status can be seen. As a pipeline head it could not be: an unreadable
+  # subdirectory made find write a raw `find: './lib/x': Permission denied` into
+  # the middle of the report -- unprefixed, unfiltered, the same class this
+  # command's own output is asserted against -- and then the audit printed
+  # `unclaimed: 0` over a subtree it never read. Under-reporting is the dangerous
+  # direction for a list an operator deletes from, and it was the silent one.
+  #
+  # find's own diagnostic goes to /dev/null and the failure is carried as STATUS
+  # instead. The `|| exit 1` on the cd is belt-and-braces against a race between
+  # the guard above and this cd -- mutation shows removing it changes nothing,
+  # because that guard has already proved -d, -r and -x. The guard is what makes
+  # the pipeline safe; this is the second pair of hands.
+  # `[ -e ] || [ -L ]` and not `-e` alone: -e is FALSE on a dangling symlink, and
+  # a dangling symlink at the prefix root is exactly the sort of leftover this
+  # audit exists to name. find enumerates it as -type l without following.
+  #
+  # The guard carries a second case the first reason does not cover: a prefix
+  # holding stamps and no installed files matches no non-dot entry, so `*` stays
+  # LITERAL, and the guard is what stops `./*` reaching find -- which would fail,
+  # set the incomplete flag, and warn that a healthy empty prefix could not be
+  # read. Both cases are pinned (dangling-symlink-and-singular-noun,
+  # empty-prefix-is-not-reported-incomplete); replacing this with anything
+  # symlink-specific reintroduces the second.
+  _rc_incomplete=false
+  _rc_walk=$( cd "$PREFIX" 2>/dev/null || exit 1
+              _rc_st=0
+              for _rc_top in *; do
+                { [ -e "$_rc_top" ] || [ -L "$_rc_top" ]; } || continue
+                find "./$_rc_top" \( -type f -o -type l \) -print 2>/dev/null || _rc_st=1
+              done
+              exit "$_rc_st" ) || _rc_incomplete=true
+
+  # The count carries a `+` when the walk was partial, and the SUMMARY is where
+  # that has to show. Warning and then printing an exact-looking number is the
+  # third instance of the same defect this function has now had twice: the two
+  # degrade paths above report `?` for exactly this reason, and an incomplete
+  # walk was still reporting `unclaimed: 0` under a warning saying it could not
+  # read part of the prefix. A lower bound presented as exact is the wrong answer
+  # stated confidently, and here it under-reports -- the direction that matters
+  # for a list an operator deletes from.
+  #
+  # `0+` up front, because the early return below on an empty list would
+  # otherwise leave the initialised 0 standing.
+  _rc_suffix=''
+  if [ "$_rc_incomplete" = true ]; then
+    warn "  [unclaimed]    part of $PREFIX could not be read; the count below is a lower bound"
+    _rc_suffix='+'
+    _rc_unclaimed='0+'
+  fi
+
+  _rc_list=$( printf '%s\n' "$_rc_walk" | sed 's|^\./||' | LC_ALL=C sort | awk '
+        BEGIN {
+          for (i = 1; i < ARGC; i++) {
+            # `line != ""` reads as a guard and is inert: the only empty record
+            # reachable here is the one printf makes from an empty _rc_walk, and
+            # the command substitution strips it either way. Kept because a stamp
+            # is a file anyone can edit, and an empty line in one should not
+            # claim the empty path.
+            while ((getline line < ARGV[i]) > 0) if (line != "") claimed[line] = 1
+            close(ARGV[i]); ARGV[i] = ""
+          }
+        }
+        !($0 in claimed) { print }' "$@" ) || {
+    # ADVISORY means advisory even when it breaks. This tier runs after the drift
+    # report and before the summary and --prune, so a `die` here would throw away
+    # the answer the operator actually came for. lib/install.sh's analogous block
+    # dies because it is about to DELETE and loud is the safe direction; here the
+    # safe direction is the opposite.
+    #
+    # KNOWN GAP, stated rather than papered over: this degrade path is
+    # deliberately unasserted and mutation-confirmed unasserted, because nothing
+    # an operator can do through the CLI makes awk fail here -- an unreadable
+    # stamp is a getline -1 that contributes nothing, not an error. Its sibling
+    # above, the unreadable-prefix path, IS reachable and IS asserted.
+    warn "  [unclaimed]    skipped: could not compare the prefix against the stamps"
+    _rc_unclaimed="?"
+    return 0
+  }
+
+  [ -n "$_rc_list" ] || return 0
+  # ENTRIES, not files, and the report says so: wc -l counts lines, and a
+  # filename containing a newline arrives from the walk as two of them. Calling
+  # them files would make the count disagree with the list printed underneath it.
+  _rc_unclaimed="$(printf '%s\n' "$_rc_list" | wc -l | tr -d ' ')$_rc_suffix"
+  # entry/entries by count. "1 entries" is the kind of thing a reader trusts a
+  # little less, and the branch is cheaper than the alternative spellings --
+  # `path(s)` reintroduces the newline problem "file(s)" had, since one path can
+  # arrive as two entries.
+  _rc_noun='entries'
+  [ "$_rc_unclaimed" = 1 ] && _rc_noun='entry'
+  warn "  [unclaimed]    $_rc_unclaimed $_rc_noun in the prefix that no stamp claims:"
+  # ONE warn PER LINE, and that is the protection, not decoration. These names
+  # were chosen by whatever tarball installed the file, and warn formats through
+  # mf_printable, which deliberately KEEPS newlines because it is meant for our
+  # own messages, where the author and the reader are the same operator. Hand it
+  # the whole list at once and a filename containing a newline puts its second
+  # half on a line of its own with no `[mediaforge]` prefix -- reproduced: a file
+  # named `evil<LF>[mediaforge] WARNING: ...` yields a bare `lib/evil` line
+  # beside a forged-looking one. Read line by line, each fragment gets its own
+  # prefix and neither can pass for a mediaforge message.
+  #
+  # mf_printable_line, lib/utils.sh's filter for text whose author is not us, is
+  # deliberately NOT used here. It is the right tool where a whole untrusted
+  # string reaches one warn; here the loop has already split on newlines, so it
+  # has nothing left to strip -- and it FAILS CLOSED without `tr`, which would
+  # blank out the filename that is this report's entire product.
+  printf '%s\n' "$_rc_list" | while IFS= read -r _rc_u; do
+    [ -n "$_rc_u" ] || continue
+    warn "                   $_rc_u"
+  done
+  warn "                 A disabled recipe's leftovers, a stale rebuild, or"
+  warn "                 something placed by hand. Review before deleting:"
+  warn "                 nothing here is removed for you."
+}
+
 # Delete the stamps _reconcile_stamps just reported as drifted.
 #
 # Shared by `reconcile --prune` and the build preflight so the two cannot
@@ -1279,7 +1596,12 @@ cmd_reconcile() {
         printf '                  drift.\n'
         printf '  [unverifiable]  the stamp carries no manifest: a recipe that\n'
         printf '                  installs nothing and correctly records nothing, or\n'
-        printf '                  a stamp written by an older mediaforge\n\n'
+        printf '                  a stamp written by an older mediaforge\n'
+        printf '  [unclaimed]     the other direction: a file in the prefix that no\n'
+        printf '                  stamp claims — a disabled recipe left it, a rebuild\n'
+        printf '                  stopped installing it, or it was placed by hand.\n'
+        printf '                  ADVISORY: it does not affect the exit status, and\n'
+        printf '                  --prune does not remove it.\n\n'
         printf '  --prune    delete the drifted stamps, so the next build redoes\n'
         printf '             exactly those recipes\n'
         printf '  --quiet    report only problems: no per-stamp lines, no summary\n'
@@ -1303,9 +1625,10 @@ cmd_reconcile() {
   fi
   _reconcile_stamps
   _reconcile_orphan_artifacts
+  _reconcile_unclaimed
   if [ "$_rc_quiet" != true ]; then
     log ""
-    log "verified: $_rc_verified   drifted: $_rc_drifted   unverifiable: $_rc_unverifiable   lost stamps: $_rc_orphans"
+    log "verified: $_rc_verified   drifted: $_rc_drifted   unverifiable: $_rc_unverifiable   lost stamps: $_rc_orphans   unclaimed: $_rc_unclaimed"
   fi
 
   if [ "$_rc_drifted" -gt 0 ]; then
