@@ -237,6 +237,56 @@ STUB
   mf_stage_end
   mf_stage_pending_reset
 
+  # The quieter half of the same branch, and the one a surviving stray hides: when
+  # everything the filter would have kept lives INSIDE the subtree the walk could
+  # not read, there is nothing to list, and the function's own early return then
+  # reports a clean stage. Mutation found this -- deleting the branch left the
+  # whole suite green, because the fixture above always leaves a stray standing.
+  PREFIX="$_tmp/prefix5"
+  mkdir -p "$PREFIX"
+  mf_stage_begin
+  _dir=$(mf_stage_dir)
+  _stage="$_dir$PREFIX"
+  mkdir -p "$_stage/lib" "$_dir/opt/locked"
+  echo a > "$_stage/lib/libprobe.a"
+  echo stray > "$_dir/opt/locked/libstray.a"
+  chmod 000 "$_dir/opt/locked"
+  if [ "$(id -u)" = 0 ] || find "$_dir" >/dev/null 2>&1; then
+    chmod 755 "$_dir/opt/locked" 2>/dev/null || true
+    _bad silent-partial-stray-walk-says-so "fixture unavailable: the directory stayed readable after chmod 000 (running as root?)"
+  else
+    _out=$( mf_stage_warn_stray "$_dir" "$_stage" 2>&1 ) || true
+    chmod 755 "$_dir/opt/locked" 2>/dev/null || true
+    if printf '%s' "$_out" | grep -q 'NOT listed below'; then
+      _pass silent-partial-stray-walk-says-so
+    else
+      _bad silent-partial-stray-walk-says-so "a stray inside the unread subtree was reported as a clean stage $(printf '%s' "$_out" | _evidence 2 'OUTSIDE|read')"
+    fi
+  fi
+  mf_stage_end
+  mf_stage_pending_reset
+
+  # The display cap is the third way this function can report a short list, and
+  # it arrives through a decision rather than a failure -- which is exactly why it
+  # was the one left silent. Seven strays against a cap of five, so the assertion
+  # separates "listed some" from "listed some and said how many it held back".
+  PREFIX="$_tmp/prefix6"
+  mkdir -p "$PREFIX"
+  mf_stage_begin
+  _dir=$(mf_stage_dir)
+  _stage="$_dir$PREFIX"
+  mkdir -p "$_stage/lib" "$_dir/opt/foreign/lib"
+  echo a > "$_stage/lib/libprobe.a"
+  for _n in 1 2 3 4 5 6 7; do echo stray > "$_dir/opt/foreign/lib/libstray$_n.a"; done
+  _out=$( mf_stage_warn_stray "$_dir" "$_stage" 2>&1 ) || true
+  if printf '%s' "$_out" | grep -q 'and 2 more'; then
+    _pass capped-stray-list-says-how-many
+  else
+    _bad capped-stray-list-says-how-many "the list was capped at five of seven with no remainder reported $(printf '%s' "$_out" | _evidence 2 'OUTSIDE|more')"
+  fi
+  mf_stage_end
+  mf_stage_pending_reset
+
   # The stage ROOT itself unreadable, which is the other half of the same line:
   # the old spelling put the `cd` at the head of the pipeline too, so a cd that
   # failed left sed to succeed on empty input and the manifest came out empty

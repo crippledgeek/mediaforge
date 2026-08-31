@@ -446,6 +446,16 @@ mf_stage_reserved_reset() {
   MF_STAGE_RESERVED=""
 }
 
+# How many stray paths the warning below lists before it summarises the rest.
+#
+# A cap because the message is a diagnosis and not an inventory: the actionable
+# half is "the recipe installed to a prefix other than $PREFIX", which is read
+# once, and a foreign-prefix recipe stages hundreds of files. Five is enough to
+# recognise which tree they landed in. NAMED because the listing and the
+# "and N more" arithmetic must move together -- two literals free to disagree
+# would under- or over-count the remainder.
+MF_STAGE_STRAY_MAX=5
+
 # Report anything staged OUTSIDE $PREFIX, which the merge above cannot carry.
 #
 # A recipe configured with a prefix other than the workspace stages to a path
@@ -471,21 +481,36 @@ mf_stage_reserved_reset() {
 # The filter stays OUT of the status-bearing statement, for the reason the
 # statement exists: `walk | grep -v | head` is a pipeline again, and its status
 # is head's.
+#
+# The EMPTY case is the quieter half of the same defect and has its own branch:
+# a failed walk whose strays are all INSIDE the subtree it could not read leaves
+# nothing to print, so without the branch this returns 0 having said nothing at
+# all -- a stray that exists, in the only function that would ever mention it,
+# reported as a clean stage. It survived a whole green suite when the fixture
+# beside it always left a stray standing.
 mf_stage_warn_stray() {
   [ -d "$1" ] || return 0
   _st_sw_partial=false
   _st_sw_all=$(mf_stage_walk_files "$1") || _st_sw_partial=true
-  _st_sw_stray=$(printf '%s\n' "$_st_sw_all" | grep -v -F "$2/" | head -5)
+  _st_sw_stray=$(printf '%s\n' "$_st_sw_all" | grep -v -F "$2/")
   if [ -z "$_st_sw_stray" ]; then
     if [ "$_st_sw_partial" = true ]; then
       warn "Part of the staging area at $1 could not be read, so anything staged outside $2 there is NOT listed below."
     fi
     return 0
   fi
+  # Counted BEFORE the cap, because the cap is the third way this function can
+  # report a short list without saying so -- the same defect as the partial walk,
+  # arriving through a display decision rather than a failure. `tr -d` for the
+  # reason mediaforge.sh's unclaimed count gives: BSD wc pads its output.
+  _st_sw_n=$(printf '%s\n' "$_st_sw_stray" | wc -l | tr -d " ")
   warn "Staged files landed OUTSIDE the workspace prefix and will NOT be merged:"
-  printf '%s\n' "$_st_sw_stray" | while IFS= read -r _st_f; do
+  printf '%s\n' "$_st_sw_stray" | head -n "$MF_STAGE_STRAY_MAX" | while IFS= read -r _st_f; do
     warn "    ${_st_f#"$1"}"
   done
+  if [ "$_st_sw_n" -gt "$MF_STAGE_STRAY_MAX" ]; then
+    warn "    ... and $((_st_sw_n - MF_STAGE_STRAY_MAX)) more."
+  fi
   if [ "$_st_sw_partial" = true ]; then
     warn "  Part of the staging area could not be read; the list above is incomplete."
   fi
