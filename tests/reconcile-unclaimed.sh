@@ -378,5 +378,61 @@ else
   _verdict an-unreadable-stamp-is-announced "$_wrong"
 fi
 
+# --- a subtree it could not read ------------------------------------------
+#
+# find's diagnostic used to land in the report raw and unprefixed, and the audit
+# then printed a confident count over a subtree it never walked. Under-reporting
+# is the dangerous direction for a list an operator deletes from, and it was the
+# silent one.
+_iws="$_tmp/incomplete"
+mkdir -p "$_iws/workspace/.stamps" "$_iws/workspace/lib/locked"
+echo real   > "$_iws/workspace/lib/real.a"
+echo hidden > "$_iws/workspace/lib/locked/buried.a"
+printf 'lib/real.a\n' > "$_iws/workspace/.stamps/verifying-1.0"
+chmod 000 "$_iws/workspace/lib/locked" 2>/dev/null || true
+
+if [ -r "$_iws/workspace/lib/locked" ]; then
+  _bad an-unreadable-subtree-is-announced "fixture unavailable: the directory stayed readable after chmod 000 (running as root?)"
+else
+  _iout=$( cd "$_iws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _irc=0 || _irc=$?
+  _ibare=$(printf '%s\n' "$_iout" | grep -cv '^\[mediaforge\]') || true
+  _wrong=''
+  _says "$_iout" 'could not be read; the list below is incomplete' \
+    || _wrong="$_wrong no-incompleteness-warning;"
+  # The leak this replaced: find's own `Permission denied`, unprefixed and
+  # unfiltered, in the middle of the report.
+  [ "${_ibare:-0}" = 0 ] \
+    || _wrong="$_wrong unprefixed-line(s)=$_ibare: [$(printf '%s\n' "$_iout" | grep -v '^\[mediaforge\]' | head -1)];"
+  # Still advisory: an unreadable subtree is not a reason to fail the command.
+  [ "$_irc" = 0 ] || _wrong="$_wrong exit=$_irc;"
+  _verdict an-unreadable-subtree-is-announced "$_wrong"
+  chmod 755 "$_iws/workspace/lib/locked" 2>/dev/null || true
+fi
+
+# --- a prefix it could not read -------------------------------------------
+#
+# The degrade path, which an earlier comment excused as unreachable by
+# conflating readable with traversable: cmd_reconcile's `[ -d "$PREFIX/.stamps" ]`
+# needs only SEARCH permission, so a mode-0111 prefix clears it and lands in a
+# guard that tests -r. `unclaimed: ?` is the half that matters -- a warn followed
+# by a summary still asserting 0 is the wrong answer stated twice.
+_dws="$_tmp/degrade"
+mkdir -p "$_dws/workspace/.stamps" "$_dws/workspace/lib"
+echo real > "$_dws/workspace/lib/real.a"
+printf 'lib/real.a\n' > "$_dws/workspace/.stamps/verifying-1.0"
+chmod 111 "$_dws/workspace" 2>/dev/null || true
+
+if [ -r "$_dws/workspace" ]; then
+  _bad unreadable-prefix-degrades-to-unknown "fixture unavailable: the prefix stayed readable after chmod 111 (running as root?)"
+else
+  _dout=$( cd "$_dws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _drc=0 || _drc=$?
+  _wrong=''
+  _says "$_dout" 'is not a readable directory' || _wrong="$_wrong no-skip-warning;"
+  _says "$_dout" 'unclaimed: \?' || _wrong="$_wrong summary-still-claims-a-count;"
+  [ "$_drc" = 0 ] || _wrong="$_wrong exit=$_drc;"
+  _verdict unreadable-prefix-degrades-to-unknown "$_wrong"
+  chmod 755 "$_dws/workspace" 2>/dev/null || true
+fi
+
 printf 'DONE: reconcile-unclaimed\n'
 exit "$_fail"

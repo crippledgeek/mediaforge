@@ -1169,15 +1169,22 @@ _reconcile_stamps() {
 
   for _rc_stamp in "$PREFIX/.stamps"/*; do
     [ -f "$_rc_stamp" ] || continue
-    # Sanitized ONCE, here, rather than at each of the four warns that
-    # interpolate it. A stamp filename is not our text -- it is whatever
-    # stamp_write was handed -- and every one of those messages puts our own
-    # words AFTER the name, which is the shape where a retained newline closes
-    # our line and leaves the remainder to stand as its own. Reproduced: a stamp
-    # named `ev<LF>[mediaforge] WARNING: ...` split "[unverifiable] ev" from "the
-    # stamp is unreadable", with the forged half reading as a mediaforge line
-    # because the payload supplied the prefix itself.
+    # Sanitized ONCE, here, rather than at each of the four sites that
+    # interpolate it -- two log, two warn. A stamp filename is not our text; it
+    # is whatever stamp_write was handed, and every one of those messages puts
+    # our own words AFTER the name, which is the shape where a retained newline
+    # closes our line and leaves the remainder to stand as its own. Reproduced:
+    # a stamp named `ev<LF>[mediaforge] WARNING: ...` split "[unverifiable] ev"
+    # from "the stamp is unreadable", and the forged half read as a mediaforge
+    # line because the payload supplied the prefix itself.
     _rc_name=$(mf_printable_line "$(basename "$_rc_stamp")")
+    # mf_printable_line fails closed -- no `tr`, no output -- and an empty name
+    # would leave `[DRIFTED]  the stamp vouches for files that are gone:` naming
+    # no stamp at all. A PATH without `tr` is reachable in this suite
+    # (tests/ccache.sh builds one). The placeholder keeps every message
+    # well-formed without letting an unprintable byte through; --prune is
+    # unaffected either way, since it acts on _rc_drifted_list, not on this.
+    [ -n "$_rc_name" ] || _rc_name='<unprintable stamp name>'
 
     # An empty stamp is a stamp with no manifest, not a stamp with no files:
     # every stamp written before GH-59 is empty, as is every stamp for a recipe
@@ -1209,7 +1216,7 @@ _reconcile_stamps() {
     # asserted against.
     if [ ! -r "$_rc_stamp" ]; then
       _rc_unverifiable=$((_rc_unverifiable + 1))
-      warn "  [unverifiable] $_rc_name — the stamp is unreadable"
+      warn "  [unverifiable] $_rc_name -- the stamp is unreadable"
       continue
     fi
 
@@ -1373,13 +1380,11 @@ _reconcile_unclaimed() {
   # looked at nothing, is the same silent failure the awk rewrite removed one
   # layer down.
   #
-  # NOT REACHABLE through the CLI today, and so deliberately unasserted:
-  # cmd_reconcile dies unless $PREFIX/.stamps resolves as a directory, which
-  # cannot be true of an unreadable or non-traversable $PREFIX. It is kept
-  # because the guarantee lives in the CALLER -- mf_build_preflight_stamps
-  # already calls a neighbour of this function without that check -- and a
-  # precondition that costs three test operators is cheaper than the next
-  # caller rediscovering why the count was zero.
+  # REACHABLE through the CLI, which an earlier version of this comment denied by
+  # conflating readable with traversable: `[ -d "$PREFIX/.stamps" ]` in
+  # cmd_reconcile needs only SEARCH permission on $PREFIX, while this tests -r.
+  # A mode-0111 prefix satisfies that guard and lands here, so the path is
+  # asserted rather than excused.
   #
   # Both degrade paths set the count to `?` rather than leaving it 0. A warn plus
   # `unclaimed: 0` in the summary is still the wrong answer stated confidently --
@@ -1397,14 +1402,29 @@ _reconcile_unclaimed() {
   # parsed by find as an operand rather than a path. Vanishingly unlikely at a
   # prefix root, and the guard costs one sed for the whole walk.
   #
-  # The `|| exit 1` below ends only this subshell and its status is discarded by
-  # the pipeline -- the precondition above is the real guard, and this is left as
-  # a local sanity exit rather than something the caller can observe.
-  _rc_list=$( ( cd "$PREFIX" 2>/dev/null || exit 1
-                for _rc_top in *; do
-                  { [ -e "$_rc_top" ] || [ -L "$_rc_top" ]; } || continue
-                  find "./$_rc_top" \( -type f -o -type l \) -print
-                done ) | sed 's|^\./||' | LC_ALL=C sort | awk '
+  # The walk is its OWN command substitution, not the head of the pipeline, so
+  # its status can be seen. As a pipeline head it could not be: an unreadable
+  # subdirectory made find write a raw `find: './lib/x': Permission denied` into
+  # the middle of the report -- unprefixed, unfiltered, the same class this
+  # command's own output is asserted against -- and then the audit printed
+  # `unclaimed: 0` over a subtree it never read. Under-reporting is the dangerous
+  # direction for a list an operator deletes from, and it was the silent one.
+  #
+  # find's own diagnostic goes to /dev/null and the failure is carried as STATUS
+  # instead. The `|| exit 1` on the cd is load-bearing now rather than a discarded
+  # sanity exit.
+  _rc_incomplete=false
+  _rc_walk=$( cd "$PREFIX" 2>/dev/null || exit 1
+              _rc_st=0
+              for _rc_top in *; do
+                { [ -e "$_rc_top" ] || [ -L "$_rc_top" ]; } || continue
+                find "./$_rc_top" \( -type f -o -type l \) -print 2>/dev/null || _rc_st=1
+              done
+              exit "$_rc_st" ) || _rc_incomplete=true
+  [ "$_rc_incomplete" = false ] \
+    || warn "  [unclaimed]    part of $PREFIX could not be read; the list below is incomplete"
+
+  _rc_list=$( printf '%s\n' "$_rc_walk" | sed 's|^\./||' | LC_ALL=C sort | awk '
         BEGIN {
           for (i = 1; i < ARGC; i++) {
             while ((getline line < ARGV[i]) > 0) if (line != "") claimed[line] = 1
@@ -1423,8 +1443,11 @@ _reconcile_unclaimed() {
   }
 
   [ -n "$_rc_list" ] || return 0
+  # ENTRIES, not files, and the report says so: wc -l counts lines, and a
+  # filename containing a newline arrives from the walk as two of them. Calling
+  # them files would make the count disagree with the list printed underneath it.
   _rc_unclaimed=$(printf '%s\n' "$_rc_list" | wc -l | tr -d ' ')
-  warn "  [unclaimed]    $_rc_unclaimed file(s) in the prefix that no stamp claims:"
+  warn "  [unclaimed]    $_rc_unclaimed entries in the prefix that no stamp claims:"
   # ONE warn PER LINE, and that is the protection, not decoration. These names
   # were chosen by whatever tarball installed the file, and warn formats through
   # mf_printable, which deliberately KEEPS newlines because it is meant for our
