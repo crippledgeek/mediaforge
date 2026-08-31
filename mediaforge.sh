@@ -1439,11 +1439,15 @@ _reconcile_unclaimed() {
   # `unclaimed: 0` over a subtree it never read. Under-reporting is the dangerous
   # direction for a list an operator deletes from, and it was the silent one.
   #
-  # find's own diagnostic goes to /dev/null and the failure is carried as STATUS
-  # instead, by lib/stage.sh's mf_stage_walk_files -- shared with the manifest
+  # find's own diagnostic goes to /dev/null HERE rather than inside the shared
+  # walk, because this is the only caller that wants it gone: a report an
+  # operator reads must not carry a raw `find: ...: Permission denied` in the
+  # middle of it, while a build log is the one place that line helps. The
+  # failure is carried as STATUS instead, by lib/stage.sh's mf_stage_walk_files -- shared with the manifest
   # walk in mf_stage_commit, which had the same defect and a much worse
-  # consequence (GH-80). The two callers differ only in what they do with the
-  # failure: this one reports a lower bound, staging fails the recipe.
+  # consequence (GH-80), and with the stray warning beside it. The three callers
+  # differ only in what they do with the failure: this one reports a lower bound,
+  # staging fails the recipe, the stray warning says its list is short.
   #
   # The `|| exit 1` on the cd is belt-and-braces against a race between
   # the guard above and this cd -- mutation shows removing it changes nothing,
@@ -1471,7 +1475,7 @@ _reconcile_unclaimed() {
                 { [ -e "$_rc_top" ] || [ -L "$_rc_top" ]; } || continue
                 set -- "$@" "./$_rc_top"
               done
-              mf_stage_walk_files "$@" ) || _rc_incomplete=true
+              mf_stage_walk_files "$@" 2>/dev/null ) || _rc_incomplete=true
 
   # The count carries a `+` when the walk was partial, and the SUMMARY is where
   # that has to show. Warning and then printing an exact-looking number is the

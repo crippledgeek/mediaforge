@@ -156,8 +156,8 @@ sh tests/reconcile-unclaimed.sh
 # The staging half of the same defect (#80): the manifest walk discarded find's
 # status, so a subtree it could not descend was dropped from the stamp in
 # silence -- and unlike the audit above, nothing ever re-derives a stamp. Pins
-# the shared walk mechanism and the policy split over it: the audit reports a
-# lower bound, staging fails the recipe.
+# the shared walk mechanism and the STAGING half of the policy split over it;
+# the audit's half stays with the audit, in reconcile-unclaimed.sh above.
 sh tests/stage-manifest-walk.sh
 # Pins that a recipe installing by hand writes into the stage and not the live
 # prefix (#68). DESTDIR redirects a build system's install target and nothing

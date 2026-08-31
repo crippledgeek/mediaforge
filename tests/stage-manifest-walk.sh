@@ -11,8 +11,13 @@
 # re-derives it: it reads `verified` while vouching for less than the recipe
 # installed, and hands that same audit a pile of files no stamp claims --
 # findings the audit manufactured itself, shaped exactly like the real ones it
-# exists to surface. So staging FAILS THE RECIPE where the audit degrades, and
-# that difference in policy over a shared mechanism is what this file pins.
+# exists to surface. So staging FAILS THE RECIPE where the audit degrades.
+#
+# This file pins the STAGING half of that split and the mechanism both halves
+# share; the audit's half is pinned where it lives, by
+# tests/reconcile-unclaimed.sh's `an-unreadable-subtree-is-announced`. Changing
+# the audit's degrade into a die leaves every assertion here green, which is why
+# saying this file pins the split would be a citation that is not true.
 #
 # TWO fixtures, because they reach two different failures and only one of them
 # is portable:
@@ -53,18 +58,39 @@ else
   _bad walk-mechanism-defined-once "expected exactly one mf_stage_walk_files definition under lib/, found $_defs"
 fi
 
+# And exactly one SPELLING of it, which the definition count above cannot see: a
+# fourth hand-rolled walk somewhere else in the tree satisfies both a definition
+# count and a per-function grep while being precisely the drift the extraction
+# exists to prevent. The predicate is the fingerprint -- three copies of it
+# existed before this change, in mf_stage_commit, mf_stage_warn_stray and
+# _reconcile_unclaimed.
+#
+# Scoped to the files-and-symlinks predicate on purpose: a walk whose predicate
+# is the caller's own question (lib/install.sh's header list,
+# lib/remove-listed-files.sh's _enumerate) is a different mechanism and is not
+# counted here.
+_walks=$( { _lib_code; _code_only mediaforge.sh; } | grep -c -- '-type f -o -type l' || true)
+if [ "$_walks" = 1 ]; then
+  _pass one-spelling-of-the-walk
+else
+  _bad one-spelling-of-the-walk "expected the files-and-symlinks predicate in one place, found $_walks across lib/ and mediaforge.sh"
+fi
+
 # Both call sites ON it, not merely near it. Statement-scoped to the functions
 # that own each walk, because a mention anywhere else in either file would
 # satisfy a whole-file grep while the walk itself stayed hand-rolled.
-_commit=$(_fn_body lib/stage.sh mf_stage_commit | _code_only -)
-_audit=$(_fn_body mediaforge.sh _reconcile_unclaimed | _code_only -)
 _missing=''
-printf '%s\n' "$_commit" | grep -q 'mf_stage_walk_files' || _missing="mf_stage_commit"
-printf '%s\n' "$_audit"  | grep -q 'mf_stage_walk_files' || _missing="$_missing _reconcile_unclaimed"
+for _site in lib/stage.sh:mf_stage_commit lib/stage.sh:mf_stage_warn_stray mediaforge.sh:_reconcile_unclaimed; do
+  _f=${_site%%:*}
+  _fn=${_site#*:}
+  if ! _fn_body "$_f" "$_fn" | _code_only - | grep -q 'mf_stage_walk_files'; then
+    _missing="$_missing $_fn"
+  fi
+done
 if [ -z "$_missing" ]; then
-  _pass both-walks-share-the-mechanism
+  _pass every-walk-shares-the-mechanism
 else
-  _bad both-walks-share-the-mechanism "still hand-rolling the walk:$_missing"
+  _bad every-walk-shares-the-mechanism "still hand-rolling the walk:$_missing"
 fi
 
 # --- the behaviour ---------------------------------------------------------
@@ -157,10 +183,55 @@ STUB
     # than raised still prints this sentence, and the merge below it still dies
     # on the same directory -- so an exit status and a substring together do not
     # separate the two. The severity does.
-    if [ "$_rc" != 0 ] && printf '%s' "$_out" | grep -q 'FATAL.*under-record'; then
+    #
+    # And find's OWN diagnostic beside it, which is why the shared walk does not
+    # redirect stderr and the audit does it at its own call site. The die can
+    # only name the stage root; the operator needs the one directory out of
+    # hundreds that could not be read, and the failing find already knew it.
+    _named=false
+    printf '%s' "$_out" | grep -q 'locked' && _named=true
+    if [ "$_rc" != 0 ] && [ "$_named" = true ] && printf '%s' "$_out" | grep -q 'FATAL.*under-record'; then
       _pass unreadable-subtree-fails-the-manifest
     else
-      _bad unreadable-subtree-fails-the-manifest "the manifest walk did not report the unreadable subtree (exit=$_rc) $(printf '%s' "$_out" | _evidence 2 'FATAL|merge')"
+      _bad unreadable-subtree-fails-the-manifest "the manifest walk did not report the unreadable subtree (exit=$_rc named=$_named) $(printf '%s' "$_out" | _evidence 2 'FATAL|merge')"
+    fi
+  fi
+  mf_stage_end
+  mf_stage_pending_reset
+
+  # The third caller's answer, which is neither of the other two: a stray warning
+  # is the ONLY thing that ever looks at a file staged outside the prefix, so a
+  # subtree it could not read is a stray nobody is ever told about. It cannot die
+  # -- those files were never going to be merged -- and it must not report a short
+  # list in silence, which is GH-80's defect wearing a warning's clothes.
+  #
+  # A real unreadable directory rather than the stub, because this walk's OUTPUT
+  # is load-bearing here as well as its status: the assertion needs the stray
+  # itself in the list AND the admission beside it, and a stub that truncates the
+  # walk cannot be relied on to leave the stray in.
+  PREFIX="$_tmp/prefix4"
+  mkdir -p "$PREFIX"
+  mf_stage_begin
+  _dir=$(mf_stage_dir)
+  _stage="$_dir$PREFIX"
+  mkdir -p "$_stage/lib" "$_dir/opt/foreign/lib" "$_stage/locked"
+  echo a > "$_stage/lib/libprobe.a"
+  echo stray > "$_dir/opt/foreign/lib/libstray.a"
+  echo hidden > "$_stage/locked/hidden.a"
+  chmod 000 "$_stage/locked"
+  if [ "$(id -u)" = 0 ] || find "$_dir" >/dev/null 2>&1; then
+    chmod 755 "$_stage/locked" 2>/dev/null || true
+    _bad partial-stray-walk-says-so "fixture unavailable: the directory stayed readable after chmod 000 (running as root?)"
+  else
+    _out=$( mf_stage_warn_stray "$_dir" "$_stage" 2>&1 ) || true
+    chmod 755 "$_stage/locked" 2>/dev/null || true
+    _named=false; _admits=false
+    printf '%s' "$_out" | grep -q 'libstray.a' && _named=true
+    printf '%s' "$_out" | grep -q 'incomplete' && _admits=true
+    if [ "$_named" = true ] && [ "$_admits" = true ]; then
+      _pass partial-stray-walk-says-so
+    else
+      _bad partial-stray-walk-says-so "named the stray=$_named, admitted the list is short=$_admits $(printf '%s' "$_out" | _evidence 2 'OUTSIDE|incomplete')"
     fi
   fi
   mf_stage_end

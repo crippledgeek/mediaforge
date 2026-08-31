@@ -195,32 +195,61 @@ mf_stage_discard() {
 # Walk trees for files and symlinks, carrying find's failure as this function's
 # STATUS.
 #
-# Two callers ask the same question of two different trees -- mf_stage_commit
-# enumerating the stage to build a manifest, and mediaforge.sh's
-# _reconcile_unclaimed enumerating the prefix to find what no stamp claims --
-# and both need the property a pipeline structurally cannot give them: in
-# `find ... | sed`, the status belongs to SED, and the `2>/dev/null` that keeps
-# find's raw diagnostic out of the output removes the only other evidence that
-# a subtree went unread. So the walk is a statement whose status is its own.
+# Three callers ask the same question of three different trees -- mf_stage_commit
+# enumerating the stage to build a manifest, mf_stage_warn_stray enumerating it
+# again for what landed outside the prefix, and mediaforge.sh's
+# _reconcile_unclaimed enumerating the prefix for what no stamp claims -- and all
+# three need the property a pipeline structurally cannot give them: in
+# `find ... | sed`, the status belongs to SED -- and where the caller also sends
+# find's diagnostic to /dev/null, as the audit must, that removes the only other
+# evidence that a subtree went unread. So the walk is a statement whose status is
+# its own.
 #
-# What that status MEANS is the caller's to decide, and it is not the same
-# answer on both sides. The audit reports a lower bound and carries on, because
-# it is advisory. Staging fails the recipe, because a manifest that under-
-# records is permanent: nothing later re-derives it, and the audit above then
-# reports every unwalked file as claimed by no stamp -- manufacturing findings
-# indistinguishable from the real ones it exists to surface.
+# What that status MEANS is the caller's to decide, and it is a different answer
+# each time. Staging fails the recipe, because a manifest that under-records is
+# permanent: nothing later re-derives it, and the audit then reports every
+# unwalked file as claimed by no stamp -- manufacturing findings indistinguishable
+# from the real ones it exists to surface. The audit reports a lower bound,
+# because it is advisory and recomputed on every run. The stray warning reports
+# the list it has and says the list is short, because those files were never
+# going to be merged and failing a build over them would fail it for the wrong
+# reason. Sharing the mechanism is what lets the three policies be deliberate
+# rather than accidental.
 #
-# The caller cd's and this reads the CWD, rather than taking the directory as an
-# argument: a cd here would need its own subshell to contain it, and both call
-# sites already run inside a command substitution that is one.
+# The PREDICATE is fixed at files-and-symlinks, which is what makes this one
+# mechanism rather than a thin wrapper over find: the three callers must agree
+# on what a manifest entry IS, for the reason mf_stage_filter_paths gives about
+# recording the LINK rather than its resolution. A walk whose predicate is the
+# caller's own question -- lib/install.sh's header list, lib/remove-listed-files.sh's
+# _enumerate -- is a different mechanism and stays where it is.
+#
+# Roots are whatever the caller hands over -- absolute, or relative to its own
+# CWD. Taking the directory as an argument and cd'ing here would need a subshell
+# to contain the cd, and the two callers that need one already run inside a
+# command substitution that is one.
+#
+# STDERR IS INHERITED, deliberately, and the redirection lives at the call site
+# that wants it. Discarding find's diagnostic is right for the audit, whose
+# output is a report an operator reads -- a raw `find: './lib/x': Permission
+# denied` in the middle of it is the defect GH-77 fixed. It is wrong for a build,
+# whose output is a log: the failing find already knows WHICH directory it could
+# not read, and swallowing that here would make the die below name only the stage
+# root and leave the operator to hunt for the one path in a tree of hundreds.
+# Folding the audit's policy into the shared mechanism would impose it on both.
+#
+# NO ROOTS is not an error: `for` over an empty list runs nothing and reports
+# success, which is what the audit's empty prefix means -- no non-dot entry, so
+# nothing to walk. Deliberately unlike mf_dest_mkdir, whose empty list IS a
+# mis-expansion; that function is about to create directories a later cp depends
+# on, while this one is asked a question whose honest answer can be "nothing".
 #
 # `-print` is explicit because the expression has a `-o` in it: find's implied
 # -print applies to the WHOLE expression only when none is given, and a later
 # hand adding a term after the group would otherwise silently change what prints.
-mf_stage_walk_files() { # $@ = root paths, relative to the caller's CWD
+mf_stage_walk_files() { # $@ = root paths, absolute or relative to the caller's CWD
   _st_walk_st=0
   for _st_walk_root in "$@"; do
-    find "$_st_walk_root" \( -type f -o -type l \) -print 2>/dev/null || _st_walk_st=1
+    find "$_st_walk_root" \( -type f -o -type l \) -print || _st_walk_st=1
   done
   return "$_st_walk_st"
 }
@@ -429,14 +458,36 @@ mf_stage_reserved_reset() {
 # path full of `.` characters, each of which matches ANY character in an ERE, so
 # a regex filter suppresses genuine strays whose path differs from the prefix by
 # a single character.
+#
+# The THIRD caller of the shared walk, and the third answer to what a failed one
+# means. The manifest walk dies and the unclaimed audit reports a lower bound;
+# here the walk feeds a warning that is the only thing which ever looks at these
+# files, so a subtree it could not read is a stray nobody will ever be told
+# about. Dying is not available -- these files were never going to be merged, so
+# failing a build over them would fail it for the wrong reason -- and reporting
+# a short list in silence is the defect GH-80 is about. So it reports the list
+# it has and says the list is short.
+#
+# The filter stays OUT of the status-bearing statement, for the reason the
+# statement exists: `walk | grep -v | head` is a pipeline again, and its status
+# is head's.
 mf_stage_warn_stray() {
   [ -d "$1" ] || return 0
-  _st_stray=$(find "$1" \( -type f -o -type l \) 2>/dev/null \
-    | grep -v -F "$2/" | head -5)
-  [ -n "$_st_stray" ] || return 0
+  _st_sw_partial=false
+  _st_sw_all=$(mf_stage_walk_files "$1") || _st_sw_partial=true
+  _st_sw_stray=$(printf '%s\n' "$_st_sw_all" | grep -v -F "$2/" | head -5)
+  if [ -z "$_st_sw_stray" ]; then
+    if [ "$_st_sw_partial" = true ]; then
+      warn "Part of the staging area at $1 could not be read, so anything staged outside $2 there is NOT listed below."
+    fi
+    return 0
+  fi
   warn "Staged files landed OUTSIDE the workspace prefix and will NOT be merged:"
-  printf '%s\n' "$_st_stray" | while IFS= read -r _st_f; do
+  printf '%s\n' "$_st_sw_stray" | while IFS= read -r _st_f; do
     warn "    ${_st_f#"$1"}"
   done
+  if [ "$_st_sw_partial" = true ]; then
+    warn "  Part of the staging area could not be read; the list above is incomplete."
+  fi
   warn "  The recipe installed to a prefix other than $PREFIX."
 }
