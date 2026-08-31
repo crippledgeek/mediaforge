@@ -347,7 +347,7 @@ if [ -r "$_uws/workspace/.stamps/secret-1.0" ]; then
 else
   _uout=$( cd "$_uws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) || true
   _wrong=''
-  _says "$_uout" 'secret-1.0 is unreadable' || _wrong="$_wrong no-warning-for-the-unreadable-stamp;"
+  _says "$_uout" 'secret-1\.0 is unreadable' || _wrong="$_wrong no-warning-for-the-unreadable-stamp;"
   # The consequence the warning exists to explain, asserted alongside it: the
   # file that stamp claims IS in the unclaimed list.
   _says "$_uout" 'lib/libclaimed\.a' || _wrong="$_wrong claimed-file-not-listed-as-unclaimed;"
