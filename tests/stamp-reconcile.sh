@@ -90,6 +90,47 @@ if [ -f "$ROOT/lib/stage.sh" ]; then
   # shellcheck source=lib/utils.sh
   . "$ROOT/lib/utils.sh"
 
+  # A stage with NO strays must warn nothing and let the caller carry on.
+  #
+  # FIRST in this half, and not where it reads most naturally: mf_stage_commit
+  # calls mf_stage_warn_stray itself, so a warn_stray that aborts under this
+  # file's `set -e` takes the whole file down before any later assertion can
+  # report anything. Asserted before the first commit, it reports.
+  #
+  # Trivial-looking, and it is the case that broke: the stray filter is a
+  # `grep -v`, which exits 1 when every line is filtered out -- i.e. exactly when
+  # nothing is stray. While a `head` sat at the end of that pipeline the status
+  # was hidden; the moment it moved (so the "and N more" count could be taken
+  # before the cap) the assignment started failing, and under this file's own
+  # `set -e` the suite stopped mid-run with no FAIL line to say why. Asserted
+  # here rather than left to the next reader to rediscover as an abort.
+  mf_stage_pending_reset
+  mf_stage_begin
+  _stage=$(mf_stage_dir)$PREFIX
+  mkdir -p "$_stage/lib"
+  echo clean > "$_stage/lib/libclean.a"
+  # Driven in a SEPARATE `sh -e`, and that is the whole assertion rather than a
+  # flourish: POSIX suspends -e for a command on the left of `&&`, and shells
+  # carry that suspension into the command substitution, so
+  # `_out=$(mf_stage_warn_stray ...) || _rc=$?` cannot see the abort at all --
+  # written that way this assertion passed with the defect present. The real
+  # caller is mf_stage_commit, which invokes it as a plain statement, so the
+  # fixture has to be one too. The sentinel is what proves the statement after it
+  # was reached.
+  _out=$(sh -e -c '
+    SCRIPT_DIR=$1; PREFIX=$2
+    . "$1/lib/utils.sh"
+    mf_stage_warn_stray "$3" "$4"
+    printf SURVIVED
+  ' sh "$ROOT" "$PREFIX" "$(mf_stage_dir)" "$_stage" 2>&1) || true
+  if [ "$_out" = SURVIVED ]; then
+    _pass clean-stage-warns-nothing
+  else
+    _bad clean-stage-warns-nothing "a stage with no strays did not pass through cleanly: [$(printf '%s' "$_out" | tr '\n' ' ')]"
+  fi
+  mf_stage_end
+  mf_stage_pending_reset
+
   mf_stage_begin
   _stage="$DESTDIR$PREFIX"
   mkdir -p "$_stage/lib/pkgconfig" "$_stage/include"

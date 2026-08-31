@@ -492,7 +492,15 @@ mf_stage_warn_stray() {
   [ -d "$1" ] || return 0
   _st_sw_partial=false
   _st_sw_all=$(mf_stage_walk_files "$1") || _st_sw_partial=true
-  _st_sw_stray=$(printf '%s\n' "$_st_sw_all" | grep -v -F "$2/")
+  # `|| :` because grep exits 1 on NO MATCH, and no match here is the ordinary
+  # case: every staged file was under the prefix, which is what a healthy build
+  # looks like. That status used to be swallowed by the trailing `head`, so
+  # taking the cap out of this statement -- which is what lets the count below be
+  # honest -- exposed it, and under a caller running `set -e` (every test file
+  # does) the assignment aborted the shell before the function could report
+  # anything at all. tests/stamp-reconcile.sh caught it as a suite that stopped
+  # mid-file; a "no stray" case is asserted there now rather than left implicit.
+  _st_sw_stray=$(printf '%s\n' "$_st_sw_all" | grep -v -F "$2/") || :
   if [ -z "$_st_sw_stray" ]; then
     if [ "$_st_sw_partial" = true ]; then
       warn "Part of the staging area at $1 could not be read, so anything staged outside $2 there is NOT listed below."
