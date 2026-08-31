@@ -1305,6 +1305,27 @@ _reconcile_unclaimed() {
   # Emptying ARGV as each stamp is consumed is what makes awk fall through to
   # stdin afterwards; it is the portable form of "these files first, then the
   # pipe", with no dependence on FILENAME being spelled "-" for stdin.
+  # A PRECONDITION, checked here rather than inferred from the pipeline below,
+  # because the pipeline structurally cannot carry the answer:
+  # `$(... | sort | awk ...) || degrade` reads the LAST command's status, so a
+  # failed `cd` inside the subshell would end only that subshell and leave sort
+  # and awk to succeed on empty input -- reporting `unclaimed: 0`. An audit whose
+  # whole product is a count, printing the reassuring answer when it in fact
+  # looked at nothing, is the same silent failure the awk rewrite removed one
+  # layer down.
+  #
+  # NOT REACHABLE through the CLI today, and so deliberately unasserted:
+  # cmd_reconcile dies unless $PREFIX/.stamps resolves as a directory, which
+  # cannot be true of an unreadable or non-traversable $PREFIX. It is kept
+  # because the guarantee lives in the CALLER -- mf_build_preflight_stamps
+  # already calls a neighbour of this function without that check -- and a
+  # precondition that costs three test operators is cheaper than the next
+  # caller rediscovering why the count was zero.
+  if [ ! -d "$PREFIX" ] || [ ! -r "$PREFIX" ] || [ ! -x "$PREFIX" ]; then
+    warn "  [unclaimed]    skipped: $PREFIX is not a readable directory"
+    return 0
+  fi
+
   _rc_list=$( ( cd "$PREFIX" 2>/dev/null || exit 1
                 for _rc_top in *; do
                   { [ -e "$_rc_top" ] || [ -L "$_rc_top" ]; } || continue

@@ -57,14 +57,26 @@ printf 'lib/libclaimed.a\n' > "$_ws/workspace/.stamps/claimed-1.0"
 
 _out=$( cd "$_ws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _rc=0 || _rc=$?
 
-# Every assertion below asks the same two questions of the same captured report,
-# so they are asked once here rather than at every site. FILE-LOCAL on purpose:
-# `printf | grep -q` over captured output is spelled out at ~90 sites across
-# tests/, so this is the house idiom and a shared helper used only by the newest
-# file would be a third spelling rather than a convergence. Converging those is
-# worth doing and is not this branch's subject.
-_reports()     { printf '%s\n' "$_out" | grep -q "$1"; }
+# FILE-LOCAL on purpose: `printf | grep -q` over captured output is spelled out
+# at ~90 sites across tests/, so this is the house idiom and a shared helper used
+# only by the newest file would be a third spelling rather than a convergence.
+# Converging those is worth doing and is not this branch's subject.
+#
+# _says takes the TEXT, because this file captures five different runs -- the
+# plain report, --prune, --quiet, --help, and the forged-name fixture -- and a
+# helper bound to one of them sends every other assertion back to spelling the
+# pipe out by hand. That is what the first draft did, at seven sites. _reports is
+# this helper partially applied to the main run.
+_says()        { printf '%s\n' "$1" | grep -q "$2"; }
+_reports()     { _says "$_out" "$1"; }
 _reports_not() { ! _reports "$1"; }
+
+# "Does this function's CODE contain X" -- asked four times here, and the
+# _code_only step is the half that is easy to forget. tests/testing.md records
+# why it matters: this repo quotes calls verbatim in prose, so an unstripped
+# needle answers what the file SAYS when the question was what it DOES, and a
+# grep has twice matched the comment explaining a call rather than the call.
+_fn_code()     { _fn_body "$1" "$2" | _code_only - | grep -qE "$3"; }
 
 # --- what it reports -------------------------------------------------------
 
@@ -126,7 +138,7 @@ _verdict unclaimed-is-reported-not-removed "$_wrong"
 # "prune" as "prune everything reconcile complained about".
 _pout=$( cd "$_ws" && "$ROOT/mediaforge.sh" reconcile --prune 2>&1 ) && _prc=0 || _prc=$?
 _wrong=''
-printf '%s\n' "$_pout" | grep -q 'liborphan' || _wrong="$_wrong prune-run-reported-nothing;"
+_says "$_pout" 'liborphan' || _wrong="$_wrong prune-run-reported-nothing;"
 [ -f "$_ws/workspace/lib/liborphan.a" ]  || _wrong="$_wrong prune-removed-an-unclaimed-file;"
 [ -L "$_ws/workspace/lib/liborphan.so" ] || _wrong="$_wrong prune-removed-the-symlink;"
 [ -f "$_ws/workspace/share/pkg/.hidden" ] || _wrong="$_wrong prune-removed-the-nested-dotfile;"
@@ -140,8 +152,7 @@ _verdict prune-does-not-touch-unclaimed "$_wrong"
 # satisfied by the paragraph explaining it, and the audit could then be deleted
 # from cmd_reconcile with both assertions still green.
 _wrong=''
-_fn_body mediaforge.sh cmd_reconcile | _code_only - | grep -q '_reconcile_unclaimed' \
-  || _wrong="$_wrong cmd_reconcile-never-calls-it;"
+_fn_code mediaforge.sh cmd_reconcile '_reconcile_unclaimed' || _wrong="$_wrong cmd_reconcile-never-calls-it;"
 _verdict unclaimed-audit-is-called "$_wrong"
 
 # The 151 meson bytecode files are fixed at the generator rather than excluded
@@ -160,8 +171,7 @@ _verdict unclaimed-audit-is-called "$_wrong"
 # (`PYTHONDONTWRITEBYTECODE=1 run meson setup ...`), which is exactly the
 # regression this exists to catch, so the needle carries `export`.
 _wrong=''
-_fn_body lib/framework.sh mf_meson | _code_only - \
-  | grep -qE '(^|[[:space:]])export[[:space:]]+PYTHONDONTWRITEBYTECODE' \
+_fn_code lib/framework.sh mf_meson '(^|[[:space:]])export[[:space:]]+PYTHONDONTWRITEBYTECODE' \
   || _wrong="$_wrong mf_meson-does-not-export-it;"
 _verdict meson-bytecode-suppressed-at-source "$_wrong"
 
@@ -174,8 +184,7 @@ _verdict meson-bytecode-suppressed-at-source "$_wrong"
 # pins that the export is not narrowed to one command, this one pins that it is
 # not left unbounded.
 _wrong=''
-_fn_body lib/framework.sh reset_recipe | _code_only - \
-  | grep -q 'unset PYTHONDONTWRITEBYTECODE' \
+_fn_code lib/framework.sh reset_recipe 'unset PYTHONDONTWRITEBYTECODE' \
   || _wrong="$_wrong reset_recipe-does-not-clear-it;"
 _verdict bytecode-export-is-cleared-between-recipes "$_wrong"
 
@@ -185,8 +194,7 @@ _verdict bytecode-export-is-cleared-between-recipes "$_wrong"
 # FFmpeg's configure, build, and do_install. Benign today (neither runs Python),
 # asserted because the invariant is stated as absolute in two comments.
 _wrong=''
-_fn_body mediaforge.sh cmd_build | _code_only - \
-  | grep -q 'unset PYTHONDONTWRITEBYTECODE' \
+_fn_code mediaforge.sh cmd_build 'unset PYTHONDONTWRITEBYTECODE' \
   || _wrong="$_wrong ffmpeg-source-path-inherits-the-export;"
 _verdict bytecode-export-cleared-before-ffmpeg "$_wrong"
 
@@ -197,8 +205,8 @@ _verdict bytecode-export-cleared-before-ffmpeg "$_wrong"
 # decision is in cmd_reconcile's own comment and was pinned nowhere.
 _qout=$( cd "$_ws" && "$ROOT/mediaforge.sh" reconcile --quiet 2>&1 ) || true
 _wrong=''
-printf '%s\n' "$_qout" | grep -q 'liborphan' || _wrong="$_wrong quiet-dropped-the-finding;"
-printf '%s\n' "$_qout" | grep -q 'unclaimed: ' && _wrong="$_wrong quiet-kept-the-summary;"
+_says "$_qout" 'liborphan' || _wrong="$_wrong quiet-dropped-the-finding;"
+_says "$_qout" 'unclaimed: ' && _wrong="$_wrong quiet-kept-the-summary;"
 _verdict quiet-keeps-findings-drops-summary "$_wrong"
 
 # The help text makes the two falsifiable claims the assertions above pin
@@ -206,10 +214,10 @@ _verdict quiet-keeps-findings-drops-summary "$_wrong"
 # operator reads before deciding whether to trust the report.
 _hout=$( cd "$_ws" && "$ROOT/mediaforge.sh" reconcile --help 2>&1 ) || true
 _wrong=''
-printf '%s\n' "$_hout" | grep -q '\[unclaimed\]' || _wrong="$_wrong help-omits-the-class;"
-printf '%s\n' "$_hout" | grep -q 'does not affect the exit status' \
+_says "$_hout" '\[unclaimed\]' || _wrong="$_wrong help-omits-the-class;"
+_says "$_hout" 'does not affect the exit status' \
   || _wrong="$_wrong help-omits-the-advisory-claim;"
-printf '%s\n' "$_hout" | grep -q 'prune does not remove it' \
+_says "$_hout" 'prune does not remove it' \
   || _wrong="$_wrong help-omits-the-prune-claim;"
 _verdict help-documents-the-unclaimed-class "$_wrong"
 
@@ -242,7 +250,7 @@ if [ -n "$_forged" ]; then
   # grep -c exits 1 on a count of zero, which is the passing case here.
   _bare=$(printf '%s\n' "$_fout" | grep -cv '^\[mediaforge\]') || true
   _wrong=''
-  printf '%s\n' "$_fout" | grep -q 'evil' || _wrong="$_wrong crafted-name-not-reported;"
+  _says "$_fout" 'evil' || _wrong="$_wrong crafted-name-not-reported;"
   [ "${_bare:-0}" = 0 ] \
     || _wrong="$_wrong unprefixed-line(s)=$_bare: [$(printf '%s\n' "$_fout" | grep -v '^\[mediaforge\]' | head -1)];"
   _verdict a-newline-in-a-filename-cannot-forge-a-line "$_wrong"
