@@ -57,10 +57,13 @@ printf 'lib/libclaimed.a\n' > "$_ws/workspace/.stamps/claimed-1.0"
 
 _out=$( cd "$_ws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _rc=0 || _rc=$?
 
-# FILE-LOCAL on purpose: `printf | grep -q` over captured output is spelled out
-# at ~90 sites across tests/, so this is the house idiom and a shared helper used
-# only by the newest file would be a third spelling rather than a convergence.
-# Converging those is worth doing and is not this branch's subject.
+# FILE-LOCAL on purpose: `printf | grep -q` over captured output is the house
+# idiom across tests/ -- `grep -lE 'printf.*\|.*grep -q' tests/*.sh` names the
+# files -- so a shared helper used only by the newest one would be a third
+# spelling rather than a convergence. Converging those is worth doing and is not
+# this branch's subject. No count is written here: two review passes measured it
+# differently (90, then 98), which is the census this repo has already deleted
+# once rather than corrected a third time. A grep does not rot.
 #
 # _says takes the TEXT, because this file captures five different runs -- the
 # plain report, --prune, --quiet, --help, and the forged-name fixture -- and a
@@ -145,14 +148,16 @@ _verdict unclaimed-is-reported-not-removed "$_wrong"
 # plus a flag the code never consults. The drifted stamp cannot go in the main
 # fixture, because a drifted stamp makes the plain run exit 1 and that is what
 # unclaimed-alone-keeps-exit-zero pins.
+#
+# COPIED from the main fixture rather than rebuilt beside it, so the one thing
+# that differs is the one thing this assertion is about: a drifted stamp. A
+# hand-built near-copy would be free to drift from the original -- the claimed
+# file renamed here and not there, the symlink dropped from one -- and each
+# assertion would then be testing a slightly different workspace than its name
+# suggests. `cp -a` keeps the symlink a symlink, which this asserts on.
 _pws="$_tmp/prunetop"
-mkdir -p "$_pws/workspace/.stamps" "$_pws/workspace/lib" "$_pws/workspace/share/pkg"
-echo claimed > "$_pws/workspace/lib/libclaimed.a"
-echo orphan  > "$_pws/workspace/lib/liborphan.a"
-echo nested  > "$_pws/workspace/share/pkg/.hidden"
-ln -s liborphan.a "$_pws/workspace/lib/liborphan.so"
-printf 'lib/libclaimed.a\n' > "$_pws/workspace/.stamps/claimed-1.0"
-printf 'lib/gone.a\n'       > "$_pws/workspace/.stamps/drifted-1.0"
+cp -a "$_ws" "$_pws" || exit 1
+printf 'lib/gone.a\n' > "$_pws/workspace/.stamps/drifted-1.0"
 
 _pout=$( cd "$_pws" && "$ROOT/mediaforge.sh" reconcile --prune 2>&1 ) && _prc=0 || _prc=$?
 _wrong=''
