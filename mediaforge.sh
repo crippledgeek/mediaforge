@@ -1184,6 +1184,13 @@ _reconcile_stamps() {
     # (tests/ccache.sh builds one). The placeholder keeps every message
     # well-formed without letting an unprintable byte through; --prune is
     # unaffected either way, since it acts on _rc_drifted_list, not on this.
+    #
+    # KNOWN GAP, stated rather than papered over: deliberately unasserted, and
+    # mutation-confirmed unasserted. Reaching it needs a PATH with no `tr`, which
+    # means enumerating every other tool reconcile calls into a sandbox bin dir;
+    # that enumeration is a list that rots, and getting it wrong fails the test
+    # for the wrong reason. tests/ccache.sh's _link_tools builds such a PATH if
+    # this ever earns one.
     [ -n "$_rc_name" ] || _rc_name='<unprintable stamp name>'
 
     # An empty stamp is a stamp with no manifest, not a stamp with no files:
@@ -1437,6 +1444,12 @@ _reconcile_unclaimed() {
     # the answer the operator actually came for. lib/install.sh's analogous block
     # dies because it is about to DELETE and loud is the safe direction; here the
     # safe direction is the opposite.
+    #
+    # KNOWN GAP, stated rather than papered over: this degrade path is
+    # deliberately unasserted and mutation-confirmed unasserted, because nothing
+    # an operator can do through the CLI makes awk fail here -- an unreadable
+    # stamp is a getline -1 that contributes nothing, not an error. Its sibling
+    # above, the unreadable-prefix path, IS reachable and IS asserted.
     warn "  [unclaimed]    skipped: could not compare the prefix against the stamps"
     _rc_unclaimed="?"
     return 0
