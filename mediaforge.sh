@@ -1347,8 +1347,10 @@ _reconcile_unclaimed() {
 
 
   # The stamp files, guarded the same way _reconcile_stamps guards its own loop:
-  # a subdirectory under .stamps is not a stamp, and the two spellings have to
-  # agree about that or one of them silently contributes nothing.
+  # a subdirectory under .stamps is not a stamp. Measured, the guard is the
+  # clearer spelling rather than a load-bearing one -- `-e` produces byte-
+  # identical output, because a directory in ARGV is a getline of -1 and
+  # contributes nothing either way.
   #
   # A function's positional parameters are its own and the caller's are restored
   # on return, so `set --` here cannot disturb cmd_reconcile. Empty is a

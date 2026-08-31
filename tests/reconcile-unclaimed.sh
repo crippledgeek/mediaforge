@@ -71,7 +71,8 @@ _out=$( cd "$_ws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _rc=0 || _rc=$?
 # seven sites. _reports is this helper partially applied to the main run.
 #
 # No enumeration here either, for the reason the paragraph above gives about the
-# site count: the first version listed five and the file now has eleven.
+# site count: the first version listed five, and listing them was already wrong
+# by the next commit.
 _says()        { printf '%s\n' "$1" | grep -q "$2"; }
 _reports()     { _says "$_out" "$1"; }
 _reports_not() { ! _reports "$1"; }
@@ -188,6 +189,12 @@ _wrong=''
 _reports 'liborphan' || _wrong="$_wrong nothing-reported;"
 [ -f "$_ws/workspace/lib/liborphan.a" ] || _wrong="$_wrong report-deleted-the-file;"
 [ -L "$_ws/workspace/lib/liborphan.so" ] || _wrong="$_wrong report-deleted-the-symlink;"
+# The advisory contract is stated in three places -- the function header, the
+# --help paragraph, and the report's own trailer -- and the trailer is the only
+# one an operator reads WHILE looking at the list. Deleting all three trailer
+# lines left the suite green: the same asymmetry as the [unclaimed] label, which
+# was pinned in --help and nowhere in the report.
+_reports 'nothing here is removed for you' || _wrong="$_wrong report-omits-the-advisory-trailer;"
 _verdict unclaimed-is-reported-not-removed "$_wrong"
 
 # --prune is documented as meaning STAMPS, and the help text says so in the same
@@ -469,6 +476,29 @@ _says "$_gout" 'danglingtop' || _wrong="$_wrong dangling-top-level-symlink-not-e
 _says "$_gout" '1 entry in the prefix' || _wrong="$_wrong singular-noun-not-used;"
 _verdict dangling-symlink-and-singular-noun "$_wrong"
 
+# --- a symlinked directory is not descended --------------------------------
+#
+# The walk's comment says find enumerates a symlink "as -type l without
+# following", and adding `-L` left the suite green. It is not cosmetic: with
+# `lib64 -> lib` at the prefix root -- not exotic in a prefix -- `-L` reports the
+# same physical file twice, under `lib/orph.a` AND `lib64/orph.a`, and drops the
+# `lib64` entry itself. On a list whose trailer invites manual deletion, that is
+# the report telling an operator to delete one file twice.
+#
+# Its own fixture: it cannot join the dangling-symlink one, whose `1 entry`
+# singular assertion this would break.
+_sws="$_tmp/symdir"
+mkdir -p "$_sws/workspace/.stamps" "$_sws/workspace/lib"
+echo orph > "$_sws/workspace/lib/orph.a"
+printf 'lib/nothing-claimed\n' > "$_sws/workspace/.stamps/empty-1.0"
+ln -s lib "$_sws/workspace/lib64"
+
+_sout=$( cd "$_sws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) || true
+_wrong=''
+_says "$_sout" 'lib64$'  || _wrong="$_wrong symlinked-dir-not-enumerated-as-itself;"
+_says "$_sout" 'lib64/'  && _wrong="$_wrong walk-followed-a-symlinked-directory;"
+_verdict symlinked-directory-is-not-descended "$_wrong"
+
 # --- a subtree it could not read ------------------------------------------
 #
 # find's diagnostic used to land in the report raw and unprefixed, and the audit
@@ -511,6 +541,20 @@ else
   _i2out=$( cd "$_iws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) || true
   _says "$_i2out" 'unclaimed: 1+' || _wrong="$_wrong count-site-omits-the-marker;"
   _says "$_i2out" 'unclaimed: 1$' && _wrong="$_wrong count-site-claims-an-exact-count;"
+  # THE ONLY RUN whose count is not a bare integer, and so the only one that can
+  # catch a numeric test applied to it. `[ "$_rc_unclaimed" = 1 ]` in the noun
+  # branch must stay a STRING comparison: on an incomplete walk the value is
+  # `1+`, and `-eq` -- the most ordinary edit anyone makes to a shell test --
+  # emits `[: : integer expected` unprefixed, into the middle of the report, in
+  # the class this file asserts against at three other sites.
+  #
+  # _ibare above is computed from the FIRST run, which early-returns on the empty
+  # list and never reaches the noun branch; it structurally cannot see this. The
+  # second run was added because the first could not reach the count site, and
+  # the oracle was not extended along with it.
+  _i2bare=$(printf '%s\n' "$_i2out" | grep -cv '^\[mediaforge\]') || true
+  [ "${_i2bare:-0}" = 0 ] \
+    || _wrong="$_wrong second-run-unprefixed-line(s)=$_i2bare: [$(printf '%s\n' "$_i2out" | grep -v '^\[mediaforge\]' | head -1)];"
   _verdict an-unreadable-subtree-is-announced "$_wrong"
   chmod 755 "$_iws/workspace/lib/locked" 2>/dev/null || true
 fi
