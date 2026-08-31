@@ -98,9 +98,10 @@ mf_meson() {
   #
   # The cost is an uncached import per meson start: ~420ms, measured as
   # `meson --version` with the cache purged (754ms mean) against warm (331ms
-  # mean). A build starts meson at the 18 mf_meson sites plus the 17
-  # `run ninja … install` steps, so at most ~15s if every start pays the full
-  # import -- seconds against a build measured in tens of minutes.
+  # mean). A build starts meson at the 18 mf_meson sites, the 17
+  # `run ninja … install` steps, and lv2's two `run meson` steps -- so at most
+  # ~15s if every start pays the full import, seconds against a build measured in
+  # tens of minutes.
   #
   # EXPORTED for the rest of this recipe rather than set on this one command,
   # because `meson setup` is not the only writer: `ninja -C build install` spawns

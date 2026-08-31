@@ -136,12 +136,35 @@ _verdict unclaimed-is-reported-not-removed "$_wrong"
 # --prune is documented as meaning STAMPS, and the help text says so in the same
 # paragraph that introduces [unclaimed]. The danger is a future edit reading
 # "prune" as "prune everything reconcile complained about".
-_pout=$( cd "$_ws" && "$ROOT/mediaforge.sh" reconcile --prune 2>&1 ) && _prc=0 || _prc=$?
+#
+# ITS OWN FIXTURE, and specifically one carrying a DRIFTED stamp. The whole
+# prune branch in cmd_reconcile sits inside `if [ "$_rc_drifted" -gt 0 ]`, so
+# against the main fixture -- whose only stamp verifies -- `--prune` returns
+# without ever calling _reconcile_prune. The first version of this assertion ran
+# there and was a duplicate of the one above it: byte-for-byte the plain run
+# plus a flag the code never consults. The drifted stamp cannot go in the main
+# fixture, because a drifted stamp makes the plain run exit 1 and that is what
+# unclaimed-alone-keeps-exit-zero pins.
+_pws="$_tmp/prunetop"
+mkdir -p "$_pws/workspace/.stamps" "$_pws/workspace/lib" "$_pws/workspace/share/pkg"
+echo claimed > "$_pws/workspace/lib/libclaimed.a"
+echo orphan  > "$_pws/workspace/lib/liborphan.a"
+echo nested  > "$_pws/workspace/share/pkg/.hidden"
+ln -s liborphan.a "$_pws/workspace/lib/liborphan.so"
+printf 'lib/libclaimed.a\n' > "$_pws/workspace/.stamps/claimed-1.0"
+printf 'lib/gone.a\n'       > "$_pws/workspace/.stamps/drifted-1.0"
+
+_pout=$( cd "$_pws" && "$ROOT/mediaforge.sh" reconcile --prune 2>&1 ) && _prc=0 || _prc=$?
 _wrong=''
+# That the branch RAN: the drifted stamp is gone and the verifying one is not.
+# Without this pair the rest is satisfied by a --prune that did nothing at all.
+[ -f "$_pws/workspace/.stamps/drifted-1.0" ] && _wrong="$_wrong prune-did-not-run;"
+[ -f "$_pws/workspace/.stamps/claimed-1.0" ] || _wrong="$_wrong prune-took-a-verifying-stamp;"
+# And that it left every unclaimed artifact alone.
 _says "$_pout" 'liborphan' || _wrong="$_wrong prune-run-reported-nothing;"
-[ -f "$_ws/workspace/lib/liborphan.a" ]  || _wrong="$_wrong prune-removed-an-unclaimed-file;"
-[ -L "$_ws/workspace/lib/liborphan.so" ] || _wrong="$_wrong prune-removed-the-symlink;"
-[ -f "$_ws/workspace/share/pkg/.hidden" ] || _wrong="$_wrong prune-removed-the-nested-dotfile;"
+[ -f "$_pws/workspace/lib/liborphan.a" ]   || _wrong="$_wrong prune-removed-an-unclaimed-file;"
+[ -L "$_pws/workspace/lib/liborphan.so" ]  || _wrong="$_wrong prune-removed-the-symlink;"
+[ -f "$_pws/workspace/share/pkg/.hidden" ] || _wrong="$_wrong prune-removed-the-nested-dotfile;"
 [ "$_prc" = 0 ] || _wrong="$_wrong prune-exit=$_prc;"
 _verdict prune-does-not-touch-unclaimed "$_wrong"
 
@@ -258,6 +281,33 @@ else
   # A filesystem that refuses the name cannot host the claim. Reported rather
   # than skipped silently, so a permanent skip is visible in the log.
   _bad a-newline-in-a-filename-cannot-forge-a-line "fixture unavailable: filesystem rejected a newline in a filename"
+fi
+
+# --- an unreadable stamp says so ------------------------------------------
+#
+# awk's getline returns -1 on a stamp it cannot open and the `> 0` test drops it
+# silently, so every path that stamp claims is reported as unclaimed. The
+# over-report is the safe direction, but unannounced it is a trap: on a
+# root-owned prefix one unreadable stamp turns a hundred correctly-claimed files
+# into a list the report invites an operator to delete by hand.
+_uws="$_tmp/unreadable"
+mkdir -p "$_uws/workspace/.stamps" "$_uws/workspace/lib"
+echo claimed > "$_uws/workspace/lib/libclaimed.a"
+printf 'lib/libclaimed.a\n' > "$_uws/workspace/.stamps/secret-1.0"
+chmod 000 "$_uws/workspace/.stamps/secret-1.0" 2>/dev/null || true
+
+if [ -r "$_uws/workspace/.stamps/secret-1.0" ]; then
+  # Running as root, or a filesystem without permission bits. Reported rather
+  # than skipped silently, so a permanent skip is visible in the log.
+  _bad an-unreadable-stamp-is-announced "fixture unavailable: the stamp stayed readable after chmod 000 (running as root?)"
+else
+  _uout=$( cd "$_uws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) || true
+  _wrong=''
+  _says "$_uout" 'secret-1.0 is unreadable' || _wrong="$_wrong no-warning-for-the-unreadable-stamp;"
+  # The consequence the warning exists to explain, asserted alongside it: the
+  # file that stamp claims IS in the unclaimed list.
+  _says "$_uout" 'lib/libclaimed\.a' || _wrong="$_wrong claimed-file-not-listed-as-unclaimed;"
+  _verdict an-unreadable-stamp-is-announced "$_wrong"
 fi
 
 printf 'DONE: reconcile-unclaimed\n'

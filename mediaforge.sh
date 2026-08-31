@@ -1276,9 +1276,18 @@ _reconcile_unclaimed() {
   # meaningful value: no stamps means nothing is claimed, so everything the walk
   # finds is reported -- the same over-report direction the awk below takes on
   # any other doubt.
+  # Inclusion is gated on -f, never on -r. An unreadable stamp still goes in the
+  # list, where awk's getline returns -1 and it contributes nothing -- so every
+  # path it claims is reported as unclaimed. That over-report is the safe
+  # direction, but it is silent, and on a root-owned prefix one unreadable stamp
+  # turns a hundred correctly-claimed files into a list an operator is being
+  # invited to delete by hand. Gating on -r instead would drop the stamp just as
+  # quietly, so the fix is to say so.
   set --
   for _rc_s in "$PREFIX"/.stamps/*; do
-    [ -f "$_rc_s" ] && set -- "$@" "$_rc_s"
+    [ -f "$_rc_s" ] || continue
+    [ -r "$_rc_s" ] || warn "  [unclaimed]    stamp $(basename "$_rc_s") is unreadable; the files it claims are listed below as unclaimed"
+    set -- "$@" "$_rc_s"
   done
 
   # The exclusion is the shell's own glob, not a pattern list: `*` does not match
@@ -1286,25 +1295,39 @@ _reconcile_unclaimed() {
   # at the prefix's top level are skipped by construction, including the next one
   # someone adds. An enumerated list here would be a census that rots -- and it
   # already had: the first draft of this comment listed eight and missed
-  # .extra_ldflags. It is sound in the other direction too: a claimed path never
-  # begins with a dot, because lib/stage.sh records $PREFIX-relative paths under
-  # a prefix's top level of bin/ include/ lib/ share/ etc/ man/ sbin/ doc/. The
-  # rule is deliberately TOP-LEVEL only, and applied at the WALK ROOT rather than
-  # as a path filter -- a dotfile deeper in the tree is a recipe's file and stays
-  # in scope.
+  # .extra_ldflags. The rule is deliberately TOP-LEVEL only, and applied at the
+  # WALK ROOT rather than as a path filter -- a dotfile deeper in the tree is a
+  # recipe's file and stays in scope.
+  #
+  # What makes it safe is an OBSERVATION, not a mechanism: no recipe stages a
+  # top-level dotfile, and the ones at the prefix root are all framework-written.
+  # mf_stage_commit enforces no whitelist -- it records `find . ... | sed
+  # 's|^\./||'` over the stage, so a recipe that staged $PREFIX/.foo would get
+  # .foo into its stamp. If one ever did, this walk would skip it and the audit
+  # would under-report by that one file. It can never produce a false positive,
+  # which is the direction that matters for a report inviting manual deletion.
   #
   # awk holds the claimed set in a hash and reads the walk on stdin, which is one
   # pass and no intermediate file. The alternatives both cost more than they look:
   # `grep -Fxv -f` is Aho-Corasick on GNU grep but loops the pattern set per input
   # line on a BSD grep, i.e. quadratic on the macOS builds this project supports,
-  # and it cannot distinguish its "no match" exit 1 from a real error's 2; `comm`
+  # and its no-match exit 1 is the NORMAL case here, so the `|| true` that makes
+  # it usable at all also swallows a real error's 2 (grep does distinguish the
+  # two; the guard that has to wrap it is what cannot); `comm`
   # needs both sides sorted in ITS collation, the contract lib/install.sh's
   # manifest diff documents at length. Neither wants a scratch file in a prefix
   # this command otherwise only reads.
   #
   # Emptying ARGV as each stamp is consumed is what makes awk fall through to
-  # stdin afterwards; it is the portable form of "these files first, then the
-  # pipe", with no dependence on FILENAME being spelled "-" for stdin.
+  # stdin afterwards; POSIX specifies both halves -- an ARGV element set to the
+  # null string is not treated as an argument operand, and awk reads standard
+  # input once no file operands remain -- so this does not depend on FILENAME
+  # being spelled "-" for stdin.
+  #
+  # The LC_ALL=C sort is now COSMETIC and kept deliberately: the awk lookup is a
+  # hash, so ordering cannot change the verdict, but find's directory order is
+  # unspecified and a report someone diffs between runs should be stable. Do not
+  # carry the `comm` argument above onto it -- nothing here needs sorted input.
   # A PRECONDITION, checked here rather than inferred from the pipeline below,
   # because the pipeline structurally cannot carry the answer:
   # `$(... | sort | awk ...) || degrade` reads the LAST command's status, so a
@@ -1326,11 +1349,19 @@ _reconcile_unclaimed() {
     return 0
   fi
 
+  # `./` prefixed and stripped afterwards, the idiom lib/stage.sh's manifest walk
+  # already uses: a top-level entry whose name begins with `-` would otherwise be
+  # parsed by find as an operand rather than a path. Vanishingly unlikely at a
+  # prefix root, and the guard costs one sed for the whole walk.
+  #
+  # The `|| exit 1` below ends only this subshell and its status is discarded by
+  # the pipeline -- the precondition above is the real guard, and this is left as
+  # a local sanity exit rather than something the caller can observe.
   _rc_list=$( ( cd "$PREFIX" 2>/dev/null || exit 1
                 for _rc_top in *; do
                   { [ -e "$_rc_top" ] || [ -L "$_rc_top" ]; } || continue
-                  find "$_rc_top" \( -type f -o -type l \) -print
-                done ) | LC_ALL=C sort | awk '
+                  find "./$_rc_top" \( -type f -o -type l \) -print
+                done ) | sed 's|^\./||' | LC_ALL=C sort | awk '
         BEGIN {
           for (i = 1; i < ARGC; i++) {
             while ((getline line < ARGV[i]) > 0) if (line != "") claimed[line] = 1
