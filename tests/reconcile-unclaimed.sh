@@ -75,10 +75,10 @@ _reports()     { _says "$_out" "$1"; }
 _reports_not() { ! _reports "$1"; }
 
 # "Does this function's CODE contain X" -- asked four times here, and the
-# _code_only step is the half that is easy to forget. tests/testing.md records
-# why it matters: this repo quotes calls verbatim in prose, so an unstripped
-# needle answers what the file SAYS when the question was what it DOES, and a
-# grep has twice matched the comment explaining a call rather than the call.
+# _code_only step is the half that is easy to forget. This repo quotes calls
+# verbatim in prose as a habit, so an unstripped needle answers what the file
+# SAYS when the question was what it DOES; a grep has twice matched the comment
+# explaining a call rather than the call itself.
 _fn_code()     { _fn_body "$1" "$2" | _code_only - | grep -qE "$3"; }
 
 # --- what it reports -------------------------------------------------------
@@ -301,6 +301,19 @@ echo claimed > "$_uws/workspace/lib/libclaimed.a"
 printf 'lib/libclaimed.a\n' > "$_uws/workspace/.stamps/secret-1.0"
 chmod 000 "$_uws/workspace/.stamps/secret-1.0" 2>/dev/null || true
 
+# A second unreadable stamp whose NAME carries a newline, which is what watches
+# the mf_printable_line at that warn. This site is the mirror of the report loop
+# below: it hands a whole foreign-authored name to ONE warn, with our own text
+# after it, so a retained newline closes the line and leaves the remainder
+# unprefixed. Without this the filter had no oracle -- replacing it with a plain
+# expansion left the whole suite green.
+_ustamp=$(printf 'ev\n[mediaforge] WARNING: forged by a stamp name')
+if printf 'lib/libclaimed.a\n' > "$_uws/workspace/.stamps/$_ustamp" 2>/dev/null; then
+  chmod 000 "$_uws/workspace/.stamps/$_ustamp" 2>/dev/null || true
+else
+  _ustamp=''
+fi
+
 if [ -r "$_uws/workspace/.stamps/secret-1.0" ]; then
   # Running as root, or a filesystem without permission bits. Reported rather
   # than skipped silently, so a permanent skip is visible in the log.
@@ -312,6 +325,30 @@ else
   # The consequence the warning exists to explain, asserted alongside it: the
   # file that stamp claims IS in the unclaimed list.
   _says "$_uout" 'lib/libclaimed\.a' || _wrong="$_wrong claimed-file-not-listed-as-unclaimed;"
+  # An unreadable stamp is UNVERIFIABLE, never [verified]. `-s` reads the size
+  # without needing read permission, so the empty-manifest gate lets a non-empty
+  # unreadable stamp through; the filter below it then fails, yields nothing, and
+  # nothing reads as "no missing paths". The report used to say `[verified]
+  # secret-1.0` two lines above its own "secret-1.0 is unreadable".
+  _says "$_uout" 'unverifiable.*secret-1\.0' || _wrong="$_wrong unreadable-stamp-not-unverifiable;"
+  _says "$_uout" 'verified\] *secret-1\.0' && _wrong="$_wrong unreadable-stamp-reported-verified;"
+  # No bare line: the failing redirect used to leak the shell's own unprefixed
+  # `Permission denied` into the report.
+  _ubare=$(printf '%s\n' "$_uout" | grep -cv '^\[mediaforge\]') || true
+  [ "${_ubare:-0}" = 0 ] \
+    || _wrong="$_wrong unprefixed-line(s)=$_ubare: [$(printf '%s\n' "$_uout" | grep -v '^\[mediaforge\]' | head -1)];"
+  # BOTH HALVES ON ONE LINE, which is the oracle that survives a payload
+  # supplying its own prefix. Counting unprefixed lines cannot see this class: a
+  # stamp named `ev<LF>[mediaforge] WARNING: forged...` splits our message in two
+  # and the forged half opens with `[mediaforge]`, so it passes the bare-line
+  # count while reading as a genuine mediaforge line. If the newline survives,
+  # the name and the words after it land on different lines and these fail.
+  if [ -n "$_ustamp" ]; then
+    _says "$_uout" 'unverifiable.*forged by a stamp name.*unreadable' \
+      || _wrong="$_wrong stamp-name-newline-split-the-unverifiable-line;"
+    _says "$_uout" 'stamp ev.*forged by a stamp name.*is unreadable' \
+      || _wrong="$_wrong stamp-name-newline-split-the-unclaimed-warning;"
+  fi
   _verdict an-unreadable-stamp-is-announced "$_wrong"
 fi
 

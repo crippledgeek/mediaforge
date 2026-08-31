@@ -1169,7 +1169,15 @@ _reconcile_stamps() {
 
   for _rc_stamp in "$PREFIX/.stamps"/*; do
     [ -f "$_rc_stamp" ] || continue
-    _rc_name=$(basename "$_rc_stamp")
+    # Sanitized ONCE, here, rather than at each of the four warns that
+    # interpolate it. A stamp filename is not our text -- it is whatever
+    # stamp_write was handed -- and every one of those messages puts our own
+    # words AFTER the name, which is the shape where a retained newline closes
+    # our line and leaves the remainder to stand as its own. Reproduced: a stamp
+    # named `ev<LF>[mediaforge] WARNING: ...` split "[unverifiable] ev" from "the
+    # stamp is unreadable", with the forged half reading as a mediaforge line
+    # because the payload supplied the prefix itself.
+    _rc_name=$(mf_printable_line "$(basename "$_rc_stamp")")
 
     # An empty stamp is a stamp with no manifest, not a stamp with no files:
     # every stamp written before GH-59 is empty, as is every stamp for a recipe
@@ -1182,6 +1190,26 @@ _reconcile_stamps() {
     if [ ! -s "$_rc_stamp" ]; then
       _rc_unverifiable=$((_rc_unverifiable + 1))
       [ "$_rc_quiet" = true ] || log "  [unverifiable] $_rc_name — stamp carries no manifest"
+      continue
+    fi
+
+    # Unreadable is unverifiable, and saying so has to happen HERE rather than
+    # fall through. `-s` reads the size, which needs no read permission, so a
+    # non-empty unreadable stamp clears the gate above; the redirect below then
+    # fails, the command substitution yields empty, and empty means "nothing
+    # missing" -- so the stamp reports [verified] on the strength of a file
+    # nothing could read. GH-77's unclaimed audit made that visible by printing
+    # "secret-1.0 is unreadable" two lines under "[verified] secret-1.0", but the
+    # wrong verdict predates it and the contradiction is the smaller half: an
+    # operator who reads [verified] does not act on the warning below it.
+    #
+    # `continue` also keeps the failing redirect from ever running, and with it
+    # the raw `Permission denied` the shell writes to stderr with no [mediaforge]
+    # prefix -- the same unprefixed-line class this command's own report is
+    # asserted against.
+    if [ ! -r "$_rc_stamp" ]; then
+      _rc_unverifiable=$((_rc_unverifiable + 1))
+      warn "  [unverifiable] $_rc_name — the stamp is unreadable"
       continue
     fi
 
@@ -1310,7 +1338,8 @@ _reconcile_unclaimed() {
   # mf_stage_commit enforces no whitelist -- it records `find . ... | sed
   # 's|^\./||'` over the stage, so a recipe that staged $PREFIX/.foo would get
   # .foo into its stamp. If one ever did, this walk would skip it and the audit
-  # would under-report by that one file. It can never produce a false positive,
+  # would under-report by that file -- or by the whole subtree, if the top-level
+  # entry is a directory. It can never produce a false positive,
   # which is the direction that matters for a report inviting manual deletion.
   #
   # awk holds the claimed set in a hash and reads the walk on stdin, which is one
@@ -1334,6 +1363,7 @@ _reconcile_unclaimed() {
   # hash, so ordering cannot change the verdict, but find's directory order is
   # unspecified and a report someone diffs between runs should be stable. Do not
   # carry the `comm` argument above onto it -- nothing here needs sorted input.
+  #
   # A PRECONDITION, checked here rather than inferred from the pipeline below,
   # because the pipeline structurally cannot carry the answer:
   # `$(... | sort | awk ...) || degrade` reads the LAST command's status, so a
@@ -1350,8 +1380,15 @@ _reconcile_unclaimed() {
   # already calls a neighbour of this function without that check -- and a
   # precondition that costs three test operators is cheaper than the next
   # caller rediscovering why the count was zero.
+  #
+  # Both degrade paths set the count to `?` rather than leaving it 0. A warn plus
+  # `unclaimed: 0` in the summary is still the wrong answer stated confidently --
+  # it converts a silent failure into a warned one and then contradicts the
+  # warning on the next line. `?` is only ever interpolated into that summary, so
+  # a non-numeric value is safe here.
   if [ ! -d "$PREFIX" ] || [ ! -r "$PREFIX" ] || [ ! -x "$PREFIX" ]; then
     warn "  [unclaimed]    skipped: $PREFIX is not a readable directory"
+    _rc_unclaimed="?"
     return 0
   fi
 
@@ -1381,6 +1418,7 @@ _reconcile_unclaimed() {
     # dies because it is about to DELETE and loud is the safe direction; here the
     # safe direction is the opposite.
     warn "  [unclaimed]    skipped: could not compare the prefix against the stamps"
+    _rc_unclaimed="?"
     return 0
   }
 
