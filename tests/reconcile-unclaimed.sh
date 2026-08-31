@@ -124,6 +124,11 @@ _verdict symlink-is-enumerated "$_wrong"
 _wrong=''
 _reports 'unclaimed: 3$' \
   || _wrong="$_wrong summary=[$(printf '%s\n' "$_out" | _evidence 1 'unclaimed|verified')];"
+# The PLURAL arm of the noun branch. The dangling-symlink fixture reaches the
+# singular one; nothing reached this, so flipping the default to 'entry' made
+# this run say "3 entry" and passed the whole file. "3 entry" reads exactly as
+# badly as the "1 entries" the branch exists to avoid.
+_reports '3 entries in the prefix' || _wrong="$_wrong plural-noun-not-used;"
 _verdict summary-counts-the-unclaimed "$_wrong"
 
 # The COMPLETE side of the same boundary. Everything above pins what a partial
@@ -135,6 +140,32 @@ _wrong=''
 _reports_not 'could not be read' || _wrong="$_wrong healthy-walk-claimed-incomplete;"
 _reports 'unclaimed: 3$'         || _wrong="$_wrong summary-not-an-exact-count;"
 _verdict complete-walk-reports-an-exact-count "$_wrong"
+
+# --- the all-clear ---------------------------------------------------------
+#
+# The number every clean run prints, and until now the only one nothing pinned:
+# seeding _rc_unclaimed to 99 passed the entire file. The empty-list early return
+# is the ONLY path on which that initialiser is the value reaching the summary --
+# every other fixture here carries an unclaimed entry or takes a degrade path, so
+# the count site or the `0+` seed overwrites it before anyone looks.
+#
+# The same shape as complete-walk-reports-an-exact-count, one step further out:
+# that pins the healthy side of the SUFFIX, this pins the healthy side of the
+# COUNT.
+_cws="$_tmp/allclaimed"
+mkdir -p "$_cws/workspace/.stamps" "$_cws/workspace/lib"
+echo real > "$_cws/workspace/lib/real.a"
+printf 'lib/real.a\n' > "$_cws/workspace/.stamps/verifying-1.0"
+_cout=$( cd "$_cws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _crc=0 || _crc=$?
+_wrong=''
+_says "$_cout" 'unclaimed: 0$' \
+  || _wrong="$_wrong summary=[$(printf '%s\n' "$_cout" | _evidence 1 'unclaimed')];"
+# Separately from the count: a clean prefix prints no findings block at all.
+# Counting zero and printing the header over an empty list are different
+# regressions, and the anchored count alone would miss the second.
+_says "$_cout" '\[unclaimed\]' && _wrong="$_wrong reported-a-finding-on-a-clean-prefix;"
+[ "$_crc" = 0 ] || _wrong="$_wrong exit=$_crc;"
+_verdict clean-prefix-reports-unclaimed-zero "$_wrong"
 
 # --- what it does NOT do ---------------------------------------------------
 #
@@ -279,7 +310,8 @@ _verdict help-documents-the-unclaimed-class "$_wrong"
 # find/sort/read pipeline is line-based, so a crafted name arrives as two
 # separate entries that are each prefixed anyway, and the assertion would pass
 # against a report that had already lost the property. Verified by mutation --
-# collapsing the loop to `warn "$_rc_list"` emits a bare, unprefixed `lib/evil`.
+# collapsing the loop to `warn "$_rc_list"` puts the forged half on a line of its
+# own, which the indent oracle below catches and the bare-line count does not.
 #
 # Its own fixture: the crafted name would otherwise change the count the
 # assertions above pin.
