@@ -80,6 +80,40 @@ mf_meson() {
   # `--buildtype=release --buildtype=debug` invites exactly the "which one won?"
   # question this helper exists to remove.
   _mf_dbg=$(mf_debug_meson_args "${MF_DEBUG_LEVEL:-}")
+  # PYTHONDONTWRITEBYTECODE stops meson caching its own bytecode into
+  # $PREFIX/share/meson/**/__pycache__ (GH-77). Those files are written when
+  # meson RUNS rather than when it is installed, so no recipe's manifest can
+  # claim them, and they were 151 of the 163 files reconcile's unclaimed audit
+  # reported on a full workspace.
+  #
+  # Fixed at the generator rather than excluded from the audit, which is where
+  # every packaging system that hit this converged: rpm closed the .pyc
+  # false-positive Won't-Fix and pointed at brp-python-bytecompile, and Debian
+  # uses py3compile/py3clean or this same variable. It matters beyond tidiness
+  # here, because lilv deliberately INSTALLS a .pyc that its stamp claims
+  # (lib/python3.14/site-packages/__pycache__/lilv.cpython-314.pyc) -- a blanket
+  # __pycache__ exclusion in the audit would have hidden that file's whole class
+  # rather than the noise.
+  #
+  # The cost is an uncached import per meson run: measured at ~400ms against
+  # ~330ms warm, over 20 call sites, so about 8 seconds on a build measured in
+  # tens of minutes.
+  #
+  # EXPORTED for the rest of this recipe rather than set on this one command,
+  # because `meson setup` is not the only writer: `ninja -C build install` spawns
+  # `meson --internal install`, which imports the same package again. Measured on
+  # a probe project -- setup and ninja under the variable wrote 0 .pyc, and the
+  # install step that did not inherit it wrote 100. A recipe's ninja calls are
+  # spelled out at ~20 sites, so the environment is what reaches them all.
+  #
+  # reset_recipe unsets it, which is what bounds the export: run_recipe is a
+  # plain call and every recipe is sourced into this same shell, so without that
+  # it would reach every later recipe -- including lilv, which deliberately
+  # installs a .pyc. That file happens to be safe either way, since the variable
+  # suppresses only IMPLICIT import-time caching and an installer's explicit
+  # py_compile/compileall still writes (verified), but the recipe-scoped
+  # lifetime is the property being relied on, not that coincidence.
+  export PYTHONDONTWRITEBYTECODE=1
   if [ -n "$_mf_dbg" ]; then
     # shellcheck disable=SC2086
     run meson setup "$_mf_builddir" --prefix="$PREFIX" \
@@ -274,6 +308,13 @@ reset_recipe() {
   # Empty means mf_meson's own default (release), which is what all eighteen
   # call sites passed explicitly before they were converged.
   PKG_MESON_BUILDTYPE=""
+  # Not a PKG_* field: the environment variable mf_meson exports so meson stops
+  # caching its bytecode into the prefix (GH-77). It is reset here for the same
+  # reason PKG_CMAKE_BUILD_TYPE is -- recipes are sourced into one shell, so an
+  # export lives until something clears it, and its intended lifetime is one
+  # recipe. A meson recipe re-exports it; a recipe that never calls mf_meson
+  # must build exactly as it did before.
+  unset PYTHONDONTWRITEBYTECODE
   # A C standard this recipe's source needs. Sixteen recipes carried the flag;
   # in 12 of them the entire body of pkg_prepare() was appending -std=gnu11 to
   # CFLAGS and exporting it. The other four folded it in beside real work, which

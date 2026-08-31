@@ -1230,6 +1230,72 @@ _reconcile_orphan_artifacts() {
   done < "$SCRIPT_DIR/recipes/_order.conf"
 }
 
+# The audit tier: a file in the prefix that no stamp claims at all (GH-77).
+#
+# _reconcile_stamps asks each stamp about its own files. That cannot see a file
+# nothing ever recorded -- GH-68's harder half, where a recipe installing beside
+# its build system left a per-file hole INSIDE a stamp reading `verified`. PR #76
+# closed that at the source, routing every by-hand install through the stage, so
+# the staged tree and the stamp are now the same set by construction. What is
+# left for this to find is whatever reached the prefix by some other route,
+# across however many builds: a disabled recipe's leftovers, or an artifact from
+# a build whose inputs differed.
+#
+# ADVISORY. It does not touch the exit status, and --prune still means stamps.
+# The systems that make this fatal -- rpm's %_unpackaged_files_terminate_build,
+# dh_missing since compat 13, Yocto's installed-vs-shipped -- all gate a
+# PER-PACKAGE staging root, where an orphan means one recipe under-declared and
+# a manifest edit fixes it. mediaforge gates that direction already, in PR #76.
+# The durable-prefix family this belongs to is advisory everywhere it exists:
+# brew doctor's stray-file checks (which `brew install` never consults),
+# cruft-ng, Gentoo's qcheck. The local evidence agreed before the prior art did:
+# the first orphans this found were two lv2 example UI plugins left by a build
+# whose meson detected a GUI toolkit the next build did not. No recipe was
+# wrong, and no declaration a recipe author could write would have predicted it.
+_reconcile_unclaimed() {
+  _rc_unclaimed=0
+
+  # In .logs rather than /tmp, following the manifest reconcile in
+  # lib/install.sh: a `die` here exits through cleanup.sh's EXIT trap, so a leak
+  # should land somewhere `clean` removes. .logs is also one of the dotfiles the
+  # walk below skips, so the scratch file cannot appear in its own answer.
+  mkdir -p "$PREFIX/.logs" || die "Cannot create $PREFIX/.logs"
+  _rc_claimed="$PREFIX/.logs/_claimed_$$"
+  cat "$PREFIX"/.stamps/* 2>/dev/null | sed '/^$/d' | LC_ALL=C sort -u > "$_rc_claimed" \
+    || die "Cannot assemble the claimed-path set from $PREFIX/.stamps"
+
+  # The exclusion is the shell's own glob, not a pattern list: `*` does not match
+  # a leading dot, so every top-level dotfile -- .stamps, .logs, .stage,
+  # .ccache-bin, .debug-level, .extra_cflags, .mediaforge-choices, .pc-exclude --
+  # is skipped by construction, and so is the next one someone adds. An
+  # enumerated list would be a census that rots. It is sound in the other
+  # direction too: across all 110 stamps of a full workspace no claimed path
+  # begins with a dot, because a prefix's top level is bin/ include/ lib/ share/
+  # etc/ man/ sbin/ doc/. The rule is deliberately TOP-LEVEL only -- a dotfile
+  # deeper in the tree is a recipe's file and stays in scope.
+  #
+  # grep -Fxv rather than a second sort plus comm: fixed whole-line matching is
+  # the set difference, with no collation contract between two inputs to get
+  # wrong. It exits 1 when nothing is unclaimed, which is the good case, hence
+  # the guard on the assignment.
+  _rc_list=$( cd "$PREFIX" 2>/dev/null && for _rc_top in *; do
+                { [ -e "$_rc_top" ] || [ -L "$_rc_top" ]; } || continue
+                find "$_rc_top" \( -type f -o -type l \) -print
+              done | LC_ALL=C sort | grep -Fxv -f "$_rc_claimed" ) || _rc_list=""
+  rm -f "$_rc_claimed"
+
+  [ -n "$_rc_list" ] || return 0
+  _rc_unclaimed=$(printf '%s\n' "$_rc_list" | wc -l | tr -d ' ')
+  warn "  [unclaimed]    $_rc_unclaimed file(s) in the prefix that no stamp claims:"
+  printf '%s\n' "$_rc_list" | while IFS= read -r _rc_u; do
+    [ -n "$_rc_u" ] || continue
+    warn "                   $_rc_u"
+  done
+  warn "                 A disabled recipe's leftovers, a stale rebuild, or"
+  warn "                 something placed by hand. Review before deleting:"
+  warn "                 nothing here is removed for you."
+}
+
 # Delete the stamps _reconcile_stamps just reported as drifted.
 #
 # Shared by `reconcile --prune` and the build preflight so the two cannot
@@ -1279,7 +1345,12 @@ cmd_reconcile() {
         printf '                  drift.\n'
         printf '  [unverifiable]  the stamp carries no manifest: a recipe that\n'
         printf '                  installs nothing and correctly records nothing, or\n'
-        printf '                  a stamp written by an older mediaforge\n\n'
+        printf '                  a stamp written by an older mediaforge\n'
+        printf '  [unclaimed]     the other direction: a file in the prefix that no\n'
+        printf '                  stamp claims — a disabled recipe left it, a rebuild\n'
+        printf '                  stopped installing it, or it was placed by hand.\n'
+        printf '                  ADVISORY: it does not affect the exit status, and\n'
+        printf '                  --prune does not remove it.\n\n'
         printf '  --prune    delete the drifted stamps, so the next build redoes\n'
         printf '             exactly those recipes\n'
         printf '  --quiet    report only problems: no per-stamp lines, no summary\n'
@@ -1303,9 +1374,10 @@ cmd_reconcile() {
   fi
   _reconcile_stamps
   _reconcile_orphan_artifacts
+  _reconcile_unclaimed
   if [ "$_rc_quiet" != true ]; then
     log ""
-    log "verified: $_rc_verified   drifted: $_rc_drifted   unverifiable: $_rc_unverifiable   lost stamps: $_rc_orphans"
+    log "verified: $_rc_verified   drifted: $_rc_drifted   unverifiable: $_rc_unverifiable   lost stamps: $_rc_orphans   unclaimed: $_rc_unclaimed"
   fi
 
   if [ "$_rc_drifted" -gt 0 ]; then
