@@ -194,6 +194,12 @@ _reports 'liborphan' || _wrong="$_wrong nothing-reported;"
 # one an operator reads WHILE looking at the list. Deleting all three trailer
 # lines left the suite green: the same asymmetry as the [unclaimed] label, which
 # was pinned in --help and nowhere in the report.
+# All THREE trailer lines. Pinning only the last one left the first two
+# deletable with the suite green -- systematic statement-deletion found that,
+# after nine review rounds had not. The trailer is one sentence split across
+# three warns; asserting a third of it pins a third of the contract.
+_reports 'disabled recipe.s leftovers' || _wrong="$_wrong trailer-omits-the-cause;"
+_reports 'Review before deleting'      || _wrong="$_wrong trailer-omits-the-instruction;"
 _reports 'nothing here is removed for you' || _wrong="$_wrong report-omits-the-advisory-trailer;"
 _verdict unclaimed-is-reported-not-removed "$_wrong"
 
@@ -475,6 +481,27 @@ _wrong=''
 _says "$_gout" 'danglingtop' || _wrong="$_wrong dangling-top-level-symlink-not-enumerated;"
 _says "$_gout" '1 entry in the prefix' || _wrong="$_wrong singular-noun-not-used;"
 _verdict dangling-symlink-and-singular-noun "$_wrong"
+
+# --- a prefix holding nothing but its own state ----------------------------
+#
+# The `*` glob matches no non-dot entry in a workspace that has stamps and no
+# installed files, so the loop's `[ -e ] || [ -L ]` guard skips the literal `*`
+# it was handed. Deleting that guard hands `./*` to find, which fails, sets the
+# incomplete flag, and warns "part of $PREFIX could not be read" about a prefix
+# that is perfectly healthy and simply empty -- the false-`+` class, at a site
+# no review round probed. Found by systematic statement deletion.
+_ews="$_tmp/emptyprefix"
+mkdir -p "$_ews/workspace/.stamps"
+printf '' > "$_ews/workspace/.stamps/legacy-1.0"
+
+_eout=$( cd "$_ews" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _erc=0 || _erc=$?
+_ebare=$(printf '%s\n' "$_eout" | grep -cv '^\[mediaforge\]') || true
+_wrong=''
+_says "$_eout" 'could not be read' && _wrong="$_wrong empty-prefix-claimed-incomplete;"
+_says "$_eout" 'unclaimed: 0$'     || _wrong="$_wrong empty-prefix-not-an-exact-zero;"
+[ "${_ebare:-0}" = 0 ] || _wrong="$_wrong unprefixed-line(s)=$_ebare;"
+[ "$_erc" = 0 ] || _wrong="$_wrong exit=$_erc;"
+_verdict empty-prefix-is-not-reported-incomplete "$_wrong"
 
 # --- a symlinked directory is not descended --------------------------------
 #
