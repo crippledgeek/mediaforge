@@ -192,6 +192,39 @@ mf_stage_discard() {
   rm -rf "$(mf_stage_root)" 2>/dev/null || true
 }
 
+# Walk trees for files and symlinks, carrying find's failure as this function's
+# STATUS.
+#
+# Two callers ask the same question of two different trees -- mf_stage_commit
+# enumerating the stage to build a manifest, and mediaforge.sh's
+# _reconcile_unclaimed enumerating the prefix to find what no stamp claims --
+# and both need the property a pipeline structurally cannot give them: in
+# `find ... | sed`, the status belongs to SED, and the `2>/dev/null` that keeps
+# find's raw diagnostic out of the output removes the only other evidence that
+# a subtree went unread. So the walk is a statement whose status is its own.
+#
+# What that status MEANS is the caller's to decide, and it is not the same
+# answer on both sides. The audit reports a lower bound and carries on, because
+# it is advisory. Staging fails the recipe, because a manifest that under-
+# records is permanent: nothing later re-derives it, and the audit above then
+# reports every unwalked file as claimed by no stamp -- manufacturing findings
+# indistinguishable from the real ones it exists to surface.
+#
+# The caller cd's and this reads the CWD, rather than taking the directory as an
+# argument: a cd here would need its own subshell to contain it, and both call
+# sites already run inside a command substitution that is one.
+#
+# `-print` is explicit because the expression has a `-o` in it: find's implied
+# -print applies to the WHOLE expression only when none is given, and a later
+# hand adding a term after the group would otherwise silently change what prints.
+mf_stage_walk_files() { # $@ = root paths, relative to the caller's CWD
+  _st_walk_st=0
+  for _st_walk_root in "$@"; do
+    find "$_st_walk_root" \( -type f -o -type l \) -print 2>/dev/null || _st_walk_st=1
+  done
+  return "$_st_walk_st"
+}
+
 # Merge the stage into $PREFIX and remember what came across.
 #
 # Called between pkg_install and pkg_post_install, again after
@@ -224,7 +257,25 @@ mf_stage_commit() {
   # Record BEFORE merging: the stage holds this step's files and nothing else,
   # which is the entire reason for staging. Enumerating $PREFIX after the merge
   # would be back to guessing which of thousands of files were ours.
-  _st_new=$(cd "$_st_src" && find . \( -type f -o -type l \) 2>/dev/null | sed 's|^\./||')
+  #
+  # A subtree the walk cannot read FAILS THE RECIPE, and does so here -- before
+  # the merge, so nothing has been carried into $PREFIX yet and the build can be
+  # re-run once the permission is fixed. The alternative, recording the short
+  # manifest and warning, was rejected for what a manifest IS: read-only evidence
+  # that nothing ever re-derives. A stamp written short stays short for the life
+  # of the workspace, reads `verified` while vouching for less than the recipe
+  # installed, and hands reconcile's unclaimed audit a pile of files no stamp
+  # claims -- findings the audit manufactured itself, shaped exactly like the
+  # real ones. That is the displaced failure this whole feature exists to stop,
+  # and a warning at build time does not survive to the reconcile that reports it.
+  #
+  # The status is the walk's own; see mf_stage_walk_files for why it cannot be a
+  # pipeline's. The `|| die` on the assignment sees the SUBSHELL's status, which
+  # is the cd's when the cd is what failed -- the case the old spelling dropped
+  # along with find's.
+  _st_walk=$(cd "$_st_src" 2>/dev/null && mf_stage_walk_files .) \
+    || die "Cannot read the staged install at $_st_src, so the manifest would under-record what this recipe installed. Nothing has been merged into $PREFIX; fix the permissions on the staged tree and rebuild."
+  _st_new=$(printf '%s\n' "$_st_walk" | sed 's|^\./||')
 
   # Merge on the DIRECTORY existing, not on _st_new being non-empty: an install
   # that creates only directories (an empty include/foo/) has no files to record

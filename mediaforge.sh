@@ -1440,10 +1440,19 @@ _reconcile_unclaimed() {
   # direction for a list an operator deletes from, and it was the silent one.
   #
   # find's own diagnostic goes to /dev/null and the failure is carried as STATUS
-  # instead. The `|| exit 1` on the cd is belt-and-braces against a race between
+  # instead, by lib/stage.sh's mf_stage_walk_files -- shared with the manifest
+  # walk in mf_stage_commit, which had the same defect and a much worse
+  # consequence (GH-80). The two callers differ only in what they do with the
+  # failure: this one reports a lower bound, staging fails the recipe.
+  #
+  # The `|| exit 1` on the cd is belt-and-braces against a race between
   # the guard above and this cd -- mutation shows removing it changes nothing,
   # because that guard has already proved -d, -r and -x. The guard is what makes
   # the pipeline safe; this is the second pair of hands.
+  #
+  # The roots are collected into the SUBSHELL's positional parameters, which are
+  # its own copy: the parent's "$@" holds the stamp list the awk below reads, and
+  # a command substitution cannot reach it.
   # `[ -e ] || [ -L ]` and not `-e` alone: -e is FALSE on a dangling symlink, and
   # a dangling symlink at the prefix root is exactly the sort of leftover this
   # audit exists to name. find enumerates it as -type l without following.
@@ -1457,12 +1466,12 @@ _reconcile_unclaimed() {
   # symlink-specific reintroduces the second.
   _rc_incomplete=false
   _rc_walk=$( cd "$PREFIX" 2>/dev/null || exit 1
-              _rc_st=0
+              set --
               for _rc_top in *; do
                 { [ -e "$_rc_top" ] || [ -L "$_rc_top" ]; } || continue
-                find "./$_rc_top" \( -type f -o -type l \) -print 2>/dev/null || _rc_st=1
+                set -- "$@" "./$_rc_top"
               done
-              exit "$_rc_st" ) || _rc_incomplete=true
+              mf_stage_walk_files "$@" ) || _rc_incomplete=true
 
   # The count carries a `+` when the walk was partial, and the SUMMARY is where
   # that has to show. Warning and then printing an exact-looking number is the

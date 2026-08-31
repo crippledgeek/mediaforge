@@ -308,21 +308,29 @@ EOF
   # and reconcile would call the recipe verified -- the displaced link-time
   # failure this feature exists to prevent.
   #
-  # Driven by making the staged tree unreadable rather than by stubbing tar,
+  # Driven by making a staged FILE unreadable rather than by stubbing tar,
   # so it exercises the real failure. Skipped under a UID that ignores the
   # permission bit, which is the honest answer for root rather than a pass.
+  #
+  # A mode-000 FILE and not the mode-000 DIRECTORY this fixture used before
+  # GH-80, and the distinction is the whole reason both assertions exist. find
+  # can enumerate an unreadable file -- it stats the directory entry and never
+  # opens it -- so the manifest walk succeeds and control reaches the tar pipe,
+  # which does open it and fails. An unreadable DIRECTORY fails the walk first
+  # and dies there (stage-manifest-walk.sh pins that), which would leave this
+  # assertion passing on a message the tar pipe never produced.
   mf_stage_pending_reset
   mf_stage_begin
   _stage=$(mf_stage_dir)$PREFIX
-  mkdir -p "$_stage/lib/locked"
-  echo secret > "$_stage/lib/locked/hidden.a"
-  chmod 000 "$_stage/lib/locked"
+  mkdir -p "$_stage/lib"
+  echo secret > "$_stage/lib/hidden.a"
+  chmod 000 "$_stage/lib/hidden.a"
   if [ "$(id -u)" = 0 ] || tar cf /dev/null -C "$_stage" . 2>/dev/null; then
-    chmod 755 "$_stage/lib/locked"
+    chmod 644 "$_stage/lib/hidden.a"
     _pass tar-read-failure-is-fatal  # unreachable as root; see comment
   else
     _out=$( (mf_stage_commit) 2>&1 ) && _rc=0 || _rc=$?
-    chmod 755 "$_stage/lib/locked" 2>/dev/null || true
+    chmod 644 "$_stage/lib/hidden.a" 2>/dev/null || true
     if [ "$_rc" != 0 ] && printf '%s' "$_out" | grep -q 'PARTIALLY merged'; then
       _pass tar-read-failure-is-fatal
     else
