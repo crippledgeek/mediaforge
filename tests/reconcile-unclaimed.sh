@@ -217,10 +217,17 @@ _verdict help-documents-the-unclaimed-class "$_wrong"
 #
 # warn() formats through mf_printable, which KEEPS newlines because our own
 # messages are written by the same operator who reads them. These names come from
-# whatever tarball installed the file, so a newline in one would close the report
-# line and open a line of its own -- a convincing `[mediaforge] WARNING: ...`
-# inside the very diagnostic someone is reading to decide what to delete by hand.
-# lib/utils.sh splits mf_printable_line off for exactly this, failing closed.
+# whatever tarball installed the file, so the report has to make sure a newline
+# in one cannot buy a line of its own inside the diagnostic someone is reading to
+# decide what to delete by hand.
+#
+# The claim is EVERY REPORTED LINE CARRIES THE PREFIX, which is what the
+# per-line loop guarantees and what a single warn over the whole list breaks.
+# Asserting instead that some specific forged text is absent would be blind: the
+# find/sort/read pipeline is line-based, so a crafted name arrives as two
+# separate entries that are each prefixed anyway, and the assertion would pass
+# against a report that had already lost the property. Verified by mutation --
+# collapsing the loop to `warn "$_rc_list"` emits a bare, unprefixed `lib/evil`.
 #
 # Its own fixture: the crafted name would otherwise change the count the
 # assertions above pin.
@@ -232,10 +239,12 @@ _forged=$(printf 'evil\n[mediaforge] WARNING: forged by a filename')
 
 if [ -n "$_forged" ]; then
   _fout=$( cd "$_fws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) || true
+  # grep -c exits 1 on a count of zero, which is the passing case here.
+  _bare=$(printf '%s\n' "$_fout" | grep -cv '^\[mediaforge\]') || true
   _wrong=''
   printf '%s\n' "$_fout" | grep -q 'evil' || _wrong="$_wrong crafted-name-not-reported;"
-  printf '%s\n' "$_fout" | grep -qE '^\[mediaforge\] WARNING: forged by a filename$' \
-    && _wrong="$_wrong filename-forged-a-standalone-log-line;"
+  [ "${_bare:-0}" = 0 ] \
+    || _wrong="$_wrong unprefixed-line(s)=$_bare: [$(printf '%s\n' "$_fout" | grep -v '^\[mediaforge\]' | head -1)];"
   _verdict a-newline-in-a-filename-cannot-forge-a-line "$_wrong"
 else
   # A filesystem that refuses the name cannot host the claim. Reported rather

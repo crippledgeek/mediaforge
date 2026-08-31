@@ -1329,15 +1329,24 @@ _reconcile_unclaimed() {
   [ -n "$_rc_list" ] || return 0
   _rc_unclaimed=$(printf '%s\n' "$_rc_list" | wc -l | tr -d ' ')
   warn "  [unclaimed]    $_rc_unclaimed file(s) in the prefix that no stamp claims:"
-  # Through mf_printable_line, not warn's own mf_printable: these names were
-  # chosen by whatever tarball installed them, and mf_printable deliberately
-  # KEEPS newlines because it is for our own messages, where the author and the
-  # reader are the same operator. A newline in a filename would otherwise forge a
-  # convincing `[mediaforge] ...` line inside the very report someone is reading
-  # to decide what to delete by hand. lib/utils.sh splits the two for this.
+  # ONE warn PER LINE, and that is the protection, not decoration. These names
+  # were chosen by whatever tarball installed the file, and warn formats through
+  # mf_printable, which deliberately KEEPS newlines because it is meant for our
+  # own messages, where the author and the reader are the same operator. Hand it
+  # the whole list at once and a filename containing a newline puts its second
+  # half on a line of its own with no `[mediaforge]` prefix -- reproduced: a file
+  # named `evil<LF>[mediaforge] WARNING: ...` yields a bare `lib/evil` line
+  # beside a forged-looking one. Read line by line, each fragment gets its own
+  # prefix and neither can pass for a mediaforge message.
+  #
+  # mf_printable_line, lib/utils.sh's filter for text whose author is not us, is
+  # deliberately NOT used here. It is the right tool where a whole untrusted
+  # string reaches one warn; here the loop has already split on newlines, so it
+  # has nothing left to strip -- and it FAILS CLOSED without `tr`, which would
+  # blank out the filename that is this report's entire product.
   printf '%s\n' "$_rc_list" | while IFS= read -r _rc_u; do
     [ -n "$_rc_u" ] || continue
-    warn "                   $(mf_printable_line "$_rc_u")"
+    warn "                   $_rc_u"
   done
   warn "                 A disabled recipe's leftovers, a stale rebuild, or"
   warn "                 something placed by hand. Review before deleting:"
