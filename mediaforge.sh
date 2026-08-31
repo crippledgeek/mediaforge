@@ -1185,13 +1185,17 @@ _reconcile_stamps() {
     # well-formed without letting an unprintable byte through; --prune is
     # unaffected either way, since it acts on _rc_drifted_list, not on this.
     #
+    # The placeholder carries a `/`, which basename output never can, so no real
+    # stamp can collide with it -- a printable placeholder would otherwise be
+    # indistinguishable from a stamp literally named that.
+    #
     # KNOWN GAP, stated rather than papered over: deliberately unasserted, and
     # mutation-confirmed unasserted. Reaching it needs a PATH with no `tr`, which
     # means enumerating every other tool reconcile calls into a sandbox bin dir;
     # that enumeration is a list that rots, and getting it wrong fails the test
     # for the wrong reason. tests/ccache.sh's _link_tools builds such a PATH if
     # this ever earns one.
-    [ -n "$_rc_name" ] || _rc_name='<unprintable stamp name>'
+    [ -n "$_rc_name" ] || _rc_name='<unprintable/stamp/name>'
 
     # An empty stamp is a stamp with no manifest, not a stamp with no files:
     # every stamp written before GH-59 is empty, as is every stamp for a recipe
