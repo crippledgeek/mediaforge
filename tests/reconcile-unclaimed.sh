@@ -65,11 +65,13 @@ _out=$( cd "$_ws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _rc=0 || _rc=$?
 # differently (90, then 98), which is the census this repo has already deleted
 # once rather than corrected a third time. A grep does not rot.
 #
-# _says takes the TEXT, because this file captures five different runs -- the
-# plain report, --prune, --quiet, --help, and the forged-name fixture -- and a
-# helper bound to one of them sends every other assertion back to spelling the
-# pipe out by hand. That is what the first draft did, at seven sites. _reports is
-# this helper partially applied to the main run.
+# _says takes the TEXT, because this file captures many separate runs, each with
+# its own fixture, and a helper bound to one of them sends every other assertion
+# back to spelling the pipe out by hand. That is what the first draft did, at
+# seven sites. _reports is this helper partially applied to the main run.
+#
+# No enumeration here either, for the reason the paragraph above gives about the
+# site count: the first version listed five and the file now has eleven.
 _says()        { printf '%s\n' "$1" | grep -q "$2"; }
 _reports()     { _says "$_out" "$1"; }
 _reports_not() { ! _reports "$1"; }
@@ -88,6 +90,11 @@ _fn_code()     { _fn_body "$1" "$2" | _code_only - | grep -qE "$3"; }
 _wrong=''
 _reports     'lib/liborphan\.a' || _wrong="$_wrong unclaimed-file-absent-from-report;"
 _reports_not 'lib/libclaimed\.a' || _wrong="$_wrong claimed-file-reported-as-unclaimed;"
+# The LABEL the help text documents, in the report an operator actually reads.
+# help-documents-the-unclaimed-class greps the help; nothing required the
+# findings block to carry the same class name, so renaming it there survived
+# everything. Text and behaviour drift apart silently.
+_reports '\[unclaimed\]' || _wrong="$_wrong findings-block-not-labelled;"
 _verdict unclaimed-reported-claimed-is-not "$_wrong"
 
 # The decision, as an assertion. `verified` in the same breath because a base
@@ -351,6 +358,11 @@ if [ -n "$_forged" ]; then
   _noindent=$(printf '%s\n' "$_fout" | grep -cE '^\[mediaforge\] WARNING: [^ ]') || true
   _wrong=''
   _says "$_fout" 'Azzz' || _wrong="$_wrong crafted-name-not-reported;"
+  # ENTRIES, not files, and this is the ONLY fixture where the two differ: one
+  # filename arrives from the walk as two lines. Everywhere else the paths are
+  # three words as well as three lines, so `wc -l` -> `wc -w` passes -- the
+  # comment argued the distinction and nothing measured it.
+  _says "$_fout" 'unclaimed: 2$' || _wrong="$_wrong count-is-not-per-entry;"
   [ "${_bare:-0}" = 0 ] \
     || _wrong="$_wrong unprefixed-line(s)=$_bare: [$(printf '%s\n' "$_fout" | grep -v '^\[mediaforge\]' | head -1)];"
   [ "${_noindent:-0}" = 0 ] \
@@ -405,6 +417,14 @@ else
   # nothing reads as "no missing paths". The report used to say `[verified]
   # secret-1.0` two lines above its own "secret-1.0 is unreadable".
   _says "$_uout" 'unverifiable.*secret-1\.0' || _wrong="$_wrong unreadable-stamp-not-unverifiable;"
+  # The COUNT, not just the line. The counter bump is a separate statement from
+  # the warn beside it, and deleting it printed `unverifiable: 0` directly under
+  # `[unverifiable] secret-1.0` -- the warn-contradicted-by-the-summary defect
+  # this branch has now fixed three times, arriving at a fourth site.
+  # `[1-9]` rather than an exact number: the newline-named stamp is
+  # fixture-conditional, so the total is 1 or 2 depending on the filesystem.
+  _says "$_uout" 'unverifiable: [1-9]' \
+    || _wrong="$_wrong summary-did-not-count-the-unverifiable-stamp;"
   _says "$_uout" 'verified\] *secret-1\.0' && _wrong="$_wrong unreadable-stamp-reported-verified;"
   # No bare line: the failing redirect used to leak the shell's own unprefixed
   # `Permission denied` into the report.
@@ -506,6 +526,11 @@ _dws="$_tmp/degrade"
 mkdir -p "$_dws/workspace/.stamps" "$_dws/workspace/lib"
 echo real > "$_dws/workspace/lib/real.a"
 printf 'lib/real.a\n' > "$_dws/workspace/.stamps/verifying-1.0"
+# Unreadable, so the stamp loop's own warn fires too. That is what makes this
+# fixture cover the guard's POSITION and not just its behaviour: with the guard
+# below the loop, "the files it claims are listed below as unclaimed" prints and
+# then "skipped" prints, with no list below either line.
+chmod 000 "$_dws/workspace/.stamps/verifying-1.0" 2>/dev/null || true
 chmod 111 "$_dws/workspace" 2>/dev/null || true
 
 if [ -r "$_dws/workspace" ]; then
@@ -514,6 +539,11 @@ else
   _dout=$( cd "$_dws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _drc=0 || _drc=$?
   _wrong=''
   _says "$_dout" 'is not a readable directory' || _wrong="$_wrong no-skip-warning;"
+  # ORDERING, not wording: the guard runs before the stamp loop, so the loop's
+  # "listed below as unclaimed" cannot be printed over a list that never comes.
+  # Moving the guard back below the loop leaves every other assertion green.
+  _says "$_dout" 'listed below as unclaimed' \
+    && _wrong="$_wrong stamp-warning-printed-with-no-list;"
   # `[?]`, never `\?`. _says greps with a BRE, where GNU's `\?` is the OPTIONAL
   # QUANTIFIER rather than an escaped literal -- so `unclaimed: \?` reads as
   # "unclaimed: followed by nothing optional" and matches `unclaimed: 0` just as
