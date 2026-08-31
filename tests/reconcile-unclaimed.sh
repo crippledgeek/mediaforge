@@ -40,12 +40,17 @@ _cleanup_on_signal
 # negative to separate: a claimed file and an unclaimed one, a nested dotfile
 # and a top-level one, and a symlink.
 _ws="$_tmp/topdir"
-mkdir -p "$_ws/workspace/.stamps" "$_ws/workspace/lib" "$_ws/workspace/share/pkg"
+mkdir -p "$_ws/workspace/.stamps" "$_ws/workspace/lib" "$_ws/workspace/share/pkg" \
+         "$_ws/workspace/.stage/lib"
 
 echo claimed > "$_ws/workspace/lib/libclaimed.a"
 echo orphan  > "$_ws/workspace/lib/liborphan.a"
 echo nested  > "$_ws/workspace/share/pkg/.hidden"
 echo state   > "$_ws/workspace/.mediaforge-choices"
+# A non-dot file INSIDE a top-level dot-DIRECTORY. The skip has to happen at the
+# walk root: a path filter spelled `-not -path '*/.*'` would drop this, and a
+# walk that descended .stage would report it. Neither is what the glob does.
+echo staged  > "$_ws/workspace/.stage/lib/libstaged.a"
 ln -s liborphan.a "$_ws/workspace/lib/liborphan.so"
 
 printf 'lib/libclaimed.a\n' > "$_ws/workspace/.stamps/claimed-1.0"
@@ -53,11 +58,11 @@ printf 'lib/libclaimed.a\n' > "$_ws/workspace/.stamps/claimed-1.0"
 _out=$( cd "$_ws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _rc=0 || _rc=$?
 
 # Every assertion below asks the same two questions of the same captured report,
-# so they are asked once here rather than nine times inline. FILE-LOCAL on
-# purpose: `printf | grep -q` over captured output is spelled out at 98 sites
-# across tests/, so this is the house idiom and a shared helper used only by the
-# newest file would be a third spelling rather than a convergence. Converging
-# those 98 is worth doing and is not this branch's subject.
+# so they are asked once here rather than at every site. FILE-LOCAL on purpose:
+# `printf | grep -q` over captured output is spelled out at ~90 sites across
+# tests/, so this is the house idiom and a shared helper used only by the newest
+# file would be a third spelling rather than a convergence. Converging those is
+# worth doing and is not this branch's subject.
 _reports()     { printf '%s\n' "$_out" | grep -q "$1"; }
 _reports_not() { ! _reports "$1"; }
 
@@ -84,6 +89,7 @@ _verdict unclaimed-alone-keeps-exit-zero "$_wrong"
 _wrong=''
 _reports     'share/pkg/\.hidden' || _wrong="$_wrong nested-dotfile-not-reported;"
 _reports_not 'mediaforge-choices' || _wrong="$_wrong top-level-state-file-reported;"
+_reports_not 'libstaged\.a'       || _wrong="$_wrong descended-into-a-dot-directory;"
 _verdict dotfile-rule-is-top-level-only "$_wrong"
 
 # Symlinks are artifacts a recipe installs and a stamp records, so the
@@ -98,6 +104,34 @@ _wrong=''
 _reports 'unclaimed: 3' \
   || _wrong="$_wrong summary=[$(printf '%s\n' "$_out" | _evidence 1 'unclaimed|verified')];"
 _verdict summary-counts-the-unclaimed "$_wrong"
+
+# --- what it does NOT do ---------------------------------------------------
+#
+# The most dangerous property of this tier, and the one stated three times in
+# prose -- the function header, the --help paragraph, and the report's own last
+# line -- and until now nowhere in code. Exit status is a weaker claim: an audit
+# that deleted its findings and returned 0 kept every other assertion in this
+# file green.
+#
+# Paired with _reports for the oracle: `[ -f ]` alone is vacuously true on a base
+# whose reconcile never looks at the file at all.
+_wrong=''
+_reports 'liborphan' || _wrong="$_wrong nothing-reported;"
+[ -f "$_ws/workspace/lib/liborphan.a" ] || _wrong="$_wrong report-deleted-the-file;"
+[ -L "$_ws/workspace/lib/liborphan.so" ] || _wrong="$_wrong report-deleted-the-symlink;"
+_verdict unclaimed-is-reported-not-removed "$_wrong"
+
+# --prune is documented as meaning STAMPS, and the help text says so in the same
+# paragraph that introduces [unclaimed]. The danger is a future edit reading
+# "prune" as "prune everything reconcile complained about".
+_pout=$( cd "$_ws" && "$ROOT/mediaforge.sh" reconcile --prune 2>&1 ) && _prc=0 || _prc=$?
+_wrong=''
+printf '%s\n' "$_pout" | grep -q 'liborphan' || _wrong="$_wrong prune-run-reported-nothing;"
+[ -f "$_ws/workspace/lib/liborphan.a" ]  || _wrong="$_wrong prune-removed-an-unclaimed-file;"
+[ -L "$_ws/workspace/lib/liborphan.so" ] || _wrong="$_wrong prune-removed-the-symlink;"
+[ -f "$_ws/workspace/share/pkg/.hidden" ] || _wrong="$_wrong prune-removed-the-nested-dotfile;"
+[ "$_prc" = 0 ] || _wrong="$_wrong prune-exit=$_prc;"
+_verdict prune-does-not-touch-unclaimed "$_wrong"
 
 # --- the wiring ------------------------------------------------------------
 #
@@ -117,24 +151,97 @@ _verdict unclaimed-audit-is-called "$_wrong"
 # variable). It matters here beyond tidiness: lilv deliberately installs a .pyc
 # and its stamp claims it, so a blanket __pycache__ exclusion would have hidden
 # that whole class from the audit instead of the noise.
+#
+# Anchored on the KEYWORD, not a bare needle. `meson setup` is not the only
+# writer -- `ninja -C build install` spawns `meson --internal install`, and
+# recipes/audio/lv2.sh reaches it as `run meson install` -- so the variable has
+# to outlive this one command and reach the recipe's later invocations. A bare
+# grep for the name is satisfied by narrowing it back to a per-command prefix
+# (`PYTHONDONTWRITEBYTECODE=1 run meson setup ...`), which is exactly the
+# regression this exists to catch, so the needle carries `export`.
 _wrong=''
-_fn_body lib/framework.sh mf_meson | _code_only - | grep -q 'PYTHONDONTWRITEBYTECODE' \
-  || _wrong="$_wrong mf_meson-still-writes-bytecode;"
+_fn_body lib/framework.sh mf_meson | _code_only - \
+  | grep -qE '(^|[[:space:]])export[[:space:]]+PYTHONDONTWRITEBYTECODE' \
+  || _wrong="$_wrong mf_meson-does-not-export-it;"
 _verdict meson-bytecode-suppressed-at-source "$_wrong"
 
-# The export's LIFETIME, which is the half that cannot be read off mf_meson.
-# `meson setup` is not the only writer -- `ninja -C build install` spawns
-# `meson --internal install` -- so the variable has to outlive the setup call
-# and reach the recipe's later ninja invocations. run_recipe is a plain call and
-# every recipe is sourced into one shell, so what stops it reaching every LATER
-# recipe is reset_recipe clearing it. Without this assertion the export could be
-# narrowed back to a single command and the suite would not notice, because
-# every assertion above is satisfied by the setup call alone.
+# The other end of that lifetime: what CLEARS it between recipes. run_recipe is
+# a plain call and every recipe is sourced into one shell, so an export lives
+# until something unsets it; reset_recipe is what keeps one meson recipe's
+# export off every later recipe.
+#
+# Both halves are needed and neither implies the other -- the assertion above
+# pins that the export is not narrowed to one command, this one pins that it is
+# not left unbounded.
 _wrong=''
 _fn_body lib/framework.sh reset_recipe | _code_only - \
   | grep -q 'unset PYTHONDONTWRITEBYTECODE' \
   || _wrong="$_wrong reset_recipe-does-not-clear-it;"
-_verdict bytecode-suppression-is-recipe-scoped "$_wrong"
+_verdict bytecode-export-is-cleared-between-recipes "$_wrong"
+
+# reset_recipe is reached through load_recipe, and recipes/ffmpeg.sh does not go
+# that way -- mediaforge.sh sources it directly, so without its own unset the
+# export from the last meson recipe in _order.conf would still be live through
+# FFmpeg's configure, build, and do_install. Benign today (neither runs Python),
+# asserted because the invariant is stated as absolute in two comments.
+_wrong=''
+_fn_body mediaforge.sh cmd_build | _code_only - \
+  | grep -q 'unset PYTHONDONTWRITEBYTECODE' \
+  || _wrong="$_wrong ffmpeg-source-path-inherits-the-export;"
+_verdict bytecode-export-cleared-before-ffmpeg "$_wrong"
+
+# --- the documented surface ------------------------------------------------
+#
+# --quiet is "report only problems": the per-stamp lines and the summary go, and
+# the findings stay. An unclaimed file is a finding, so it survives -- the design
+# decision is in cmd_reconcile's own comment and was pinned nowhere.
+_qout=$( cd "$_ws" && "$ROOT/mediaforge.sh" reconcile --quiet 2>&1 ) || true
+_wrong=''
+printf '%s\n' "$_qout" | grep -q 'liborphan' || _wrong="$_wrong quiet-dropped-the-finding;"
+printf '%s\n' "$_qout" | grep -q 'unclaimed: ' && _wrong="$_wrong quiet-kept-the-summary;"
+_verdict quiet-keeps-findings-drops-summary "$_wrong"
+
+# The help text makes the two falsifiable claims the assertions above pin
+# behaviourally. Text and behaviour drift apart silently, and the text is what an
+# operator reads before deciding whether to trust the report.
+_hout=$( cd "$_ws" && "$ROOT/mediaforge.sh" reconcile --help 2>&1 ) || true
+_wrong=''
+printf '%s\n' "$_hout" | grep -q '\[unclaimed\]' || _wrong="$_wrong help-omits-the-class;"
+printf '%s\n' "$_hout" | grep -q 'does not affect the exit status' \
+  || _wrong="$_wrong help-omits-the-advisory-claim;"
+printf '%s\n' "$_hout" | grep -q 'prune does not remove it' \
+  || _wrong="$_wrong help-omits-the-prune-claim;"
+_verdict help-documents-the-unclaimed-class "$_wrong"
+
+# --- a filename is not one of our messages ---------------------------------
+#
+# warn() formats through mf_printable, which KEEPS newlines because our own
+# messages are written by the same operator who reads them. These names come from
+# whatever tarball installed the file, so a newline in one would close the report
+# line and open a line of its own -- a convincing `[mediaforge] WARNING: ...`
+# inside the very diagnostic someone is reading to decide what to delete by hand.
+# lib/utils.sh splits mf_printable_line off for exactly this, failing closed.
+#
+# Its own fixture: the crafted name would otherwise change the count the
+# assertions above pin.
+_fws="$_tmp/forge"
+mkdir -p "$_fws/workspace/.stamps" "$_fws/workspace/lib"
+printf 'lib/nothing\n' > "$_fws/workspace/.stamps/empty-1.0"
+_forged=$(printf 'evil\n[mediaforge] WARNING: forged by a filename')
+: > "$_fws/workspace/lib/$_forged" 2>/dev/null || _forged=''
+
+if [ -n "$_forged" ]; then
+  _fout=$( cd "$_fws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) || true
+  _wrong=''
+  printf '%s\n' "$_fout" | grep -q 'evil' || _wrong="$_wrong crafted-name-not-reported;"
+  printf '%s\n' "$_fout" | grep -qE '^\[mediaforge\] WARNING: forged by a filename$' \
+    && _wrong="$_wrong filename-forged-a-standalone-log-line;"
+  _verdict a-newline-in-a-filename-cannot-forge-a-line "$_wrong"
+else
+  # A filesystem that refuses the name cannot host the claim. Reported rather
+  # than skipped silently, so a permanent skip is visible in the log.
+  _bad a-newline-in-a-filename-cannot-forge-a-line "fixture unavailable: filesystem rejected a newline in a filename"
+fi
 
 printf 'DONE: reconcile-unclaimed\n'
 exit "$_fail"

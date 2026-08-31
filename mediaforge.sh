@@ -706,6 +706,18 @@ cmd_build() {
   fi
 
   # Build FFmpeg
+  #
+  # reset_recipe is what bounds mf_meson's PYTHONDONTWRITEBYTECODE export to one
+  # recipe, and this source path does not reach it -- recipes/ffmpeg.sh is
+  # sourced directly rather than through run_recipe/load_recipe. So if the last
+  # meson recipe in _order.conf ran before this, the export would still be live
+  # through FFmpeg's whole configure and build, and through do_install below.
+  # Harmless today, since neither runs Python; cleared anyway, because the
+  # invariant reset_recipe documents is worth being true rather than annotated.
+  # This mirrors the mf_stage_pending_reset/mf_stage_reserved_reset that
+  # recipes/ffmpeg.sh already does for the same "inherits whatever the last
+  # recipe left" reason.
+  unset PYTHONDONTWRITEBYTECODE
   . "$SCRIPT_DIR/recipes/ffmpeg.sh"
 
   # Install (unless --no-install)
@@ -1255,41 +1267,77 @@ _reconcile_orphan_artifacts() {
 _reconcile_unclaimed() {
   _rc_unclaimed=0
 
-  # In .logs rather than /tmp, following the manifest reconcile in
-  # lib/install.sh: a `die` here exits through cleanup.sh's EXIT trap, so a leak
-  # should land somewhere `clean` removes. .logs is also one of the dotfiles the
-  # walk below skips, so the scratch file cannot appear in its own answer.
-  mkdir -p "$PREFIX/.logs" || die "Cannot create $PREFIX/.logs"
-  _rc_claimed="$PREFIX/.logs/_claimed_$$"
-  cat "$PREFIX"/.stamps/* 2>/dev/null | sed '/^$/d' | LC_ALL=C sort -u > "$_rc_claimed" \
-    || die "Cannot assemble the claimed-path set from $PREFIX/.stamps"
+  # The stamp files, guarded the same way _reconcile_stamps guards its own loop:
+  # a subdirectory under .stamps is not a stamp, and the two spellings have to
+  # agree about that or one of them silently contributes nothing.
+  #
+  # A function's positional parameters are its own and the caller's are restored
+  # on return, so `set --` here cannot disturb cmd_reconcile. Empty is a
+  # meaningful value: no stamps means nothing is claimed, so everything the walk
+  # finds is reported -- the same over-report direction the awk below takes on
+  # any other doubt.
+  set --
+  for _rc_s in "$PREFIX"/.stamps/*; do
+    [ -f "$_rc_s" ] && set -- "$@" "$_rc_s"
+  done
 
   # The exclusion is the shell's own glob, not a pattern list: `*` does not match
-  # a leading dot, so every top-level dotfile -- .stamps, .logs, .stage,
-  # .ccache-bin, .debug-level, .extra_cflags, .mediaforge-choices, .pc-exclude --
-  # is skipped by construction, and so is the next one someone adds. An
-  # enumerated list would be a census that rots. It is sound in the other
-  # direction too: across all 110 stamps of a full workspace no claimed path
-  # begins with a dot, because a prefix's top level is bin/ include/ lib/ share/
-  # etc/ man/ sbin/ doc/. The rule is deliberately TOP-LEVEL only -- a dotfile
-  # deeper in the tree is a recipe's file and stays in scope.
+  # a leading dot, so .stamps, .logs, .stage and whatever else the framework puts
+  # at the prefix's top level are skipped by construction, including the next one
+  # someone adds. An enumerated list here would be a census that rots -- and it
+  # already had: the first draft of this comment listed eight and missed
+  # .extra_ldflags. It is sound in the other direction too: a claimed path never
+  # begins with a dot, because lib/stage.sh records $PREFIX-relative paths under
+  # a prefix's top level of bin/ include/ lib/ share/ etc/ man/ sbin/ doc/. The
+  # rule is deliberately TOP-LEVEL only, and applied at the WALK ROOT rather than
+  # as a path filter -- a dotfile deeper in the tree is a recipe's file and stays
+  # in scope.
   #
-  # grep -Fxv rather than a second sort plus comm: fixed whole-line matching is
-  # the set difference, with no collation contract between two inputs to get
-  # wrong. It exits 1 when nothing is unclaimed, which is the good case, hence
-  # the guard on the assignment.
-  _rc_list=$( cd "$PREFIX" 2>/dev/null && for _rc_top in *; do
-                { [ -e "$_rc_top" ] || [ -L "$_rc_top" ]; } || continue
-                find "$_rc_top" \( -type f -o -type l \) -print
-              done | LC_ALL=C sort | grep -Fxv -f "$_rc_claimed" ) || _rc_list=""
-  rm -f "$_rc_claimed"
+  # awk holds the claimed set in a hash and reads the walk on stdin, which is one
+  # pass and no intermediate file. The alternatives both cost more than they look:
+  # `grep -Fxv -f` is Aho-Corasick on GNU grep but loops the pattern set per input
+  # line on a BSD grep, i.e. quadratic on the macOS builds this project supports,
+  # and it cannot distinguish its "no match" exit 1 from a real error's 2; `comm`
+  # needs both sides sorted in ITS collation, the contract lib/install.sh's
+  # manifest diff documents at length. Neither wants a scratch file in a prefix
+  # this command otherwise only reads.
+  #
+  # Emptying ARGV as each stamp is consumed is what makes awk fall through to
+  # stdin afterwards; it is the portable form of "these files first, then the
+  # pipe", with no dependence on FILENAME being spelled "-" for stdin.
+  _rc_list=$( ( cd "$PREFIX" 2>/dev/null || exit 1
+                for _rc_top in *; do
+                  { [ -e "$_rc_top" ] || [ -L "$_rc_top" ]; } || continue
+                  find "$_rc_top" \( -type f -o -type l \) -print
+                done ) | LC_ALL=C sort | awk '
+        BEGIN {
+          for (i = 1; i < ARGC; i++) {
+            while ((getline line < ARGV[i]) > 0) if (line != "") claimed[line] = 1
+            close(ARGV[i]); ARGV[i] = ""
+          }
+        }
+        !($0 in claimed) { print }' "$@" ) || {
+    # ADVISORY means advisory even when it breaks. This tier runs after the drift
+    # report and before the summary and --prune, so a `die` here would throw away
+    # the answer the operator actually came for. lib/install.sh's analogous block
+    # dies because it is about to DELETE and loud is the safe direction; here the
+    # safe direction is the opposite.
+    warn "  [unclaimed]    skipped: could not compare the prefix against the stamps"
+    return 0
+  }
 
   [ -n "$_rc_list" ] || return 0
   _rc_unclaimed=$(printf '%s\n' "$_rc_list" | wc -l | tr -d ' ')
   warn "  [unclaimed]    $_rc_unclaimed file(s) in the prefix that no stamp claims:"
+  # Through mf_printable_line, not warn's own mf_printable: these names were
+  # chosen by whatever tarball installed them, and mf_printable deliberately
+  # KEEPS newlines because it is for our own messages, where the author and the
+  # reader are the same operator. A newline in a filename would otherwise forge a
+  # convincing `[mediaforge] ...` line inside the very report someone is reading
+  # to decide what to delete by hand. lib/utils.sh splits the two for this.
   printf '%s\n' "$_rc_list" | while IFS= read -r _rc_u; do
     [ -n "$_rc_u" ] || continue
-    warn "                   $_rc_u"
+    warn "                   $(mf_printable_line "$_rc_u")"
   done
   warn "                 A disabled recipe's leftovers, a stale rebuild, or"
   warn "                 something placed by hand. Review before deleting:"
