@@ -411,6 +411,15 @@ else
     || _wrong="$_wrong unprefixed-line(s)=$_ibare: [$(printf '%s\n' "$_iout" | grep -v '^\[mediaforge\]' | head -1)];"
   # Still advisory: an unreadable subtree is not a reason to fail the command.
   [ "$_irc" = 0 ] || _wrong="$_wrong exit=$_irc;"
+  # SECOND RUN, with an orphan present. The run above returns early on the empty
+  # list and so only exercises the `0+` seed; the suffix appended at the count
+  # site is a different line, and mutation showed nothing watched it. This is the
+  # case that actually misleads: the count reads 1 when the truth is 2, because
+  # the unreadable subtree holds another.
+  echo stray > "$_iws/workspace/lib/stray.a"
+  _i2out=$( cd "$_iws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) || true
+  _says "$_i2out" 'unclaimed: 1+' || _wrong="$_wrong count-site-omits-the-marker;"
+  _says "$_i2out" 'unclaimed: 1$' && _wrong="$_wrong count-site-claims-an-exact-count;"
   _verdict an-unreadable-subtree-is-announced "$_wrong"
   chmod 755 "$_iws/workspace/lib/locked" 2>/dev/null || true
 fi
