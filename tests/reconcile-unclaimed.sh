@@ -24,6 +24,33 @@
 # Driven through the real CLI against a workspace built by hand, for the reason
 # tests/stamp-reconcile.sh gives about its own reporting half: the report and
 # the exit status ARE the interface.
+#
+# EQUIVALENT MUTANTS — the register, so a later pass checks this list rather than
+# re-deriving it. Detecting equivalence is undecidable in general (Budd & Angluin
+# 1982), so the practice is to record a verdict once and reference it; Google's
+# mutation work at scale does the same thing with a shared suppression function,
+# having measured that most surviving mutants are unproductive rather than
+# interesting. Each of these was reached by an operator x site sweep over the
+# lines this branch changed, and each was then confirmed by hand:
+#
+#   * `[ ! -d "$PREFIX" ]` / `[ ! -x "$PREFIX" ]` in the degrade guard — only the
+#     -r disjunct is reachable; cmd_reconcile's own `[ -d "$PREFIX/.stamps" ]`
+#     dies first on the other two. Belt-and-braces for a second caller.
+#   * `[ -f "$_rc_s" ]` on the stamp glob — `-e` is byte-identical, since a
+#     directory in awk's ARGV is a getline of -1 and contributes nothing either
+#     way. The guard is the clearer spelling, not a load-bearing one.
+#   * Deleting `_rc_incomplete=false` or `_rc_suffix=''` — the function runs once
+#     per invocation and an unset variable expands empty, which is what both
+#     initialisers mean. They document intent for a second caller.
+#   * Deleting `[ -n "$_rc_u" ] || continue` in the report loop — a blank line
+#     contributes nothing to the output either way.
+#   * `set --` — a function called with no arguments already has $# = 0.
+#   * The `<unprintable/stamp/name>` fallback and the awk-failure degrade block —
+#     both KNOWN GAPs annotated at their sites: the first needs a PATH with no
+#     `tr`, the second is unreachable through the CLI.
+#   * Individual descriptive lines of the --help paragraph — the assertion pins
+#     the class name and the two falsifiable claims; pinning every line of prose
+#     would fit the test to the wording rather than the contract.
 set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT"
 _fail=0
