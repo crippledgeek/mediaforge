@@ -269,18 +269,44 @@ _verdict help-documents-the-unclaimed-class "$_wrong"
 # assertions above pin.
 _fws="$_tmp/forge"
 mkdir -p "$_fws/workspace/.stamps" "$_fws/workspace/lib"
-printf 'lib/nothing\n' > "$_fws/workspace/.stamps/empty-1.0"
-_forged=$(printf 'evil\n[mediaforge] WARNING: forged by a filename')
-: > "$_fws/workspace/lib/$_forged" 2>/dev/null || _forged=''
+# A VERIFYING stamp, so this run reports nothing but the unclaimed audit. A
+# drifted one would add `WARNING: N stamp(s) vouch for artifacts that are gone.`
+# -- a legitimate line with a single space after WARNING: -- and the indent
+# oracle below would fire on it. The oracle's claim is about the lines THIS tier
+# emits, and the fixture has to hold the output to that tier for it to mean what
+# it says.
+echo real > "$_fws/workspace/lib/real.a"
+printf 'lib/real.a\n' > "$_fws/workspace/.stamps/verifying-1.0"
+# TOP-LEVEL, and named so the first fragment sorts BEFORE `[` in the C locale,
+# which puts the forged half SECOND. That ordering is the dangerous one and the
+# earlier fixture could not produce it: under `lib/`, the payload fragment (`[`,
+# 0x5B) always sorts before the path fragment (`l`), so the forged text landed
+# first and the continuation line was the harmless `lib/evil`. Second is where a
+# payload that opens with `[mediaforge]` supplies its own prefix.
+_forged=$(printf 'Azzz\n[mediaforge] WARNING: forged and second')
+: > "$_fws/workspace/$_forged" 2>/dev/null || _forged=''
 
 if [ -n "$_forged" ]; then
   _fout=$( cd "$_fws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) || true
   # grep -c exits 1 on a count of zero, which is the passing case here.
   _bare=$(printf '%s\n' "$_fout" | grep -cv '^\[mediaforge\]') || true
+  # THE INDENT is the oracle, not merely the prefix. Counting unprefixed lines is
+  # blind to a payload that opens with `[mediaforge]` and so supplies its own --
+  # measured: with the report loop collapsed and the forged half landing second,
+  # the bare count is 0 while `[mediaforge] WARNING: forged and second` sits in
+  # the report as a line of its own. Every line THIS TIER emits puts at least two
+  # spaces after `WARNING:` -- the `  [unclaimed]` label, the path indent, the
+  # trailer -- so one space followed by anything else is a fragment that escaped
+  # onto its own line. Scoped to this tier deliberately: the drift summary
+  # (`WARNING: N stamp(s) vouch for artifacts that are gone.`) is a legitimate
+  # single-space line, which is why this fixture's stamp verifies.
+  _noindent=$(printf '%s\n' "$_fout" | grep -cE '^\[mediaforge\] WARNING: [^ ]') || true
   _wrong=''
-  _says "$_fout" 'evil' || _wrong="$_wrong crafted-name-not-reported;"
+  _says "$_fout" 'Azzz' || _wrong="$_wrong crafted-name-not-reported;"
   [ "${_bare:-0}" = 0 ] \
     || _wrong="$_wrong unprefixed-line(s)=$_bare: [$(printf '%s\n' "$_fout" | grep -v '^\[mediaforge\]' | head -1)];"
+  [ "${_noindent:-0}" = 0 ] \
+    || _wrong="$_wrong unindented-line(s)=$_noindent: [$(printf '%s\n' "$_fout" | grep -E '^\[mediaforge\] WARNING: [^ ]' | head -1)];"
   _verdict a-newline-in-a-filename-cannot-forge-a-line "$_wrong"
 else
   # A filesystem that refuses the name cannot host the claim. Reported rather
