@@ -397,8 +397,14 @@ else
   _iout=$( cd "$_iws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _irc=0 || _irc=$?
   _ibare=$(printf '%s\n' "$_iout" | grep -cv '^\[mediaforge\]') || true
   _wrong=''
-  _says "$_iout" 'could not be read; the list below is incomplete' \
+  _says "$_iout" 'could not be read; the count below is a lower bound' \
     || _wrong="$_wrong no-incompleteness-warning;"
+  # THE SUMMARY, which is the number an operator actually reads. Asserting only
+  # the warning let the branch report `unclaimed: 0` underneath it -- a lower
+  # bound presented as exact, and under-reporting is the dangerous direction
+  # here. `$` anchored: `unclaimed: 0+` is the correct answer and must not match.
+  _says "$_iout" 'unclaimed: 0$' && _wrong="$_wrong summary-claims-an-exact-count;"
+  _says "$_iout" 'unclaimed: 0+' || _wrong="$_wrong summary-omits-the-lower-bound-marker;"
   # The leak this replaced: find's own `Permission denied`, unprefixed and
   # unfiltered, in the middle of the report.
   [ "${_ibare:-0}" = 0 ] \

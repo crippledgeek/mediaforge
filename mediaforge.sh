@@ -1393,6 +1393,14 @@ _reconcile_unclaimed() {
   # A mode-0111 prefix satisfies that guard and lands here, so the path is
   # asserted rather than excused.
   #
+  # Of the three conditions only `! -r` is reachable today, measured: with
+  # $PREFIX absent, a regular file, or mode 000, cmd_reconcile's own
+  # `[ -d "$PREFIX/.stamps" ] || die` fires first, because -d on the child needs
+  # the parent to be a directory AND searchable. The other two are belt-and-
+  # braces for a second caller -- there is exactly one today -- and are named
+  # here rather than left for the next reader to test one at a time, which is
+  # what the previous version of this comment cost.
+  #
   # Both degrade paths set the count to `?` rather than leaving it 0. A warn plus
   # `unclaimed: 0` in the summary is still the wrong answer stated confidently --
   # it converts a silent failure into a warned one and then contradicts the
@@ -1420,6 +1428,9 @@ _reconcile_unclaimed() {
   # find's own diagnostic goes to /dev/null and the failure is carried as STATUS
   # instead. The `|| exit 1` on the cd is load-bearing now rather than a discarded
   # sanity exit.
+  # `[ -e ] || [ -L ]` and not `-e` alone: -e is FALSE on a dangling symlink, and
+  # a dangling symlink at the prefix root is exactly the sort of leftover this
+  # audit exists to name. find enumerates it as -type l without following.
   _rc_incomplete=false
   _rc_walk=$( cd "$PREFIX" 2>/dev/null || exit 1
               _rc_st=0
@@ -1428,8 +1439,24 @@ _reconcile_unclaimed() {
                 find "./$_rc_top" \( -type f -o -type l \) -print 2>/dev/null || _rc_st=1
               done
               exit "$_rc_st" ) || _rc_incomplete=true
-  [ "$_rc_incomplete" = false ] \
-    || warn "  [unclaimed]    part of $PREFIX could not be read; the list below is incomplete"
+
+  # The count carries a `+` when the walk was partial, and the SUMMARY is where
+  # that has to show. Warning and then printing an exact-looking number is the
+  # third instance of the same defect this function has now had twice: the two
+  # degrade paths above report `?` for exactly this reason, and an incomplete
+  # walk was still reporting `unclaimed: 0` under a warning saying it could not
+  # read part of the prefix. A lower bound presented as exact is the wrong answer
+  # stated confidently, and here it under-reports -- the direction that matters
+  # for a list an operator deletes from.
+  #
+  # `0+` up front, because the early return below on an empty list would
+  # otherwise leave the initialised 0 standing.
+  _rc_suffix=''
+  if [ "$_rc_incomplete" = true ]; then
+    warn "  [unclaimed]    part of $PREFIX could not be read; the count below is a lower bound"
+    _rc_suffix='+'
+    _rc_unclaimed='0+'
+  fi
 
   _rc_list=$( printf '%s\n' "$_rc_walk" | sed 's|^\./||' | LC_ALL=C sort | awk '
         BEGIN {
@@ -1459,8 +1486,14 @@ _reconcile_unclaimed() {
   # ENTRIES, not files, and the report says so: wc -l counts lines, and a
   # filename containing a newline arrives from the walk as two of them. Calling
   # them files would make the count disagree with the list printed underneath it.
-  _rc_unclaimed=$(printf '%s\n' "$_rc_list" | wc -l | tr -d ' ')
-  warn "  [unclaimed]    $_rc_unclaimed entries in the prefix that no stamp claims:"
+  _rc_unclaimed="$(printf '%s\n' "$_rc_list" | wc -l | tr -d ' ')$_rc_suffix"
+  # entry/entries by count. "1 entries" is the kind of thing a reader trusts a
+  # little less, and the branch is cheaper than the alternative spellings --
+  # `path(s)` reintroduces the newline problem "file(s)" had, since one path can
+  # arrive as two entries.
+  _rc_noun='entries'
+  [ "$_rc_unclaimed" = 1 ] && _rc_noun='entry'
+  warn "  [unclaimed]    $_rc_unclaimed $_rc_noun in the prefix that no stamp claims:"
   # ONE warn PER LINE, and that is the protection, not decoration. These names
   # were chosen by whatever tarball installed the file, and warn formats through
   # mf_printable, which deliberately KEEPS newlines because it is meant for our
