@@ -153,10 +153,42 @@ STUB
   else
     _out=$( (mf_stage_commit) 2>&1 ) && _rc=0 || _rc=$?
     chmod 755 "$_stage/lib/locked" 2>/dev/null || true
-    if [ "$_rc" != 0 ] && printf '%s' "$_out" | grep -q 'under-record'; then
+    # FATAL and not merely the wording: a walk whose failure is warned rather
+    # than raised still prints this sentence, and the merge below it still dies
+    # on the same directory -- so an exit status and a substring together do not
+    # separate the two. The severity does.
+    if [ "$_rc" != 0 ] && printf '%s' "$_out" | grep -q 'FATAL.*under-record'; then
       _pass unreadable-subtree-fails-the-manifest
     else
       _bad unreadable-subtree-fails-the-manifest "the manifest walk did not report the unreadable subtree (exit=$_rc) $(printf '%s' "$_out" | _evidence 2 'FATAL|merge')"
+    fi
+  fi
+  mf_stage_end
+  mf_stage_pending_reset
+
+  # The stage ROOT itself unreadable, which is the other half of the same line:
+  # the old spelling put the `cd` at the head of the pipeline too, so a cd that
+  # failed left sed to succeed on empty input and the manifest came out empty
+  # rather than short. `[ -d ]` is satisfied by a mode-000 directory -- it needs
+  # the parent searchable and nothing more -- so the early return above does not
+  # cover this.
+  PREFIX="$_tmp/prefix3"
+  mkdir -p "$PREFIX"
+  mf_stage_begin
+  _stage=$(mf_stage_dir)$PREFIX
+  mkdir -p "$_stage/lib"
+  echo a > "$_stage/lib/libprobe.a"
+  chmod 000 "$_stage"
+  if [ "$(id -u)" = 0 ] || (cd "$_stage" 2>/dev/null); then
+    chmod 755 "$_stage" 2>/dev/null || true
+    _bad unreadable-stage-root-fails-the-manifest "fixture unavailable: the stage root stayed enterable after chmod 000 (running as root?)"
+  else
+    _out=$( (mf_stage_commit) 2>&1 ) && _rc=0 || _rc=$?
+    chmod 755 "$_stage" 2>/dev/null || true
+    if [ "$_rc" != 0 ] && printf '%s' "$_out" | grep -q 'FATAL.*under-record'; then
+      _pass unreadable-stage-root-fails-the-manifest
+    else
+      _bad unreadable-stage-root-fails-the-manifest "a stage root that could not be entered did not fail the manifest (exit=$_rc) $(printf '%s' "$_out" | _evidence 2 'FATAL|merge')"
     fi
   fi
   mf_stage_end
