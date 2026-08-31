@@ -1284,7 +1284,7 @@ _reconcile_unclaimed() {
   # invited to delete by hand. Gating on -r instead would drop the stamp just as
   # quietly, so the fix is to say so.
   set --
-  for _rc_s in "$PREFIX"/.stamps/*; do
+  for _rc_s in "$PREFIX/.stamps"/*; do
     [ -f "$_rc_s" ] || continue
     # mf_printable_line HERE, unlike the per-line report below, and the
     # difference is the whole distinction: this hands a whole name to ONE warn,
