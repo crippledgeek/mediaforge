@@ -1309,6 +1309,39 @@ _reconcile_orphan_artifacts() {
 _reconcile_unclaimed() {
   _rc_unclaimed=0
 
+  # FIRST, before the stamp loop below, because that loop can WARN. On a prefix
+  # that is traversable but not readable -- both conditions this branch already
+  # documents as reachable -- an unreadable stamp there printed "the files it
+  # claims are listed below as unclaimed" and then this guard printed "skipped",
+  # with no list below either line. A warning contradicted by the next line is
+  # the defect this function has now had three times; ordering removes this one
+  # rather than wording around it. Nothing in the guard depends on the stamps.
+  # REACHABLE through the CLI, which an earlier version of this comment denied by
+  # conflating readable with traversable: `[ -d "$PREFIX/.stamps" ]` in
+  # cmd_reconcile needs only SEARCH permission on $PREFIX, while this tests -r.
+  # A mode-0111 prefix satisfies that guard and lands here, so the path is
+  # asserted rather than excused.
+  #
+  # Of the three conditions only `! -r` is reachable today, measured: with
+  # $PREFIX absent, a regular file, or mode 000, cmd_reconcile's own
+  # `[ -d "$PREFIX/.stamps" ] || die` fires first, because -d on the child needs
+  # the parent to be a directory AND searchable. The other two are belt-and-
+  # braces for a second caller -- there is exactly one today -- and are named
+  # here rather than left for the next reader to test one at a time, which is
+  # what the previous version of this comment cost.
+  #
+  # Both degrade paths set the count to `?` rather than leaving it 0. A warn plus
+  # `unclaimed: 0` in the summary is still the wrong answer stated confidently --
+  # it converts a silent failure into a warned one and then contradicts the
+  # warning on the next line. `?` is only ever interpolated into that summary, so
+  # a non-numeric value is safe here.
+  if [ ! -d "$PREFIX" ] || [ ! -r "$PREFIX" ] || [ ! -x "$PREFIX" ]; then
+    warn "  [unclaimed]    skipped: $PREFIX is not a readable directory"
+    _rc_unclaimed="?"
+    return 0
+  fi
+
+
   # The stamp files, guarded the same way _reconcile_stamps guards its own loop:
   # a subdirectory under .stamps is not a stamp, and the two spellings have to
   # agree about that or one of them silently contributes nothing.
@@ -1387,31 +1420,6 @@ _reconcile_unclaimed() {
   # looked at nothing, is the same silent failure the awk rewrite removed one
   # layer down.
   #
-  # REACHABLE through the CLI, which an earlier version of this comment denied by
-  # conflating readable with traversable: `[ -d "$PREFIX/.stamps" ]` in
-  # cmd_reconcile needs only SEARCH permission on $PREFIX, while this tests -r.
-  # A mode-0111 prefix satisfies that guard and lands here, so the path is
-  # asserted rather than excused.
-  #
-  # Of the three conditions only `! -r` is reachable today, measured: with
-  # $PREFIX absent, a regular file, or mode 000, cmd_reconcile's own
-  # `[ -d "$PREFIX/.stamps" ] || die` fires first, because -d on the child needs
-  # the parent to be a directory AND searchable. The other two are belt-and-
-  # braces for a second caller -- there is exactly one today -- and are named
-  # here rather than left for the next reader to test one at a time, which is
-  # what the previous version of this comment cost.
-  #
-  # Both degrade paths set the count to `?` rather than leaving it 0. A warn plus
-  # `unclaimed: 0` in the summary is still the wrong answer stated confidently --
-  # it converts a silent failure into a warned one and then contradicts the
-  # warning on the next line. `?` is only ever interpolated into that summary, so
-  # a non-numeric value is safe here.
-  if [ ! -d "$PREFIX" ] || [ ! -r "$PREFIX" ] || [ ! -x "$PREFIX" ]; then
-    warn "  [unclaimed]    skipped: $PREFIX is not a readable directory"
-    _rc_unclaimed="?"
-    return 0
-  fi
-
   # `./` prefixed and stripped afterwards, the idiom lib/stage.sh's manifest walk
   # already uses: a top-level entry whose name begins with `-` would otherwise be
   # parsed by find as an operand rather than a path. Vanishingly unlikely at a
@@ -1426,8 +1434,10 @@ _reconcile_unclaimed() {
   # direction for a list an operator deletes from, and it was the silent one.
   #
   # find's own diagnostic goes to /dev/null and the failure is carried as STATUS
-  # instead. The `|| exit 1` on the cd is load-bearing now rather than a discarded
-  # sanity exit.
+  # instead. The `|| exit 1` on the cd is belt-and-braces against a race between
+  # the guard above and this cd -- mutation shows removing it changes nothing,
+  # because that guard has already proved -d, -r and -x. The guard is what makes
+  # the pipeline safe; this is the second pair of hands.
   # `[ -e ] || [ -L ]` and not `-e` alone: -e is FALSE on a dangling symlink, and
   # a dangling symlink at the prefix root is exactly the sort of leftover this
   # audit exists to name. find enumerates it as -type l without following.
@@ -1461,6 +1471,11 @@ _reconcile_unclaimed() {
   _rc_list=$( printf '%s\n' "$_rc_walk" | sed 's|^\./||' | LC_ALL=C sort | awk '
         BEGIN {
           for (i = 1; i < ARGC; i++) {
+            # `line != ""` reads as a guard and is inert: the only empty record
+            # reachable here is the one printf makes from an empty _rc_walk, and
+            # the command substitution strips it either way. Kept because a stamp
+            # is a file anyone can edit, and an empty line in one should not
+            # claim the empty path.
             while ((getline line < ARGV[i]) > 0) if (line != "") claimed[line] = 1
             close(ARGV[i]); ARGV[i] = ""
           }

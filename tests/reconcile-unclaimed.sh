@@ -115,10 +115,26 @@ _verdict symlink-is-enumerated "$_wrong"
 
 # The count, not just the lines: three unclaimed entries, and the stamp under
 # .stamps is not a fourth.
+#
+# ANCHORED. Unanchored, `unclaimed: 3` is also satisfied by `unclaimed: 3+`,
+# which is what a run reports when the walk was PARTIAL -- so a change making
+# every run claim incompleteness passed this assertion untouched. The branch
+# learned this twice (`\?` as a BRE quantifier, then `unclaimed: 0$`) and did not
+# carry it back to the assertion the lesson came from.
 _wrong=''
-_reports 'unclaimed: 3' \
+_reports 'unclaimed: 3$' \
   || _wrong="$_wrong summary=[$(printf '%s\n' "$_out" | _evidence 1 'unclaimed|verified')];"
 _verdict summary-counts-the-unclaimed "$_wrong"
+
+# The COMPLETE side of the same boundary. Everything above pins what a partial
+# walk reports -- `0+`, `1+`, the warning -- and nothing pinned that a healthy
+# prefix says none of it. A false `+` is the mirror of the bug those assertions
+# exist for: it teaches an operator to distrust every count the tool prints,
+# about a walk that ran fine.
+_wrong=''
+_reports_not 'could not be read' || _wrong="$_wrong healthy-walk-claimed-incomplete;"
+_reports 'unclaimed: 3$'         || _wrong="$_wrong summary-not-an-exact-count;"
+_verdict complete-walk-reports-an-exact-count "$_wrong"
 
 # --- what it does NOT do ---------------------------------------------------
 #
@@ -377,6 +393,29 @@ else
   fi
   _verdict an-unreadable-stamp-is-announced "$_wrong"
 fi
+
+# --- a dangling symlink at the root, and the singular ----------------------
+#
+# `[ -e ] || [ -L ]` in the walk: -e is FALSE on a dangling symlink, so -e alone
+# drops one at the prefix root entirely -- an under-report, the direction this
+# function's comments call dangerous three times, and the case the guard's own
+# comment names. That claim was prose with nothing behind it: dropping the -L
+# disjunct left the suite green. The main fixture's liborphan.so does not reach
+# it, being neither top-level nor dangling.
+#
+# The singular rides along because one dangling link is also the one-entry case,
+# and "1 entries" was the reason that branch exists.
+_gws="$_tmp/dangling"
+mkdir -p "$_gws/workspace/.stamps" "$_gws/workspace/lib"
+echo real > "$_gws/workspace/lib/real.a"
+printf 'lib/real.a\n' > "$_gws/workspace/.stamps/verifying-1.0"
+ln -s /nonexistent-target "$_gws/workspace/danglingtop"
+
+_gout=$( cd "$_gws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) || true
+_wrong=''
+_says "$_gout" 'danglingtop' || _wrong="$_wrong dangling-top-level-symlink-not-enumerated;"
+_says "$_gout" '1 entry in the prefix' || _wrong="$_wrong singular-noun-not-used;"
+_verdict dangling-symlink-and-singular-noun "$_wrong"
 
 # --- a subtree it could not read ------------------------------------------
 #
