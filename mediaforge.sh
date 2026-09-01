@@ -23,8 +23,10 @@ fi
 DISTDIR="$TOPDIR/packages"
 PREFIX="$TOPDIR/workspace"
 
-# Source libraries (order matters — utils first, platform needs command_exists)
+# Source libraries (order matters — utils first: platform needs command_exists,
+# remove needs die/warn)
 . "$SCRIPT_DIR/lib/utils.sh"
+. "$SCRIPT_DIR/lib/remove.sh"
 . "$SCRIPT_DIR/lib/flags.sh"
 . "$SCRIPT_DIR/lib/registry.sh"
 . "$SCRIPT_DIR/lib/platform.sh"

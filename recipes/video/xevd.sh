@@ -30,8 +30,7 @@ pkg_prepare() {
 # nested lib/xevd/ subdir. pkg_install corrects that (see below).
 pkg_configure() {
   _src="$DISTDIR/xevd-${PKG_VERSION}"
-  rm -rf "$_src/build"
-  mkdir -p "$_src/build"
+  mf_reset_dir "$_src/build"
   cd "$_src/build" || die "Failed to cd to xevd build dir"
   mf_cmake -DBUILD_SHARED_LIBS=OFF ..
 }
@@ -59,8 +58,8 @@ pkg_install() {
   mf_dest_mkdir lib
   cp src_main/libxevd.a "$_dest/lib/libxevd.a" \
     || die "xevd static lib (src_main/libxevd.a) not found"
-  rm -f "$PREFIX/lib/libxevd.so" "$PREFIX/lib/libxevd.so".*
-  rm -rf "$PREFIX/lib/xevd"
+  mf_remove_file "$PREFIX/lib/libxevd.so" "$PREFIX/lib/libxevd.so".*
+  mf_remove_tree "$PREFIX/lib/xevd"
 }
 
 # xevd is C++ but its pkgconfig omits -lstdc++ for static linking.

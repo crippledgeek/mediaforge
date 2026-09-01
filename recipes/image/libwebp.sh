@@ -8,7 +8,7 @@ PKG_FILENAME="libwebp-${PKG_VERSION}.tar.gz"
 PKG_FFMPEG_OPT="--enable-libwebp"
 
 pkg_configure() {
-  rm -rf build && mkdir -p build
+  mf_reset_dir build
   cd build || die "Failed to cd to libwebp build dir"
   mf_cmake \
     -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_BINDIR=bin \

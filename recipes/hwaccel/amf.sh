@@ -49,7 +49,7 @@ pkg_build() { :; }
 # and the merge only ever adds.
 pkg_install() {
   _dest=$(mf_dest_prefix)
-  rm -rf "$PREFIX/include/AMF"
+  mf_remove_tree "$PREFIX/include/AMF"
   mf_dest_mkdir include/AMF
   if [ -d AMF/components ] && [ -d AMF/core ]; then
     run cp -r AMF/components AMF/core "$_dest/include/AMF/"

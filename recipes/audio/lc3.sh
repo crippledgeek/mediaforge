@@ -16,7 +16,7 @@ else
 fi
 
 pkg_configure() {
-  rm -rf build && mkdir -p build
+  mf_reset_dir build
   mf_meson build \
     -Dtools=false -Dpython=false
 }

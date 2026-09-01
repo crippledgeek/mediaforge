@@ -37,7 +37,7 @@ pkg_prepare() {
 
 pkg_configure() {
   if [ -f meson.build ]; then
-    rm -rf build && mkdir -p build
+    mf_reset_dir build
     mf_meson build \
       -Dlibdvdcss=disabled
   else

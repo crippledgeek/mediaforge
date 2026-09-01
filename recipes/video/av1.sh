@@ -42,7 +42,7 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  rm -rf "$DISTDIR/aom_build" && mkdir -p "$DISTDIR/aom_build"
+  mf_reset_dir "$DISTDIR/aom_build"
   cd "$DISTDIR/aom_build" || die "Failed to cd to aom_build"
   if [ "$OS_MACOS_ARM" = true ]; then
     mf_cmake -DENABLE_TESTS=0 -DENABLE_EXAMPLES=0 \

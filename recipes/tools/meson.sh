@@ -28,7 +28,7 @@ pkg_install() {
   _live="$PREFIX/share/meson"
   _dest="$(mf_dest_prefix)/share/meson"
   _bin="$(mf_dest_prefix)/bin/meson"
-  rm -rf "$_live"
+  mf_remove_tree "$_live"
   mf_dest_mkdir share/meson bin
   cp -R "$_src/meson.py" "$_src/mesonbuild" "$_dest/" \
     || die "Failed to install meson package tree to $_dest"

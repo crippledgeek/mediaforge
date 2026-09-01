@@ -74,6 +74,17 @@ sh tests/meson-single-entry.sh
 # check that the .pc was there, so a library whose upstream .pc name changed
 # would link without the flag its recipe exists to add and nothing would say so.
 sh tests/pc-rewrite-single-entry.sh
+# The fourth sibling: every `rm` a recipe performs. Thirty-five of them, and not
+# one looked at its status -- twenty resetting a build directory (eighteen
+# writing both `rm -rf X` and `mkdir -p X`, two only the removal), seven dropping
+# a path recursively, and eight dropping files with `rm -f`. A failed reset left
+# the recipe configuring against the previous build's cache; a failed drop left
+# the previous version's files in a prefix the staged merge only ever adds to.
+# Both are a success now and a failure much later, with nothing pointing back at
+# the recipe. Half grep (recipes/ runs no `rm` at all, so a fifth answer cannot
+# arrive unnoticed), half behavioural (each guard fires, and mf_remove_temp's
+# deliberately does not).
+sh tests/tree-removal-guards.sh
 # Pins dav1d as library-only. FFmpeg links libdav1d.a and never runs the CLI,
 # and dav1d's tools include the system xxhash.h, whose always_inline helpers
 # make the recipe unbuildable below -O2 -- so the setting is what keeps dav1d
