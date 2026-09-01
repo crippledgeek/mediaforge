@@ -312,6 +312,14 @@ _reporter_args() { # path to a shell file
 # tree, because that is what a census reports by saying nothing. A probe that
 # re-implements the walk cannot see any of the three.
 _census() { # tree root
+  # A root with no mediaforge.sh in it is a broken call, not a clean tree, and
+  # the two are otherwise the same empty output: aiming this at a path that does
+  # not exist left the assertion below green. It reports rather than returning,
+  # so the caller reads it as an offender and says where it came from.
+  if [ ! -f "$1/mediaforge.sh" ]; then
+    printf 'census: no tree at %s\n' "$1"
+    return
+  fi
   for _oh_f in mediaforge.sh lib/*.sh recipes/*.sh recipes/*/*.sh; do
     [ -f "$1/$_oh_f" ] || continue
     _reporter_args "$1/$_oh_f" | sed "s|^|$_oh_f: |"
