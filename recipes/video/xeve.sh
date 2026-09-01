@@ -46,8 +46,7 @@ pkg_prepare() {
 # nested lib/xeve/ subdir. pkg_install corrects that (see below).
 pkg_configure() {
   _src="$DISTDIR/xeve-${PKG_VERSION}"
-  rm -rf "$_src/build"
-  mkdir -p "$_src/build"
+  mf_reset_dir "$_src/build"
   cd "$_src/build" || die "Failed to cd to xeve build dir"
   mf_cmake -DBUILD_SHARED_LIBS=OFF ..
 }

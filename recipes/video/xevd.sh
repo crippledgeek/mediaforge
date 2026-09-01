@@ -30,8 +30,7 @@ pkg_prepare() {
 # nested lib/xevd/ subdir. pkg_install corrects that (see below).
 pkg_configure() {
   _src="$DISTDIR/xevd-${PKG_VERSION}"
-  rm -rf "$_src/build"
-  mkdir -p "$_src/build"
+  mf_reset_dir "$_src/build"
   cd "$_src/build" || die "Failed to cd to xevd build dir"
   mf_cmake -DBUILD_SHARED_LIBS=OFF ..
 }

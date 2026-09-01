@@ -14,7 +14,7 @@ PKG_REQUIRES_MESON=true
 # install phases stay cwd-consistent — the framework does not reset cwd between
 # phases.
 pkg_configure() {
-  rm -rf libvmaf/build
+  mf_reset_dir libvmaf/build
   # Two positionals: build dir, then source dir. mf_meson takes the build dir
   # and passes everything else through, so libvmaf lands after the flags --
   # verified that meson accepts a positional there.

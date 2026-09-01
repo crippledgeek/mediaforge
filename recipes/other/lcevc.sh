@@ -52,7 +52,7 @@ pkg_prepare() {
 # LCEVCdec forbids in-source builds (cmake/modules/CMakeSetup.cmake) — use an
 # out-of-source build/ dir.
 pkg_configure() {
-  rm -rf build
+  mf_reset_dir build
   mf_cmake -S . -B build -DBUILD_SHARED_LIBS=OFF \
     -DVN_SDK_EXECUTABLES=OFF -DVN_SDK_UNIT_TESTS=OFF \
     -DVN_SDK_SAMPLE_SOURCE=OFF -DVN_SDK_JSON_CONFIG=OFF \

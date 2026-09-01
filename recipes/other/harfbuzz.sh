@@ -13,7 +13,7 @@ PKG_TRANSITIVE_UTIL=true
 PKG_PC_FILES="harfbuzz harfbuzz-subset"
 
 pkg_configure() {
-  rm -rf build && mkdir -p build
+  mf_reset_dir build
   mf_meson build \
     -Dfreetype=enabled -Dglib=disabled -Dgobject=disabled \
     -Dcairo=disabled -Dicu=disabled -Dtests=disabled -Ddocs=disabled

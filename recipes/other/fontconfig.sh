@@ -12,7 +12,7 @@ PKG_REQUIRES_MESON=true
 PKG_TRANSITIVE_UTIL=true
 
 pkg_configure() {
-  rm -rf build && mkdir -p build
+  mf_reset_dir build
   mf_meson build \
     -Ddoc=disabled -Dtests=disabled -Dtools=disabled -Dcache-build=disabled
 }

@@ -10,7 +10,7 @@ PKG_FFMPEG_OPT="--enable-libfribidi"
 PKG_REQUIRES_MESON=true
 
 pkg_configure() {
-  rm -rf build && mkdir -p build
+  mf_reset_dir build
   mf_meson build \
     -Ddocs=false -Dtests=false
 }

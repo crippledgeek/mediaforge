@@ -6,6 +6,45 @@
 # SC2034: PKG_* defaults below are read by recipe pkg_* functions after this
 # file is sourced; shellcheck can't see the cross-file consumer.
 
+# Reset a build directory: remove whatever is there, then recreate it empty.
+# Recipes call this instead of writing the removal and the creation out
+# themselves, because neither status was checked at any of the eighteen sites
+# that did (GH-84).
+#
+# Nothing in mediaforge sets `set -e`, so `rm -rf build && mkdir -p build`
+# failing is silent twice over: the `&&` short-circuits, so the directory is
+# never recreated, and the non-zero status is discarded by the caller. The
+# recipe then CONFIGURES AGAINST THE PREVIOUS BUILD'S TREE -- a CMake or meson
+# cache holding paths, feature results and dependency locations from a source
+# tree that no longer exists. The build succeeds; what breaks is FFmpeg's link
+# step, nowhere near the recipe that caused it. That displaced shape is what
+# GH-59 and GH-80 also exist to close.
+#
+# `rm -rf` failing is not hypothetical: a root-owned leftover from a `sudo`
+# misfire is enough, and so is EBUSY on a path something still holds open.
+#
+# BOTH statuses are checked, because they fail for different reasons and a
+# reader needs to know which happened: the removal fails on what is already
+# there, the creation on the parent it has to write into. A single message
+# covering both would name neither.
+#
+# Variadic, because recipes/video/x265.sh resets three sibling directories
+# (8bit 10bit 12bit) as one step -- and it did so with `2>/dev/null` on the rm,
+# which is the strongest form of the same defect: the error text discarded as
+# well as the status.
+#
+# Deliberately NOT routed through `run`, which is the other way to reach a die.
+# `run` returns 0 without acting under DRY_RUN, so a dry run would stop clearing
+# build directories it clears today -- a behaviour change riding inside a fix,
+# which is what nobody reviews for. It also logs to $PREFIX/.logs, and a
+# directory reset has no output worth a log file.
+mf_reset_dir() {
+  for _rd_dir in "$@"; do
+    rm -rf -- "$_rd_dir" || die "Failed to remove build directory: $_rd_dir"
+    mkdir -p -- "$_rd_dir" || die "Failed to create build directory: $_rd_dir"
+  done
+}
+
 # The one place cmake is configured. Recipes call this instead of `run cmake`,
 # so the install prefix and the build type are set once rather than at the 21
 # configure call sites spread over 17 recipes -- the build type in particular is
