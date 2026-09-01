@@ -298,6 +298,16 @@ mf_stage_commit() {
   # real ones. That is the displaced failure this whole feature exists to stop,
   # and a warning at build time does not survive to the reconcile that reports it.
   #
+  # This is STRICTER than the family it belongs to, deliberately, and the prior
+  # art is a negative example rather than a precedent: rpm's own scripts/check-files
+  # runs `find "$RPM_BUILD_ROOT" -type f -o -type l | sort` and never checks find's
+  # status, so a permission error mid-walk yields a short list and the build carries
+  # on. That is the same unchecked-pipeline defect GH-80 is about, not a considered
+  # policy -- the deliberate completeness gates those systems DO defend
+  # (%_unpackaged_files_terminate_build, dh_missing --fail-missing) sit one step
+  # downstream and compare an already-short list against a declared manifest, so
+  # they cannot see that the list was short because the walk stopped early.
+  #
   # The status is the walk's own; see mf_stage_walk_files for why it cannot be a
   # pipeline's. The `|| die` on the assignment sees the SUBSHELL's status, which
   # is the cd's when the cd is what failed -- the case the old spelling dropped
@@ -492,15 +502,24 @@ mf_stage_warn_stray() {
   [ -d "$1" ] || return 0
   _st_sw_partial=false
   _st_sw_all=$(mf_stage_walk_files "$1") || _st_sw_partial=true
-  # `|| :` because grep exits 1 on NO MATCH, and no match here is the ordinary
-  # case: every staged file was under the prefix, which is what a healthy build
-  # looks like. That status used to be swallowed by the trailing `head`, so
-  # taking the cap out of this statement -- which is what lets the count below be
-  # honest -- exposed it, and under a caller running `set -e` (every test file
-  # does) the assignment aborted the shell before the function could report
-  # anything at all. tests/stamp-reconcile.sh caught it as a suite that stopped
-  # mid-file; a "no stray" case is asserted there now rather than left implicit.
-  _st_sw_stray=$(printf '%s\n' "$_st_sw_all" | grep -v -F "$2/") || :
+  # grep exits 1 on NO MATCH, and no match here is the ordinary case: every
+  # staged file was under the prefix, which is what a healthy build looks like.
+  # That status used to be swallowed by the trailing `head`, so taking the cap
+  # out of this statement -- which is what lets the count below be honest --
+  # exposed it, and under a caller running `set -e` (every test file is one) the
+  # assignment aborted the shell before the function could report anything at
+  # all. tests/stamp-reconcile.sh caught it as a suite that stopped mid-file; a
+  # "no stray" case is asserted there now rather than left implicit.
+  #
+  # Exit 1 ONLY, not `|| :`. Blanket-swallowing would read grep's >=2 -- a real
+  # failure of the filter -- as "no strays", which is this branch's own defect
+  # reappearing one layer up: an answer nobody can distinguish from a clean
+  # stage. Folded into `partial` rather than given a fourth policy, because it
+  # means the same thing to the reader: the list below cannot be trusted to be
+  # the whole list.
+  _st_sw_rc=0
+  _st_sw_stray=$(printf '%s\n' "$_st_sw_all" | grep -v -F "$2/") || _st_sw_rc=$?
+  [ "$_st_sw_rc" -le 1 ] || _st_sw_partial=true
   if [ -z "$_st_sw_stray" ]; then
     if [ "$_st_sw_partial" = true ]; then
       warn "Part of the staging area at $1 could not be read, so anything staged outside $2 there is NOT listed below."
@@ -511,13 +530,26 @@ mf_stage_warn_stray() {
   # report a short list without saying so -- the same defect as the partial walk,
   # arriving through a display decision rather than a failure. `tr -d` for the
   # reason mediaforge.sh's unclaimed count gives: BSD wc pads its output.
+  #
+  # ENTRIES and not files, and the message below says so, for that same report's
+  # reason: the walk is newline-delimited, so a staged path containing a newline
+  # arrives as two of them. Calling them files would make the number disagree
+  # with the list printed above it.
+  #
+  # `-print0` would fix the delimiter and is not used, for a narrower reason than
+  # this comment first claimed: it became a POSIX primary in Issue 8 (2024), so
+  # "POSIX has no -print0" is now false. It is simply not reliably present on the
+  # older finds this repo still targets, and reading NUL-delimited output needs
+  # `read -d ''`, which is not POSIX at all. POSIX's own answer to the delimiter
+  # problem is `-exec ... {} +`, which does not fit a walk whose product is a
+  # string the caller filters.
   _st_sw_n=$(printf '%s\n' "$_st_sw_stray" | wc -l | tr -d " ")
   warn "Staged files landed OUTSIDE the workspace prefix and will NOT be merged:"
   printf '%s\n' "$_st_sw_stray" | head -n "$MF_STAGE_STRAY_MAX" | while IFS= read -r _st_f; do
     warn "    ${_st_f#"$1"}"
   done
   if [ "$_st_sw_n" -gt "$MF_STAGE_STRAY_MAX" ]; then
-    warn "    ... and $((_st_sw_n - MF_STAGE_STRAY_MAX)) more."
+    warn "    ... and $((_st_sw_n - MF_STAGE_STRAY_MAX)) more entries."
   fi
   if [ "$_st_sw_partial" = true ]; then
     warn "  Part of the staging area could not be read; the list above is incomplete."

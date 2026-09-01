@@ -110,13 +110,20 @@ if [ -f "$ROOT/lib/stage.sh" ]; then
   mkdir -p "$_stage/lib"
   echo clean > "$_stage/lib/libclean.a"
   # Driven in a SEPARATE `sh -e`, and that is the whole assertion rather than a
-  # flourish: POSIX suspends -e for a command on the left of `&&`, and shells
-  # carry that suspension into the command substitution, so
-  # `_out=$(mf_stage_warn_stray ...) || _rc=$?` cannot see the abort at all --
-  # written that way this assertion passed with the defect present. The real
-  # caller is mf_stage_commit, which invokes it as a plain statement, so the
-  # fixture has to be one too. The sentinel is what proves the statement after it
-  # was reached.
+  # flourish. POSIX suspends -e for every command of an AND-OR list but the last
+  # (the exception the Austin Group codified in issue #52), so the naive
+  # `_out=$(mf_stage_warn_stray ...) || _rc=$?` puts the call in a suspended
+  # context -- and the standard then says NOTHING about a command substitution's
+  # own errexit state inside that context. Not "unspecified" as a declared
+  # category, which an earlier version of this comment claimed: a genuine gap,
+  # which is why both shells below are conforming and neither is the one to fix.
+  # Measured, same probe, this host: bash
+  # reports the sentinel and rc 0, seeing nothing; dash reports empty and rc 1,
+  # seeing the abort. That is worse than uniformly blind, because it makes the
+  # assertion's verdict a property of whoever runs it, and mediaforge targets
+  # dash. The real caller is mf_stage_commit, which invokes this as a plain
+  # statement, so the fixture is one too, in a shell whose -e is not suspended.
+  # The sentinel is what proves the statement after the call was reached.
   _out=$(sh -e -c '
     SCRIPT_DIR=$1; PREFIX=$2
     . "$1/lib/utils.sh"

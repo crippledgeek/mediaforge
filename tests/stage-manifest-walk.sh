@@ -104,7 +104,15 @@ if [ -f "$ROOT/lib/stage.sh" ]; then
   # A find that reports PART of the tree and then fails, which is what an
   # unreadable subdirectory does to the real one. Resolved to an absolute path
   # first, so the stub cannot recurse into itself once it is on PATH.
+  #
+  # PATH is captured PRISTINE here, before any subshell touches it, and both stub
+  # paths below are built from that capture. Writing the second stub's
+  # `PATH="$_tmp/bin2:$PATH"` inline would READ a PATH that the first stub's
+  # subshell has already modified -- a lost-modification finding (SC2030/SC2031),
+  # and a real one: the value it reads is the unmodified PATH, and only the
+  # accident of subshell scoping makes that the intended value.
   _real_find=$(command -v find)
+  _path0=$PATH
   mkdir -p "$_tmp/bin"
   cat > "$_tmp/bin/find" <<STUB
 #!/bin/sh
@@ -128,7 +136,7 @@ STUB
   # failure is dropped, the commit returns 0 and the stamp is written SHORT,
   # which is the defect. Where the failure is carried, die ends the subshell and
   # no stamp is written at all.
-  _out=$( { PATH="$_tmp/bin:$PATH"; export PATH
+  _out=$( { PATH="$_tmp/bin:$_path0"; export PATH
             mf_stage_commit && stamp_write probe 1.0; } 2>&1 ) && _rc=0 || _rc=$?
 
   if [ "$_rc" != 0 ]; then
@@ -268,8 +276,16 @@ STUB
 
   # The display cap is the third way this function can report a short list, and
   # it arrives through a decision rather than a failure -- which is exactly why it
-  # was the one left silent. Seven strays against a cap of five, so the assertion
-  # separates "listed some" from "listed some and said how many it held back".
+  # was the one left silent. Seven strays against MF_STAGE_STRAY_MAX, currently
+  # five, so the assertion separates "listed some" from "listed some and said how
+  # many it held back".
+  #
+  # The expected remainder is the LITERAL two, deliberately, where the failure
+  # message below computes from the constant. Reading the constant into the
+  # expectation would make the assertion tautological -- true for any cap,
+  # including a cap the arithmetic gets wrong -- and the arithmetic is the thing
+  # under test. Moving the constant must turn this red; the message is what then
+  # has to stay accurate about why.
   PREFIX="$_tmp/prefix6"
   mkdir -p "$PREFIX"
   mf_stage_begin
@@ -279,10 +295,51 @@ STUB
   echo a > "$_stage/lib/libprobe.a"
   for _n in 1 2 3 4 5 6 7; do echo stray > "$_dir/opt/foreign/lib/libstray$_n.a"; done
   _out=$( mf_stage_warn_stray "$_dir" "$_stage" 2>&1 ) || true
-  if printf '%s' "$_out" | grep -q 'and 2 more'; then
+  if printf '%s' "$_out" | grep -q 'and 2 more entries'; then
     _pass capped-stray-list-says-how-many
   else
-    _bad capped-stray-list-says-how-many "the list was capped at five of seven with no remainder reported $(printf '%s' "$_out" | _evidence 2 'OUTSIDE|more')"
+    # `${VAR-absent}` and not a bare reference: on the merge base the constant does
+    # not exist, and this file runs under `set -u`, so naming it directly ABORTED
+    # the baseline run -- no DONE sentinel, and oracle-baseline correctly reported
+    # every assertion below the abort as unproven. A failure message that only
+    # works on the fixed tree is a message for the one case that never needs it.
+    _bad capped-stray-list-says-how-many "seven strays against a cap of ${MF_STAGE_STRAY_MAX-absent}, and the remainder was not reported as 2 $(printf '%s' "$_out" | _evidence 2 'OUTSIDE|more')"
+  fi
+  mf_stage_end
+  mf_stage_pending_reset
+
+  # A filter that FAILS is not a clean stage either, and the two look identical
+  # from here: grep exits 1 when everything was filtered -- the healthy case this
+  # function returns silently on -- and >=2 when it could not do the filtering at
+  # all. Swallowing both would report "no strays" for a question that was never
+  # answered, which is this branch's own defect one layer up.
+  #
+  # Driven with a stub grep, because nothing an operator can do makes the real
+  # one exit 2 in this call shape (fixed string, no file operand). The stub is
+  # the only way to reach the branch, and reaching it is the point.
+  PREFIX="$_tmp/prefix7"
+  mkdir -p "$PREFIX" "$_tmp/bin2"
+  printf '#!/bin/sh\nexit 2\n' > "$_tmp/bin2/grep"
+  chmod 0755 "$_tmp/bin2/grep"
+  mf_stage_begin
+  _dir=$(mf_stage_dir)
+  _stage="$_dir$PREFIX"
+  mkdir -p "$_stage/lib" "$_dir/opt/foreign/lib"
+  echo a > "$_stage/lib/libprobe.a"
+  echo stray > "$_dir/opt/foreign/lib/libstray.a"
+  # The stub reaches the function as a COMMAND PREFIX on a child shell rather
+  # than an assignment inside a subshell: the second spelling makes the file's
+  # first stub read as a lost modification to ShellCheck (SC2030/SC2031), and the
+  # child-shell form is the same shape tests/stamp-reconcile.sh already uses.
+  _out=$(PATH="$_tmp/bin2:$_path0" sh -c '
+    SCRIPT_DIR=$1; PREFIX=$2
+    . "$1/lib/utils.sh"
+    mf_stage_warn_stray "$3" "$4"
+  ' sh "$ROOT" "$PREFIX" "$_dir" "$_stage" 2>&1) || true
+  if printf '%s' "$_out" | grep -q 'NOT listed below'; then
+    _pass failing-filter-is-not-a-clean-stage
+  else
+    _bad failing-filter-is-not-a-clean-stage "a filter that could not run was reported as a clean stage $(printf '%s' "$_out" | _evidence 2 'OUTSIDE|read')"
   fi
   mf_stage_end
   mf_stage_pending_reset
@@ -316,6 +373,50 @@ STUB
   mf_stage_pending_reset
 else
   _bad walk-behaviour-unavailable "lib/stage.sh is absent, so the staged manifest walk cannot be driven"
+fi
+
+# --- the same defect, the other direction ----------------------------------
+#
+# The uninstall sweep's own walk (lib/remove-listed-files.sh's _enumerate) had
+# the identical shape -- `find . "$@" 2>/dev/null | sed`, status belonging to sed
+# -- so a subtree it could not descend went unswept and the run still reported a
+# clean removal. HERE rather than in tests/install-manifest-reconcile.sh, and the
+# reason is the gate: that file is modified rather than added by this branch, so
+# tests/oracle-baseline.sh does not run it against the merge base, and this
+# assertion's whole claim is that it fails there.
+#
+# It does NOT share the staging walk's helper and must not: the predicate is the
+# caller's question, and that file is read and run as its own privileged process
+# with nothing sourced. What it shares is the rule -- a walk carries its status.
+#
+# Driven by running the helper directly, which is exactly how lib/install.sh runs
+# it (`$_priv sh -c "$_remove_helper" _ MODE TARGET LIST`), so the positional
+# layout is the real one.
+_rlf="$ROOT/lib/remove-listed-files.sh"
+_uws="$_tmp/uninstall"
+mkdir -p "$_uws/lib/locked"
+ln -s /nonexistent-target "$_uws/lib/dangling" 2>/dev/null || true
+ln -s /nonexistent-target "$_uws/lib/locked/hidden" 2>/dev/null || true
+printf 'lib\n' > "$_tmp/uninstall-list"
+chmod 000 "$_uws/lib/locked" 2>/dev/null || true
+if [ "$(id -u)" = 0 ] || find "$_uws/lib" >/dev/null 2>&1; then
+  chmod 755 "$_uws/lib/locked" 2>/dev/null || true
+  _bad partial-uninstall-sweep-says-so "fixture unavailable: the directory stayed readable after chmod 000 (running as root?)"
+else
+  _sweep=$(sh "$_rlf" links "$_uws" "$_tmp/uninstall-list" 2>&1) || true
+  chmod 755 "$_uws/lib/locked" 2>/dev/null || true
+  # BOTH halves, because either alone is satisfiable by the wrong behaviour: the
+  # sentinel alone says nothing about the subtree it never read, and the warning
+  # alone would be satisfiable by a sweep that gave up and removed nothing. The
+  # dangling link OUTSIDE the locked directory is the one it must still remove.
+  _swept=false; _admits=false
+  printf '%s' "$_sweep" | grep -q 'REMOVED 1' && _swept=true
+  printf '%s' "$_sweep" | grep -q 'could not be read' && _admits=true
+  if [ "$_swept" = true ] && [ "$_admits" = true ]; then
+    _pass partial-uninstall-sweep-says-so
+  else
+    _bad partial-uninstall-sweep-says-so "removed the visible link=$_swept, admitted the sweep was partial=$_admits $(printf '%s' "$_sweep" | _evidence 2 'REMOVED|read')"
+  fi
 fi
 
 printf 'DONE: stage-manifest-walk\n'
