@@ -85,6 +85,7 @@ if ! _lib_code | grep -q '^mf_printable()'; then
             payload-description-is-one-line payload-description-shares-the-helper \
             remote-tag-is-filtered reporters-share-the-helper \
             filter-still-deletes-multibyte ascii-separator-survives \
+            census-sees-a-planted-offender census-scans-the-tree \
             reporter-text-survives-the-filter; do
     _bad "$_a" "mf_printable is absent — claim would be vacuous"
   done
@@ -256,14 +257,8 @@ case "$_out" in
   *) _bad ascii-separator-survives "the ASCII separator did not survive the filter: $_out" ;;
 esac
 
-# The census. Two things about how it is spelled, both load-bearing:
-#
-# COMMENTS ARE STRIPPED, because this repo quotes its own calls verbatim in
-# prose and an unstripped needle would flag paragraphs rather than code. The
-# direction of _code_only's `#` truncation is the unusual one here: it also cuts
-# a `#` inside a string, so a message with one could hide a later em-dash. That
-# is a missed offender, not a false alarm, and a cosmetic one -- the trade this
-# helper's own comment asks callers to state.
+# The census, as one function so the probes below cannot drift from the thing
+# they are probing. Three things about how it is spelled:
 #
 # THE ARGUMENT, NOT THE LINE. lib/resolve.sh builds menu_radiolist labels that
 # end `) || die "H.264 prompt cancelled"`, and those labels reach the terminal
@@ -275,18 +270,73 @@ esac
 # shape does not occur, and a continuation line of a multi-line message is
 # likewise unseen.
 #
-# The byte class is written out rather than borrowed from the filter, because
+# THE BYTE CLASS IS WRITTEN OUT rather than borrowed from the filter, because
 # GNU grep and GNU tr DISAGREE about `[:print:]` under LC_ALL=C: grep counts
 # 0x80-0xFF as printable, tr does not. Asking grep for "what tr deletes" in tr's
 # own words returns nothing at all, and the census reads as clean on a tree full
 # of em-dashes.
-_offenders=$(
+#
+# COMMENTS ARE STRIPPED, and this is the one of the three that catches nothing
+# TODAY -- mutation removing _code_only left the census green, because the
+# paragraphs quoting a reporter call verbatim now quote the ASCII form. It stays
+# because the failure it prevents is a false ALARM rather than a miss: the next
+# paragraph to quote a call and then use a dash would fail a correct tree, and
+# this repo's prose uses the dash throughout. _code_only's truncation runs the
+# other way -- it cuts at a `#` inside a string too, so a message containing one
+# could hide a later em-dash. That is a missed offender, and a cosmetic one.
+#
+# The path is a parameter rather than something read out of $ROOT. `VAR=x fn`
+# is not a scoped assignment when fn is a FUNCTION -- POSIX keeps it in the
+# shell afterwards -- so a probe calling this as `ROOT="$_tmp" _reporter_args`
+# silently redirected every later assertion at the temp dir, and the census
+# scanned nothing and passed. That was written here, and caught by the two
+# assertions below.
+_reporter_args() { # path to a shell file
+  _code_only "$1" \
+    | sed -n -E 's/^(.*[^[:alnum:]_])?(log|warn|die)[[:space:]]+//p' \
+    | LC_ALL=C grep '[^[:blank:] -~]'
+}
+
+# A census is silent on a clean tree, which is the same shape it has when the
+# needle has stopped matching anything: mutating the grep to a string no file
+# contains left it green. So the needle is shown a planted offender first.
+mkdir -p "$_tmp/census"
+printf 'die "planted %s offender"\n' "$(printf '\342\200\224')" > "$_tmp/census/probe.sh"
+if [ -n "$(_reporter_args "$_tmp/census/probe.sh")" ]; then
+  _pass census-sees-a-planted-offender
+else
+  _bad census-sees-a-planted-offender "the census needle did not flag a reporter argument holding an em-dash, so its silence on the tree means nothing"
+fi
+
+# The other half of that silence, and the one a working needle does not cover:
+# a loop handed no files reads identically to a clean tree. Inverting the `-f`
+# test left the census green. So it names back what it opened.
+_scanned=$(
   for _oh_f in mediaforge.sh lib/*.sh recipes/*.sh recipes/*/*.sh; do
-    [ -f "$ROOT/$_oh_f" ] || continue
-    _code_only "$ROOT/$_oh_f" \
-      | sed -n -E 's/^(.*[^[:alnum:]_])?(log|warn|die)[[:space:]]+//p' \
-      | LC_ALL=C grep '[^[:blank:] -~]' \
-      | sed "s|^|$_oh_f: |"
+    [ -f "$ROOT/$_oh_f" ] && printf '%s\n' "$_oh_f"
+  done
+)
+_missing=''
+for _oh_want in mediaforge.sh lib/utils.sh recipes/hwaccel/nv-codec.sh; do
+  case "
+$_scanned
+" in
+    *"
+$_oh_want
+"*) ;;
+    *) _missing="$_missing $_oh_want" ;;
+  esac
+done
+if [ -z "$_missing" ]; then
+  _pass census-scans-the-tree
+else
+  _bad census-scans-the-tree "the census never opened these files, so a silent result is an empty population rather than a clean one:$_missing"
+fi
+
+_offenders=$(
+  printf '%s\n' "$_scanned" | while IFS= read -r _oh_f; do
+    [ -n "$_oh_f" ] || continue
+    _reporter_args "$ROOT/$_oh_f" | sed "s|^|$_oh_f: |"
   done
 )
 if [ -z "$_offenders" ]; then
