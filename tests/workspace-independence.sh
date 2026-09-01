@@ -139,7 +139,10 @@ printf 'full' > "$_tree/workspace/.debug-level"
 # .stamps is exactly what tests/negative.sh plants. A list of names here is the
 # same hand-maintained list this file's header declines to keep for its
 # population, for the same reason: it rots with nothing to say so.
-_wsbefore=$(find "$_tree/workspace" | sort)
+# Status carried, because two TRUNCATED listings compare equal: a find that
+# fails on both sides of this comparison reports "the workspace is untouched"
+# having read neither. The sentinel is what stops an empty-vs-empty pass.
+_wsbefore=$(find "$_tree/workspace" | sort) || _wsbefore='<walk-failed>' 
 
 _broken=''
 for _f in $_invokers; do
@@ -190,8 +193,11 @@ esac
 [ -e "$_clean/workspace" ] && _wrote="$_wrote $_clean/workspace"
 [ -e "$_tree/packages" ] && _wrote="$_wrote $_tree/packages"
 # The poisoned farm's workspace/ is ours, so only a CHANGE to it counts.
-[ "$(find "$_tree/workspace" | sort)" = "$_wsbefore" ] ||
-  _wrote="$_wrote $_tree/workspace(modified)"
+if _wsafter=$(find "$_tree/workspace" | sort); then
+  [ "$_wsafter" = "$_wsbefore" ] || _wrote="$_wrote $_tree/workspace(modified)"
+else
+  _wrote="$_wrote $_tree/workspace(unreadable-after)"
+fi
 if [ -z "$_wrote" ]; then
   _pass suite-writes-nothing-into-the-tree-it-runs-from
 else

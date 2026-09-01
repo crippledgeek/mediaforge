@@ -94,9 +94,24 @@ _drop_from_stage() {
 
 # Every regular file under the prefix, manifest excluded, prefix-relative and
 # sorted — the set the manifest is supposed to describe exactly.
+# Two statuses are carried rather than dropped, and both used to make this
+# function answer "the prefix is empty" for a prefix it had not read (GH-80's
+# class, on the assertion side). An empty disk set compares EQUAL to an empty
+# manifest, so every reconcile assertion in this file passed on a fixture that
+# never existed:
+#
+#   `|| exit 0` on the cd turned an unenterable prefix into a clean empty set;
+#   it is now exit 1, which the caller sees.
+#   `find | sed | sort` gave the pipeline sort's status, so an unreadable subtree
+#   yielded a short set with no sign; find's own status is now carried, and the
+#   formatting happens outside the statement that owns it.
+#
+# The caller's `|| _bad` is what turns either into a visible failure -- an
+# unusable fixture must not read as a passing comparison.
 _disk_set() {
-  ( cd "$1" 2>/dev/null || exit 0
-    find . -type f ! -name .mediaforge-manifest | sed 's|^\./||' | LC_ALL=C sort )
+  ( cd "$1" 2>/dev/null || exit 1
+    _ds_out=$(find . -type f ! -name .mediaforge-manifest) || exit 1
+    [ -z "$_ds_out" ] || printf '%s\n' "$_ds_out" | sed 's|^\./||' | LC_ALL=C sort )
 }
 
 # ─── an install-over-install removes what the new build no longer ships ─────
@@ -120,8 +135,16 @@ fi
 # what makes this an oracle for the finalize as well as for the prune: a prune
 # that removed too much, or a manifest that forgot a file it installed, both
 # show up here and in nothing else.
+# _disk_set's status is read BEFORE the comparison, not folded into it: inside
+# `[ "$a" = "$(_disk_set ...)" ]` a failed walk is indistinguishable from a
+# genuine mismatch, and this assertion's whole job is to tell those apart. The
+# `-n` guard on the manifest already stopped an empty-vs-empty pass, so the old
+# spelling failed rather than passed -- but it failed saying "the manifest does
+# not match disk", which sends a reader to audit a manifest that is fine.
 _manifest_set=$(LC_ALL=C sort "$_d/.mediaforge-manifest" 2>/dev/null)
-if [ -n "$_manifest_set" ] && [ "$_manifest_set" = "$(_disk_set "$_d")" ]; then
+if ! _disk=$(_disk_set "$_d"); then
+  _bad manifest-matches-disk-after-prune "could not enumerate $_d — the comparison never ran, so this says nothing about the manifest"
+elif [ -n "$_manifest_set" ] && [ "$_manifest_set" = "$_disk" ]; then
   _pass manifest-matches-disk-after-prune
 else
   _bad manifest-matches-disk-after-prune

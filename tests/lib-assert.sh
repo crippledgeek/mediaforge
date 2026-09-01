@@ -107,6 +107,94 @@ _bad() {
   _fail=1
 }
 
+# Make a path unreadable and answer whether the fixture actually BITES: 0 when
+# the tree is genuinely unreadable now, 1 when it is not, having already reported
+# the assertion as unavailable.
+#
+# Ten hand-written copies of this existed across six files, and they had drifted
+# past wording into behaviour -- five spellings of the guard, four restore modes,
+# and three incompatible answers to "what does a fixture that cannot bite
+# report". Two of those differences are defects rather than style:
+#
+#   `[ -r "$path" ]` as the guard answers from the PERMISSION BITS, which is not
+#   the question. On a mode-000 directory the real answer comes from attempting
+#   the walk; the bits can say readable where opendir fails and the reverse. The
+#   probe below performs the operation instead of predicting it.
+#
+#   The probe has to match the KIND. A mode-000 FILE inside a readable directory
+#   is still enumerable -- `find` lists the dirent without opening it -- so a
+#   find-probe reports "fixture unavailable" for a fixture that bites perfectly.
+#   That is why this branches on -d rather than taking a probe argument: the
+#   right probe is a property of the path, not a decision each caller re-makes.
+#
+# `id -u` FIRST and unconditionally, because under a UID that ignores the
+# permission bit every probe succeeds and the caller would otherwise read that as
+# "the chmod did not take".
+#
+# Reports through _bad, not a bare SKIP: a fixture that silently stops biting is
+# a test that has quietly stopped testing, and tests/oracle-baseline.sh counts
+# PASS and FAIL lines. (tests/install-containment.sh argues the opposite case for
+# its own sites and is NOT converted here -- that disagreement is a policy
+# question about what a skipped fixture reports, not a duplicated mechanism, and
+# it wants deciding rather than silently settling by whoever refactors last.)
+# The two unavailable cases report SEPARATELY, because this function knows which
+# one happened and the merged message threw that away: "(running as root?)" is a
+# hypothesis, and it was printed even on the path where the uid had just been
+# checked and was not root. The ten copies this replaced all guessed the same
+# way, which is how the guess survived being written ten times.
+_make_unreadable() { # path  assertion-name
+  chmod 000 "$1" 2>/dev/null || true
+  if [ "$(id -u)" = 0 ]; then
+    _restore_readable "$1"
+    _bad "$2" "fixture unavailable: running as root, which ignores the permission bit on $1"
+    return 1
+  fi
+  if _reads_anyway "$1"; then
+    _restore_readable "$1"
+    _bad "$2" "fixture unavailable: $1 stayed readable after chmod 000"
+    return 1
+  fi
+  return 0
+}
+
+# Does this path still yield its contents? A directory is probed by walking it,
+# anything else by reading it -- see _make_unreadable for why the kind decides.
+#
+# The kind branch IS load-bearing and was mutation-checked: collapsing it to the
+# find-probe alone turns tests/stamp-reconcile.sh's mode-000 FILE fixture into
+# "fixture unavailable" and fails `tar-read-failure-is-fatal`.
+#
+# EQUIVALENT MUTANTS, registered here so a later pass reads this list rather than
+# re-deriving it. Each survives a green suite by construction, not by oversight:
+#
+#   * `[ -r "$1" ]` in place of the probe -- the spelling this helper replaced.
+#     It agrees with the real operation on an ordinary mode-000 path, so no
+#     fixture in this suite separates them; they diverge on ACLs and on
+#     filesystems whose bits do not decide the open, which is why the operation
+#     is what is performed, but that divergence has no in-tree oracle.
+#   * Deleting the `id -u` short-circuit -- only reachable AS root, where every
+#     probe succeeds anyway and the helper already reports unavailable. It buys
+#     the honest message rather than a different verdict.
+#   * A no-op `_restore_readable` -- nothing asserts on cleanup. Its failure mode
+#     is a leaked mode-000 temp tree, which the EXIT trap's own `chmod -R u+rwX`
+#     in tests/stage-manifest-walk.sh is the belt-and-braces for.
+_reads_anyway() {
+  if [ -d "$1" ]; then
+    find "$1" >/dev/null 2>&1
+  else
+    cat -- "$1" >/dev/null 2>&1
+  fi
+}
+
+# `u+rwX` rather than a mode, which is what lets one helper restore both kinds:
+# the capital X adds execute for directories only, so a file comes back readable
+# and a directory comes back enterable. The ten copies used 755, 700, 644 and 600
+# for the same intent, and the only thing that intent has to achieve is that the
+# EXIT trap can still delete the tree.
+_restore_readable() {
+  chmod -R u+rwX "$1" 2>/dev/null || true
+}
+
 # The verdict of a COMPOUND assertion: several things had to hold, and the
 # caller accumulated one sentence into REASONS for each that did not. REASONS
 # is REQUIRED -- empty means every half held, and a caller that omits it aborts

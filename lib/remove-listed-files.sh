@@ -81,6 +81,13 @@
 # 1527-line manifest must not abandon the other 1526. stdout carries the
 # sentinel and nothing else, so the caller can parse it.
 #
+# A PARTIAL SWEEP goes the same way (GH-80). The two subtree-walking modes used
+# to discard find's status into a pipeline's, so a subtree they could not descend
+# was left unswept and the run still reported a clean removal. The status is
+# carried now, and the answer is a line on stderr rather than a failure: leftovers
+# are visible on disk and removable by hand, which is not true of the manifest
+# under-recording the same defect caused on the staging side.
+#
 # Exit codes, because the messages belong with die() in the caller:
 #   0  completed — and REMOVED <n> printed on stdout; 0 without it is not success
 #      (n is what THIS invocation removed: files, directories, or links)
@@ -143,6 +150,13 @@ _target_real=$(cd "$_target_real" 2>/dev/null && pwd -P) || exit 3
 _list_text=$(cat "$_list" 2>/dev/null) || exit 7
 
 _removed=0
+# Set when any enumeration below could not read part of the tree it was sweeping.
+# A COUNT would be the obvious thing and is the wrong thing: the emptydirs mode
+# runs its walk to a fixpoint, so the same unreadable subtree is met once per
+# cycle and a count would report the number of attempts rather than the number of
+# places. A flag says the one thing an operator can act on -- the sweep was
+# partial -- and says it once.
+_partial_sweep=0
 
 # Enter $_target_real/$1 and confirm it really is inside $_target_real. Callers
 # run this INSIDE the subshell that will do the removing, so the verdict and the
@@ -281,7 +295,32 @@ _enumerate() {
       # is not walking a tree outside the prefix at all, and saying so.
       *) _refused "$_en_root"; exit 0 ;;
     esac
-    find . "$@" 2>/dev/null | sed 's|^\./||' )
+    # The walk's status is CARRIED, not discarded into sed's (GH-80). As
+    # `find | sed` the status belonged to sed and the `2>/dev/null` removed the
+    # only other evidence, so a subtree find could not descend simply was not
+    # swept: dangling links and empty directories left behind, and an uninstall
+    # that called itself complete. Same defect as lib/stage.sh's manifest walk,
+    # and NOT the same consequence -- this under-REMOVES where that
+    # under-RECORDS. Leftovers are visible on disk and removable by hand; a stamp
+    # that under-records is permanent and nothing re-derives it. So this one
+    # reports and carries on, in the direction the header already commits to:
+    # one unresolvable entry must not abandon the rest of the sweep.
+    #
+    # What it found is still emitted before the status is returned. A partial
+    # list is worth sweeping -- every path in it is one the caller then puts
+    # through _remove_entry, which re-checks containment for each -- and dropping
+    # it would turn "read part of the tree" into "removed none of it".
+    #
+    # NOT folded onto lib/stage.sh's mf_stage_walk_files, which is a walk for
+    # files and symlinks and nothing else: the predicate here is the caller's
+    # whole question (`-type l`, or `-depth -type d -empty`), so sharing the
+    # helper would mean parameterising away the one thing that makes it one
+    # mechanism. This file is also read and run as its own privileged process and
+    # sources nothing.
+    _en_st=0
+    _en_out=$(find . "$@" 2>/dev/null) || _en_st=8
+    [ -z "$_en_out" ] || printf '%s\n' "$_en_out" | sed 's|^\./||'
+    exit "$_en_st" )
 }
 
 case "$_mode" in
@@ -344,7 +383,7 @@ links)
   while IFS= read -r _root; do
     [ -z "$_root" ] && continue
     _traverses "$_root" && continue
-    _found=$(_enumerate "$_root" -type l)
+    _found=$(_enumerate "$_root" -type l) || _partial_sweep=1
     [ -n "$_found" ] || continue
     while IFS= read -r _rel; do
       [ -z "$_rel" ] && continue
@@ -376,7 +415,7 @@ emptydirs)
     while IFS= read -r _root; do
       [ -z "$_root" ] && continue
       _traverses "$_root" && continue
-      _found=$(_enumerate "$_root" -depth -type d -empty)
+      _found=$(_enumerate "$_root" -depth -type d -empty) || _partial_sweep=1
       [ -n "$_found" ] || continue
       while IFS= read -r _rel; do
         [ -z "$_rel" ] && continue
@@ -404,6 +443,18 @@ EOF
   done
   ;;
 esac
+
+# BEFORE the sentinel, and on stderr like every other refusal: the count on
+# stdout is what the caller parses, and it stays the honest number of things this
+# invocation removed. What it cannot say is that the sweep looked everywhere, and
+# an uninstall reporting "Removed 1527 files" over a subtree it never read is the
+# same confident-wrong answer GH-80 is about, one direction over.
+#
+# Not an exit status, deliberately. The caller's contract is 0-with-REMOVED for a
+# completed run and a distinct code for each way the helper never ran; a partial
+# sweep is neither, and spending a new code on it would make every caller decide
+# what to do about leftovers that are visible on disk and removable by hand.
+[ "$_partial_sweep" = 0 ] || printf 'mediaforge: part of %s could not be read; removed what was visible, and there may be more left behind\n' "$_target_real" >&2
 
 # The sentinel, last: reaching EOF is not evidence the work happened, but
 # printing this after the loop completed is.

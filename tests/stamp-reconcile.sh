@@ -90,6 +90,54 @@ if [ -f "$ROOT/lib/stage.sh" ]; then
   # shellcheck source=lib/utils.sh
   . "$ROOT/lib/utils.sh"
 
+  # A stage with NO strays must warn nothing and let the caller carry on.
+  #
+  # FIRST in this half, and not where it reads most naturally: mf_stage_commit
+  # calls mf_stage_warn_stray itself, so a warn_stray that aborts under this
+  # file's `set -e` takes the whole file down before any later assertion can
+  # report anything. Asserted before the first commit, it reports.
+  #
+  # Trivial-looking, and it is the case that broke: the stray filter is a
+  # `grep -v`, which exits 1 when every line is filtered out -- i.e. exactly when
+  # nothing is stray. While a `head` sat at the end of that pipeline the status
+  # was hidden; the moment it moved (so the "and N more" count could be taken
+  # before the cap) the assignment started failing, and under this file's own
+  # `set -e` the suite stopped mid-run with no FAIL line to say why. Asserted
+  # here rather than left to the next reader to rediscover as an abort.
+  mf_stage_pending_reset
+  mf_stage_begin
+  _stage=$(mf_stage_dir)$PREFIX
+  mkdir -p "$_stage/lib"
+  echo clean > "$_stage/lib/libclean.a"
+  # Driven in a SEPARATE `sh -e`, and that is the whole assertion rather than a
+  # flourish. POSIX suspends -e for every command of an AND-OR list but the last
+  # (the exception the Austin Group codified in issue #52), so the naive
+  # `_out=$(mf_stage_warn_stray ...) || _rc=$?` puts the call in a suspended
+  # context -- and the standard then says NOTHING about a command substitution's
+  # own errexit state inside that context. Not "unspecified" as a declared
+  # category, which an earlier version of this comment claimed: a genuine gap,
+  # which is why both shells below are conforming and neither is the one to fix.
+  # Measured, same probe, this host: bash
+  # reports the sentinel and rc 0, seeing nothing; dash reports empty and rc 1,
+  # seeing the abort. That is worse than uniformly blind, because it makes the
+  # assertion's verdict a property of whoever runs it, and mediaforge targets
+  # dash. The real caller is mf_stage_commit, which invokes this as a plain
+  # statement, so the fixture is one too, in a shell whose -e is not suspended.
+  # The sentinel is what proves the statement after the call was reached.
+  _out=$(sh -e -c '
+    SCRIPT_DIR=$1; PREFIX=$2
+    . "$1/lib/utils.sh"
+    mf_stage_warn_stray "$3" "$4"
+    printf SURVIVED
+  ' sh "$ROOT" "$PREFIX" "$(mf_stage_dir)" "$_stage" 2>&1) || true
+  if [ "$_out" = SURVIVED ]; then
+    _pass clean-stage-warns-nothing
+  else
+    _bad clean-stage-warns-nothing "a stage with no strays did not pass through cleanly: [$(printf '%s' "$_out" | tr '\n' ' ')]"
+  fi
+  mf_stage_end
+  mf_stage_pending_reset
+
   mf_stage_begin
   _stage="$DESTDIR$PREFIX"
   mkdir -p "$_stage/lib/pkgconfig" "$_stage/include"
@@ -308,21 +356,29 @@ EOF
   # and reconcile would call the recipe verified -- the displaced link-time
   # failure this feature exists to prevent.
   #
-  # Driven by making the staged tree unreadable rather than by stubbing tar,
+  # Driven by making a staged FILE unreadable rather than by stubbing tar,
   # so it exercises the real failure. Skipped under a UID that ignores the
   # permission bit, which is the honest answer for root rather than a pass.
+  #
+  # A mode-000 FILE and not the mode-000 DIRECTORY this fixture used before
+  # GH-80, and the distinction is the whole reason both assertions exist. find
+  # can enumerate an unreadable file -- it stats the directory entry and never
+  # opens it -- so the manifest walk succeeds and control reaches the tar pipe,
+  # which does open it and fails. An unreadable DIRECTORY fails the walk first
+  # and dies there (stage-manifest-walk.sh pins that), which would leave this
+  # assertion passing on a message the tar pipe never produced.
   mf_stage_pending_reset
   mf_stage_begin
   _stage=$(mf_stage_dir)$PREFIX
-  mkdir -p "$_stage/lib/locked"
-  echo secret > "$_stage/lib/locked/hidden.a"
-  chmod 000 "$_stage/lib/locked"
-  if [ "$(id -u)" = 0 ] || tar cf /dev/null -C "$_stage" . 2>/dev/null; then
-    chmod 755 "$_stage/lib/locked"
-    _pass tar-read-failure-is-fatal  # unreachable as root; see comment
-  else
+  mkdir -p "$_stage/lib"
+  echo secret > "$_stage/lib/hidden.a"
+  # _make_unreadable, which also FIXES what this site used to do: it reported
+  # `_pass tar-read-failure-is-fatal` when the fixture could not bite, i.e. it
+  # passed an assertion it had not run. A green line for an unexecuted check is
+  # worse than a red one -- it is the reading tests/oracle-baseline.sh counts.
+  if _make_unreadable "$_stage/lib/hidden.a" tar-read-failure-is-fatal; then
     _out=$( (mf_stage_commit) 2>&1 ) && _rc=0 || _rc=$?
-    chmod 755 "$_stage/lib/locked" 2>/dev/null || true
+    _restore_readable "$_stage/lib/hidden.a"
     if [ "$_rc" != 0 ] && printf '%s' "$_out" | grep -q 'PARTIALLY merged'; then
       _pass tar-read-failure-is-fatal
     else
