@@ -108,6 +108,12 @@ mf_remove_tree() {
 # absent path. That is why an unmatched glob is not a failure here.
 # recipes/syslib/brotli.sh additionally sent the errors to /dev/null, which is
 # the strongest form of the defect: the status dropped AND the reason discarded.
+# EQUIVALENT MUTANT, registered so a later pass reads this rather than
+# re-deriving it: swapping `rm -f` for `rm -rf` here survives a green suite. Every
+# path the eight call sites name is a file today, so no fixture separates the two
+# -- the difference is what a FUTURE upstream layout could put at one of those
+# paths, which is a reason to keep the narrower verb rather than a behaviour any
+# test can currently pin.
 mf_remove_file() {
   [ "$#" -ge 1 ] || die "mf_remove_file: called with no path to remove"
   for _rf_path in "$@"; do
