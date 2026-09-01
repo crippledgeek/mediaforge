@@ -29,7 +29,11 @@ makesum_needs_fetch() {
   _mnf_recorded=$(hash_lookup "$_mnf_file" "$_mnf_name" sha256)
   [ -n "$_mnf_recorded" ] || return 0
   [ -f "$_mnf_path" ] || return 0
-  [ "$(digest_file sha256 "$_mnf_path")" = "$_mnf_recorded" ] && return 1
+  # Captured before it is compared, because a die() inside `$(...)` ends only the
+  # substitution: an unchecked comparison would read a broken hashing tool as
+  # "the cached bytes do not match" and silently re-download instead of saying so.
+  _mnf_got=$(digest_file sha256 "$_mnf_path") || die "makesum: cannot hash $_mnf_path to decide whether the cache is attested"
+  [ "$_mnf_got" = "$_mnf_recorded" ] && return 1
   return 0
 }
 
@@ -61,8 +65,14 @@ hash_record_write() {
 
   [ -f "$_hw_file" ] || : > "$_hw_file"
 
-  _hw_sha=$(digest_file sha256 "$_hw_path")
-  _hw_size=$(file_size "$_hw_path")
+  # `|| die` on both, and this is the site that matters most in the tree: a
+  # digest that came back empty because the hashing tool failed used to be
+  # written straight into the sidecar, and an empty sha256 record makes
+  # hash_lookup return nothing, which makes verify_file's
+  # `[ -n "$_want" ] || continue` skip that algorithm on every later build. A
+  # loud failure here costs a re-run; a quiet one costs the verification.
+  _hw_sha=$(digest_file sha256 "$_hw_path") || die "makesum: cannot hash $_hw_path -- refusing to record $_hw_name"
+  _hw_size=$(file_size "$_hw_path") || die "makesum: cannot size $_hw_path -- refusing to record $_hw_name"
   _hw_old=$(hash_lookup "$_hw_file" "$_hw_name" sha256)
 
   if [ -z "$_hw_old" ]; then
@@ -96,12 +106,23 @@ hash_record_write() {
   _hw_had_size=$(hash_lookup "$_hw_file" "$_hw_name" size)
 
   # Rewrite in place, preserving position and the provenance comment above it.
-  awk -v want="$_hw_name" -v sha="$_hw_sha" -v sz="$_hw_size" '
+  # Through mf_awk_rewrite (lib/utils.sh) because the unguarded form here dropped
+  # both statuses: a failed awk left the sidecar untouched and the warnings below
+  # still announced an update that had not happened (GH-85).
+  #
+  # $1 and $3 are awk's FIELD variables, so the single quotes are the point and
+  # expanding them would be the bug. The linter could see that this was an awk
+  # program while awk was called inline here and cannot once the program is an
+  # argument to a shell function -- the one thing the extraction costs, and the
+  # same false positive lib/framework.sh's mf_pc_add_stdcxx already carries for
+  # `$0` at the twin call site.
+  # shellcheck disable=SC2016
+  mf_awk_rewrite "$_hw_file" '
     NF == 3 && $1 == "sha256" && $3 == want { printf("sha256  %s  %s\n", sha, want); next }
     NF == 3 && $1 == "size"   && $3 == want { printf("size    %s  %s\n", sz,  want); saw_size=1; next }
     { print }
     END { if (!saw_size) printf("size    %s  %s\n", sz, want) }
-  ' "$_hw_file" > "$_hw_file.tmp" && mv "$_hw_file.tmp" "$_hw_file"
+  ' -v want="$_hw_name" -v sha="$_hw_sha" -v sz="$_hw_size"
 
   makesum_note_updated "$_hw_name"
   warn "makesum: UPDATED $_hw_name ($_hw_old -> $_hw_sha)"

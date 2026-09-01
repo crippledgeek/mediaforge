@@ -47,13 +47,6 @@ _cleanup_on_signal
 # that as success. Used only where that hazard is real -- the check_guards
 # assertions below need no guard, since check_guards exists on the base and
 # legitimately reports the old behaviour as a failure there.
-_require_fn() {
-  if command -v "$1" >/dev/null 2>&1; then
-    return 0
-  fi
-  _bad "$2" "$1 is not defined"
-  return 1
-}
 
 # ── the divergence this is all about actually still exists ──────────────────
 # Asserted rather than assumed: if someone renames the three PKG_NAMEs to match

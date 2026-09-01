@@ -132,6 +132,40 @@ run_stdin() {
   fi
 }
 
+# Rewrite FILE through an awk program, atomically, and die if either half fails.
+#
+# `awk prog "$f" > "$f.tmp" && mv "$f.tmp" "$f"` is the idiom this replaces, and
+# it drops the status of BOTH halves: nothing sets `set -e`, so a failed awk
+# short-circuits the mv and the caller carries on believing it rewrote the file.
+# lib/framework.sh's _mf_pc_rewrite already held that line for the eight .pc
+# rewrites; lib/makesum.sh's hash_record_write carried the unguarded copy, where
+# a failed awk left the sidecar untouched, a `.hash.tmp` behind, and the caller
+# going on to WARN that it had updated the digest -- reporting a rewrite that did
+# not happen (GH-85).
+#
+# The tmp file is removed on either failure, so a run that dies leaves no
+# half-written sibling for the next run to trip over. EQUIVALENT MUTANT,
+# registered rather than re-derived: deleting the `rm -f` in the MV arm survives
+# a green suite, because a same-directory `mv` of a file that exists does not
+# fail on any filesystem a test can construct. The awk arm's `rm -f` is covered
+# twice over.
+#
+# $3 onwards are passed to awk BEFORE the program, which is what lets a caller
+# supply `-v` bindings (hash_record_write passes three) without this needing to
+# know anything about them. Values reach awk as arguments rather than by string
+# interpolation into the program, so a filename holding an awk metacharacter
+# cannot become code.
+mf_awk_rewrite() { # file  awk-program  [awk-option...]
+  _ar_file="$1"
+  _ar_prog="$2"
+  shift 2
+  _ar_what="${PKG_NAME:+$PKG_NAME: }"
+  awk "$@" "$_ar_prog" "$_ar_file" > "$_ar_file.tmp" ||
+    { rm -f "$_ar_file.tmp"; die "${_ar_what}failed to rewrite $_ar_file"; }
+  mv "$_ar_file.tmp" "$_ar_file" ||
+    { rm -f "$_ar_file.tmp"; die "${_ar_what}failed to replace $_ar_file"; }
+}
+
 # Command existence check (POSIX — no 'which')
 command_exists() {
   command -v "$1" >/dev/null 2>&1
