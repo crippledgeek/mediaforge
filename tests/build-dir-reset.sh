@@ -111,38 +111,50 @@ if mkdir "$_ro/probe" 2>/dev/null; then
 else
   # die() exits, so each call runs in a subshell that the exit terminates.
   _out=$( (mf_reset_dir "$_ro/build") 2>&1 || true)
-  case "$_out" in
-    *"Failed to remove"*) _pass removal-failure-is-fatal ;;
-    *) _bad removal-failure-is-fatal "got=[$(printf '%s' "$_out" | head -2)]" ;;
-  esac
+  _glob removal-failure-is-fatal "$_out" '*Failed to remove*' 'mf_reset_dir on a directory it cannot unlink'
 
   # 5. ...and so is a creation that cannot happen. Distinct message, because the
   #    two statuses fail for different reasons and a single guard covering both
   #    would name neither -- a mutation that drops the mkdir's `|| die` leaves
   #    assertion 4 green.
   _out=$( (mf_reset_dir "$_ro/fresh") 2>&1 || true)
-  case "$_out" in
-    *"Failed to create"*) _pass creation-failure-is-fatal ;;
-    *) _bad creation-failure-is-fatal "got=[$(printf '%s' "$_out" | head -2)]" ;;
-  esac
+  _glob creation-failure-is-fatal "$_out" '*Failed to create*' 'mf_reset_dir under a parent it cannot write'
 fi
 
-# 6. The success path still does what the twenty call sites were written to do:
-#    the previous build's contents are GONE and the directory exists. Asserting
-#    only "exists" would pass against a helper that never removed anything,
-#    which is precisely the stale tree this fix exists to prevent.
-_ok="$_tmp/ok/build"
-mkdir -p "$_ok"
-: > "$_ok/CMakeCache.txt"
-_reasons=""
+# The success-path contract, asserted the same way for one directory and for
+# three: every directory named exists afterwards AND is empty. Written once
+# because assertions 6 and 7 differ only in how many directories they hand over
+# -- a second copy would be where the emptiness half quietly stopped being
+# checked for the multi-directory case, which is the half that matters (a helper
+# that never removed anything satisfies "exists" perfectly, and that stale tree
+# is what this fix exists to prevent).
+#
 # The call is in a subshell for the same reason assertions 4 and 5 are: if a
 # regression made the SUCCESS path die, an unwrapped call would take the whole
 # file with it, and tests/oracle-baseline.sh reads a missing DONE as "the test
 # aborted" -- a different and misleading diagnosis from "an assertion failed".
-( mf_reset_dir "$_ok" ) >/dev/null 2>&1 || _reasons=" helper returned non-zero"
-[ -d "$_ok" ] || _reasons="$_reasons directory-missing"
-[ -e "$_ok/CMakeCache.txt" ] && _reasons="$_reasons stale-cache-survived"
-_verdict reset-empties-and-recreates "$_reasons"
+#
+# `ls -A` rather than `find -mindepth 1`: -mindepth is a GNU extension, and this
+# suite runs where /bin/sh is dash and find is whatever the host ships.
+_reset_is_clean() { # assertion-name  dir...
+  _ric_name="$1"; shift
+  _ric_why=""
+  ( mf_reset_dir "$@" ) >/dev/null 2>&1 || _ric_why=" helper returned non-zero"
+  for _ric_d in "$@"; do
+    if [ ! -d "$_ric_d" ]; then
+      _ric_why="$_ric_why $_ric_d-missing"
+    elif [ -n "$(ls -A "$_ric_d" 2>/dev/null)" ]; then
+      _ric_why="$_ric_why $_ric_d-not-emptied"
+    fi
+  done
+  _verdict "$_ric_name" "$_ric_why"
+}
+
+# 6. The success path still does what the twenty call sites were written to do.
+_ok="$_tmp/ok/build"
+mkdir -p "$_ok"
+: > "$_ok/CMakeCache.txt"
+_reset_is_clean reset-empties-and-recreates "$_ok"
 
 # 7. The variadic form, which recipes/video/x265.sh needs: three sibling
 #    directories reset as one step. A helper taking a single directory would
@@ -151,13 +163,8 @@ _verdict reset-empties-and-recreates "$_reasons"
 _multi="$_tmp/multi"
 mkdir -p "$_multi/8bit" "$_multi/10bit" "$_multi/12bit"
 : > "$_multi/10bit/leftover.o"
-_reasons=""
-( mf_reset_dir "$_multi/8bit" "$_multi/10bit" "$_multi/12bit" ) >/dev/null 2>&1 || _reasons=" helper returned non-zero"
-[ -e "$_multi/10bit/leftover.o" ] && _reasons="$_reasons second-directory-not-reset"
-for _d in 8bit 10bit 12bit; do
-  [ -d "$_multi/$_d" ] || _reasons="$_reasons $_d-missing"
-done
-_verdict reset-handles-every-directory-given "$_reasons"
+_reset_is_clean reset-handles-every-directory-given \
+  "$_multi/8bit" "$_multi/10bit" "$_multi/12bit"
 
 # 8. An empty argument is refused, rather than reaching `rm -rf -- ""` and then
 #    dying on the mkdir with a message that names no path. `$_src` unset is the
@@ -166,19 +173,13 @@ _verdict reset-handles-every-directory-given "$_reasons"
 #    `${x:?}` at their own removals.
 _empty=""
 _out=$( (mf_reset_dir "$_empty") 2>&1 || true)
-case "$_out" in
-  *"empty directory argument"*) _pass empty-argument-refused ;;
-  *) _bad empty-argument-refused "got=[$(printf '%s' "$_out" | head -2)]" ;;
-esac
+_glob empty-argument-refused "$_out" '*empty directory argument*' 'mf_reset_dir with an empty argument'
 
 # 9. ...and so is a call with no arguments, which the loop would otherwise treat
 #    as "nothing to do". A function whose contract is "this directory is now
 #    empty and exists" has no honest way to return success having done nothing.
 _out=$( (mf_reset_dir) 2>&1 || true)
-case "$_out" in
-  *"no directory to reset"*) _pass no-argument-call-refused ;;
-  *) _bad no-argument-call-refused "got=[$(printf '%s' "$_out" | head -2)]" ;;
-esac
+_glob no-argument-call-refused "$_out" '*no directory to reset*' 'mf_reset_dir with no arguments'
 
 printf 'DONE: build-dir-reset\n'
 exit "$_fail"
