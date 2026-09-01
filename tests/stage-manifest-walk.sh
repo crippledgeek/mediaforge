@@ -180,13 +180,9 @@ STUB
   _stage=$(mf_stage_dir)$PREFIX
   mkdir -p "$_stage/lib/locked"
   echo secret > "$_stage/lib/locked/hidden.a"
-  chmod 000 "$_stage/lib/locked"
-  if [ "$(id -u)" = 0 ] || find "$_stage" >/dev/null 2>&1; then
-    chmod 755 "$_stage/lib/locked" 2>/dev/null || true
-    _bad unreadable-subtree-fails-the-manifest "fixture unavailable: the directory stayed readable after chmod 000 (running as root?)"
-  else
+  if _make_unreadable "$_stage/lib/locked" unreadable-subtree-fails-the-manifest; then
     _out=$( (mf_stage_commit) 2>&1 ) && _rc=0 || _rc=$?
-    chmod 755 "$_stage/lib/locked" 2>/dev/null || true
+    _restore_readable "$_stage/lib/locked"
     # FATAL and not merely the wording: a walk whose failure is warned rather
     # than raised still prints this sentence, and the merge below it still dies
     # on the same directory -- so an exit status and a substring together do not
@@ -226,13 +222,9 @@ STUB
   echo a > "$_stage/lib/libprobe.a"
   echo stray > "$_dir/opt/foreign/lib/libstray.a"
   echo hidden > "$_stage/locked/hidden.a"
-  chmod 000 "$_stage/locked"
-  if [ "$(id -u)" = 0 ] || find "$_dir" >/dev/null 2>&1; then
-    chmod 755 "$_stage/locked" 2>/dev/null || true
-    _bad partial-stray-walk-says-so "fixture unavailable: the directory stayed readable after chmod 000 (running as root?)"
-  else
+  if _make_unreadable "$_stage/locked" partial-stray-walk-says-so; then
     _out=$( mf_stage_warn_stray "$_dir" "$_stage" 2>&1 ) || true
-    chmod 755 "$_stage/locked" 2>/dev/null || true
+    _restore_readable "$_stage/locked"
     _named=false; _admits=false
     printf '%s' "$_out" | grep -q 'libstray.a' && _named=true
     printf '%s' "$_out" | grep -q 'incomplete' && _admits=true
@@ -258,13 +250,9 @@ STUB
   mkdir -p "$_stage/lib" "$_dir/opt/locked"
   echo a > "$_stage/lib/libprobe.a"
   echo stray > "$_dir/opt/locked/libstray.a"
-  chmod 000 "$_dir/opt/locked"
-  if [ "$(id -u)" = 0 ] || find "$_dir" >/dev/null 2>&1; then
-    chmod 755 "$_dir/opt/locked" 2>/dev/null || true
-    _bad silent-partial-stray-walk-says-so "fixture unavailable: the directory stayed readable after chmod 000 (running as root?)"
-  else
+  if _make_unreadable "$_dir/opt/locked" silent-partial-stray-walk-says-so; then
     _out=$( mf_stage_warn_stray "$_dir" "$_stage" 2>&1 ) || true
-    chmod 755 "$_dir/opt/locked" 2>/dev/null || true
+    _restore_readable "$_dir/opt/locked"
     if printf '%s' "$_out" | grep -q 'NOT listed below'; then
       _pass silent-partial-stray-walk-says-so
     else
@@ -356,13 +344,9 @@ STUB
   _stage=$(mf_stage_dir)$PREFIX
   mkdir -p "$_stage/lib"
   echo a > "$_stage/lib/libprobe.a"
-  chmod 000 "$_stage"
-  if [ "$(id -u)" = 0 ] || (cd "$_stage" 2>/dev/null); then
-    chmod 755 "$_stage" 2>/dev/null || true
-    _bad unreadable-stage-root-fails-the-manifest "fixture unavailable: the stage root stayed enterable after chmod 000 (running as root?)"
-  else
+  if _make_unreadable "$_stage" unreadable-stage-root-fails-the-manifest; then
     _out=$( (mf_stage_commit) 2>&1 ) && _rc=0 || _rc=$?
-    chmod 755 "$_stage" 2>/dev/null || true
+    _restore_readable "$_stage"
     if [ "$_rc" != 0 ] && printf '%s' "$_out" | grep -q 'FATAL.*under-record'; then
       _pass unreadable-stage-root-fails-the-manifest
     else
@@ -398,13 +382,9 @@ mkdir -p "$_uws/lib/locked"
 ln -s /nonexistent-target "$_uws/lib/dangling" 2>/dev/null || true
 ln -s /nonexistent-target "$_uws/lib/locked/hidden" 2>/dev/null || true
 printf 'lib\n' > "$_tmp/uninstall-list"
-chmod 000 "$_uws/lib/locked" 2>/dev/null || true
-if [ "$(id -u)" = 0 ] || find "$_uws/lib" >/dev/null 2>&1; then
-  chmod 755 "$_uws/lib/locked" 2>/dev/null || true
-  _bad partial-uninstall-sweep-says-so "fixture unavailable: the directory stayed readable after chmod 000 (running as root?)"
-else
+if _make_unreadable "$_uws/lib/locked" partial-uninstall-sweep-says-so; then
   _sweep=$(sh "$_rlf" links "$_uws" "$_tmp/uninstall-list" 2>&1) || true
-  chmod 755 "$_uws/lib/locked" 2>/dev/null || true
+  _restore_readable "$_uws/lib/locked"
   # BOTH halves, because either alone is satisfiable by the wrong behaviour: the
   # sentinel alone says nothing about the subtree it never read, and the warning
   # alone would be satisfiable by a sweep that gave up and removed nothing. The

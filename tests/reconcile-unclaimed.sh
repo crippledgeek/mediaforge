@@ -457,7 +457,6 @@ _uws="$_tmp/unreadable"
 mkdir -p "$_uws/workspace/.stamps" "$_uws/workspace/lib"
 echo claimed > "$_uws/workspace/lib/libclaimed.a"
 printf 'lib/libclaimed.a\n' > "$_uws/workspace/.stamps/secret-1.0"
-chmod 000 "$_uws/workspace/.stamps/secret-1.0" 2>/dev/null || true
 
 # A second unreadable stamp whose NAME carries a newline, which is what watches
 # the mf_printable_line at that warn. This site is the mirror of the report loop
@@ -472,11 +471,13 @@ else
   _ustamp=''
 fi
 
-if [ -r "$_uws/workspace/.stamps/secret-1.0" ]; then
-  # Running as root, or a filesystem without permission bits. Reported rather
-  # than skipped silently, so a permanent skip is visible in the log.
-  _bad an-unreadable-stamp-is-announced "fixture unavailable: the stamp stayed readable after chmod 000 (running as root?)"
-else
+# _make_unreadable rather than the `[ -r ]` this site used to spell for itself
+# (GH-80's dedup pass). The two are not the same question: -r answers from the
+# permission BITS, while the helper attempts the read the fixture depends on --
+# and it leads with `id -u`, which this site's own "(running as root?)" message
+# guessed at without ever checking. Reported rather than skipped silently, so a
+# permanent skip is visible in the log.
+if _make_unreadable "$_uws/workspace/.stamps/secret-1.0" an-unreadable-stamp-is-announced; then
   _uout=$( cd "$_uws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) || true
   _wrong=''
   _says "$_uout" 'secret-1\.0 is unreadable' || _wrong="$_wrong no-warning-for-the-unreadable-stamp;"
@@ -596,11 +597,8 @@ mkdir -p "$_iws/workspace/.stamps" "$_iws/workspace/lib/locked"
 echo real   > "$_iws/workspace/lib/real.a"
 echo hidden > "$_iws/workspace/lib/locked/buried.a"
 printf 'lib/real.a\n' > "$_iws/workspace/.stamps/verifying-1.0"
-chmod 000 "$_iws/workspace/lib/locked" 2>/dev/null || true
 
-if [ -r "$_iws/workspace/lib/locked" ]; then
-  _bad an-unreadable-subtree-is-announced "fixture unavailable: the directory stayed readable after chmod 000 (running as root?)"
-else
+if _make_unreadable "$_iws/workspace/lib/locked" an-unreadable-subtree-is-announced; then
   _iout=$( cd "$_iws" && "$ROOT/mediaforge.sh" reconcile 2>&1 ) && _irc=0 || _irc=$?
   _ibare=$(printf '%s\n' "$_iout" | grep -cv '^\[mediaforge\]') || true
   _wrong=''
@@ -663,6 +661,11 @@ printf 'lib/real.a\n' > "$_dws/workspace/.stamps/verifying-1.0"
 chmod 000 "$_dws/workspace/.stamps/verifying-1.0" 2>/dev/null || true
 chmod 111 "$_dws/workspace" 2>/dev/null || true
 
+# NOT _make_unreadable, and deliberately so: that helper chmods 000, while this
+# fixture needs mode 111 -- traversable but not readable, which is the only mode
+# that reaches the degrade branch under test (cmd_reconcile's own `[ -d
+# "$PREFIX/.stamps" ]` needs search permission and would die first on 000). A
+# different fixture, not an unconverted copy.
 if [ -r "$_dws/workspace" ]; then
   _bad unreadable-prefix-degrades-to-unknown "fixture unavailable: the prefix stayed readable after chmod 111 (running as root?)"
 else

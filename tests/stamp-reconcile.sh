@@ -372,13 +372,13 @@ EOF
   _stage=$(mf_stage_dir)$PREFIX
   mkdir -p "$_stage/lib"
   echo secret > "$_stage/lib/hidden.a"
-  chmod 000 "$_stage/lib/hidden.a"
-  if [ "$(id -u)" = 0 ] || tar cf /dev/null -C "$_stage" . 2>/dev/null; then
-    chmod 644 "$_stage/lib/hidden.a"
-    _pass tar-read-failure-is-fatal  # unreachable as root; see comment
-  else
+  # _make_unreadable, which also FIXES what this site used to do: it reported
+  # `_pass tar-read-failure-is-fatal` when the fixture could not bite, i.e. it
+  # passed an assertion it had not run. A green line for an unexecuted check is
+  # worse than a red one -- it is the reading tests/oracle-baseline.sh counts.
+  if _make_unreadable "$_stage/lib/hidden.a" tar-read-failure-is-fatal; then
     _out=$( (mf_stage_commit) 2>&1 ) && _rc=0 || _rc=$?
-    chmod 644 "$_stage/lib/hidden.a" 2>/dev/null || true
+    _restore_readable "$_stage/lib/hidden.a"
     if [ "$_rc" != 0 ] && printf '%s' "$_out" | grep -q 'PARTIALLY merged'; then
       _pass tar-read-failure-is-fatal
     else
