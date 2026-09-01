@@ -169,8 +169,7 @@ _mf_pc_rewrite() { # pc-name  awk-program
   esac
   _mf_pc="$PREFIX/lib/pkgconfig/${1}.pc"
   [ -f "$_mf_pc" ] || die "$PKG_NAME: expected $_mf_pc to rewrite (upstream .pc name or layout changed?)"
-  awk "$2" "$_mf_pc" > "$_mf_pc.tmp" || { rm -f "$_mf_pc.tmp"; die "$PKG_NAME: failed to rewrite $_mf_pc"; }
-  mv "$_mf_pc.tmp" "$_mf_pc" || { rm -f "$_mf_pc.tmp"; die "$PKG_NAME: failed to replace $_mf_pc"; }
+  mf_awk_rewrite "$_mf_pc" "$2"
 }
 
 # C++ libraries whose upstream .pc omits -lstdc++, which a --static link needs.

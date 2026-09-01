@@ -53,6 +53,13 @@ sh tests/install-manifest-reconcile.sh
 # link probe, blaming an unrelated library.
 sh tests/pc-exclusions-durable.sh
 sh tests/checksum-verification.sh
+# The status of the hashing itself. digest_file, file_size and the sidecar
+# rewrite each ran their real work as the head of a pipeline (or behind an
+# unchecked `&&`), so a broken tool returned an empty string with a success
+# status -- and every caller read that through `$(...)`, where a die() ends only
+# the substitution. Recording was the direction that mattered: an empty sha256
+# in a sidecar makes every later verification skip that algorithm.
+sh tests/digest-backend-status.sh
 # Prose hygiene, not behaviour: a comment citing an in-tree file by LINE is
 # correct only until the next edit above it, and nothing else in this suite
 # reads a comment. It found fifteen such citations on the branch that added it,

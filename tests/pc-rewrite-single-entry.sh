@@ -19,9 +19,20 @@ _fail=0
 # shellcheck source=tests/lib-assert.sh
 . "$ROOT/tests/lib-assert.sh"
 
-# One stub for every driver below. lib/framework.sh defines no die() and sources
-# nothing when loaded, so this survives into each subshell -- three copies of it
-# was the shape this file exists to argue against.
+# lib/utils.sh FIRST, then the stub over the top of the die() it brings in.
+# _mf_pc_rewrite performs its rewrite through mf_awk_rewrite, which lives in
+# utils (GH-85); stubbing that instead would put a second implementation of the
+# mechanism under test into the file that exists to pin it -- the same argument
+# this file makes about hand-rolled rewrites. Sourced at file level rather than
+# inside _drive so the stub below still wins, and so the subshells inherit both.
+# SCRIPT_DIR is how lib/utils.sh locates lib/stage.sh.
+SCRIPT_DIR="$ROOT"
+# shellcheck source=lib/utils.sh
+. "$ROOT/lib/utils.sh"
+
+# One stub for every driver below. lib/framework.sh defines no die() of its own,
+# so this survives into each subshell -- three copies of it was the shape this
+# file exists to argue against.
 # Invoked from the sourced lib/framework.sh, which the linter's call graph does
 # not reach; the finding is wrong here rather than tolerated.
 # shellcheck disable=SC2329

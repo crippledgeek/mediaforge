@@ -22,22 +22,73 @@ digest_file() {
   esac
 
   if command_exists "${_algo}sum"; then
-    "${_algo}sum" < "$_dfile" | awk '{print $1}'
+    _digest_run "$_dfile" "${_algo}sum"
   elif command_exists shasum; then
-    shasum -a "${_algo#sha}" < "$_dfile" | awk '{print $1}'
+    _digest_run "$_dfile" shasum -a "${_algo#sha}"
   elif command_exists openssl; then
-    openssl dgst "-$_algo" < "$_dfile" | awk '{print $NF}'
+    _digest_run "$_dfile" openssl dgst "-$_algo"
   else
     die "No digest backend found. Install coreutils (${_algo}sum), perl (shasum), or openssl."
   fi
+}
+
+# Run one digest backend over FILE and print the hex token it produced.
+#
+# THE STATUS BELONGS TO THE TOOL. Each of the three branches above used to be
+# `<tool> < "$file" | awk ...`, and a pipeline's status is its LAST command's --
+# so a backend that died printed nothing, awk exited 0, and digest_file returned
+# an empty string with a success status (GH-85). The caller could not tell "this
+# file hashes to X" from "the hashing tool is broken", and the two callers took
+# that ambiguity in opposite directions: verification rejected the download while
+# telling the operator to go hunt a man-in-the-middle, and makesum RECORDED the
+# empty digest into a `.hash` sidecar, where hash_lookup then returns nothing and
+# the verification loop's `[ -n "$_want" ] || continue` skips the check for good.
+# Command substitution instead of a pipeline is what makes the status the tool's.
+#
+# ONE extraction rule, not the `$1`/`$1`/`$NF` the three branches each carried:
+# the digest is the first all-hex-lowercase field, wherever the backend puts it.
+# That is not a looser rule but a different KIND of rule -- content rather than
+# position -- and it is what lets the three call sites share this function at all.
+# It holds for every shape in play: `<hex>  -` from the coreutils tools and from
+# shasum, and `SHA2-256(stdin)= <hex>` (OpenSSL 3.x) or `SHA256(stdin)= <hex>`
+# (LibreSSL, OpenSSL 1.1) from openssl dgst. The stream is fed on STDIN at every
+# site, so the filename field is always `-` and can never be mistaken for a
+# digest.
+#
+# An output with no hex token is fatal rather than empty, for the same reason the
+# non-zero status is: a backend that succeeded and printed something we cannot
+# read is not a file that hashes to nothing.
+#
+# A die() HERE ONLY KILLS THE SUBSHELL, and every caller reads this function
+# through `$(...)`. die is `exit 1`, and an exit inside a command substitution
+# ends the substitution, not the script -- so a caller written as
+# `_sha=$(digest_file ...)` sees an empty string and a non-zero status it never
+# looks at, which is the very failure this function was hardened against. That
+# is why every call site below spells `|| die`, and why a test drives the whole
+# path rather than trusting the guard's presence.
+_digest_run() { # file  command...
+  _dr_file="$1"
+  shift
+  _dr_out=$("$@" < "$_dr_file") || die "digest_file: $1 failed on $_dr_file"
+  _dr_hex=$(printf '%s\n' "$_dr_out" |
+    awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-f]+$/) { print $i; exit } }')
+  [ -n "$_dr_hex" ] || die "digest_file: $1 produced no digest for $_dr_file: $_dr_out"
+  printf '%s\n' "$_dr_hex"
 }
 
 # file_size FILE
 # Print FILE's size in bytes. POSIX specifies `wc -c` as the byte count and
 # specifies that no pathname is written when reading standard input, so this
 # avoids the GNU `stat -c %s` versus BSD `stat -f %z` split entirely.
+#
+# Status-checked for the reason spelled out in _digest_run: `wc -c < f | tr -d ' '`
+# is a pipeline, so a failed `wc` used to be reported as a size of nothing, which
+# compares unequal to every recorded size and reads as a corrupt download. The
+# `tr` stays -- BSD `wc` pads its output -- but it now runs on a value `wc`
+# already succeeded in producing.
 file_size() {
-  wc -c < "$1" | tr -d ' '
+  _fs_out=$(wc -c < "$1") || die "file_size: wc failed on $1"
+  printf '%s' "$_fs_out" | tr -d ' \t'
 }
 
 # HASH_COMMENT_RE -- how much of a line is the comment marker, for the `.hash`
@@ -279,7 +330,7 @@ Run './mediaforge.sh makesum' to record it, or --skip-checksum to bypass (loudly
     return 3
   fi
 
-  _got=$(file_size "$_vfile")
+  _got=$(file_size "$_vfile") || die "$_vname: cannot be sized, so it cannot be verified"
   if [ "$_got" != "$_vsize" ]; then
     warn "$_vname has the wrong size: expected $_vsize bytes, got $_got"
     return 2
@@ -293,7 +344,11 @@ Run './mediaforge.sh makesum' to record it, or --skip-checksum to bypass (loudly
   for _alg in sha256 sha512 sha1; do
     _want=$(hash_lookup "$PKG_HASH_FILE" "$_vname" "$_alg")
     [ -n "$_want" ] || continue
-    _got=$(digest_file "$_alg" "$_vfile")
+    # `|| die` rather than letting an empty digest fall through to the mismatch
+    # arm below: that arm tells the operator "Incomplete download, or a
+    # man-in-the-middle attack", which for a broken hashing tool sends them
+    # hunting an attack that did not happen.
+    _got=$(digest_file "$_alg" "$_vfile") || die "$_vname: cannot be hashed with $_alg, so it cannot be verified"
     if [ "$_got" != "$_want" ]; then
       warn "$_vname has the wrong $_alg digest:"
       warn "  expected: $_want"
