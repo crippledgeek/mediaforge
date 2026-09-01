@@ -45,7 +45,9 @@ else
 fi
 
 # 3) The acceptance: a trivial consumer static-links the whole FFmpeg clean.
-_out=$(mktemp -d); trap 'rm -rf "$_out"' EXIT INT TERM
+_out=$(mktemp -d)
+trap 'rm -rf "$_out"' EXIT
+_cleanup_on_signal
 printf '#include <libavcodec/avcodec.h>\nint main(void){return (int)avcodec_version();}\n' > "$_out/t.c"
 _ld=""
 command -v mold >/dev/null 2>&1 && _ld="-fuse-ld=mold"

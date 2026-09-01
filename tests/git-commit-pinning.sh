@@ -59,7 +59,9 @@ _fail=0
 # -- Fixture: a repo with an OLD commit, then a NEWER one carrying a tag. -----
 # Mirrors the real shape: rtmpdump's `v2.6` tag resolves to a commit ten ahead
 # of the SHA the profiles pinned.
-_fx=$(mktemp -d); trap 'rm -rf "$_fx"' EXIT INT TERM
+_fx=$(mktemp -d)
+trap 'rm -rf "$_fx"' EXIT
+_cleanup_on_signal
 _repo="$_fx/remote"
 mkdir -p "$_repo"
 (

@@ -53,7 +53,7 @@ _unpaired=""
 _examined=0
 for _f in tests/*.sh .githooks/*; do
   [ -f "$_f" ] || continue
-  grep -qE '^[[:space:]]*trap .*[[:space:]]EXIT' "$_f" || continue
+  _code_only "$_f" | grep -qE '(^|[;&|][[:space:]]*)trap .*[[:space:]]EXIT' || continue
   _examined=$((_examined + 1))
   # The helper as a CALL, anchored. An earlier, looser pattern matched `INT` and
   # `TERM` as bare substrings anywhere on a trap line -- so a handler removing
@@ -87,7 +87,27 @@ fi
 # Separate from the assertion above rather than folded into it, because they fail
 # for different reasons and a reader of the failure should not have to guess
 # which: one says cleanup is unguarded, this one says the run does not stop.
-_combined=$(grep -lE "^[[:space:]]*trap .*[[:space:]]EXIT[[:space:]]+(INT|TERM)" tests/*.sh 2>/dev/null || true)
+#
+# The anchor admits a preceding `;`, `&` or `|`, and that is not defensive
+# spelling: a `^`-only anchor reported PASS over three live violations, because
+# `_out=$(mktemp -d); trap ... EXIT INT TERM` puts the trap mid-line where the
+# gate never looked (tests/avs2-reorder-dts.sh, tests/oapv-static-link.sh and
+# tests/git-commit-pinning.sh, all three split in the same change as this
+# widening). Both halves of this file shared the anchor, so those three escaped
+# the pairing check above as well -- a gate that examined nothing and reported
+# green, which is GH-80's defect wearing a test's clothes.
+# Read through _code_only, which widening the anchor made load-bearing: the
+# paragraph above QUOTES the forbidden form, and with `;` now admitted the gate
+# reported this very file as an offender for explaining what it forbids. That is
+# the prose-versus-code trap tests/ documents at length, arriving through a
+# change that was correct in itself.
+_combined=''
+for _f in tests/*.sh; do
+  [ -f "$_f" ] || continue
+  if _code_only "$_f" | grep -qE "(^|[;&|][[:space:]]*)trap .*[[:space:]]EXIT[[:space:]]+(INT|TERM)"; then
+    _combined="$_combined $_f"
+  fi
+done
 if [ -n "$_combined" ]; then
   _bad signal-ends-the-run "cleans up but keeps running, so Ctrl-C leaves the run going without its fixtures:$(printf '%s' "$_combined" | tr '\n' ' ')"
 else

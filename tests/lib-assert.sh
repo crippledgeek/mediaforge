@@ -137,11 +137,21 @@ _bad() {
 # its own sites and is NOT converted here -- that disagreement is a policy
 # question about what a skipped fixture reports, not a duplicated mechanism, and
 # it wants deciding rather than silently settling by whoever refactors last.)
+# The two unavailable cases report SEPARATELY, because this function knows which
+# one happened and the merged message threw that away: "(running as root?)" is a
+# hypothesis, and it was printed even on the path where the uid had just been
+# checked and was not root. The ten copies this replaced all guessed the same
+# way, which is how the guess survived being written ten times.
 _make_unreadable() { # path  assertion-name
   chmod 000 "$1" 2>/dev/null || true
-  if [ "$(id -u)" = 0 ] || _reads_anyway "$1"; then
+  if [ "$(id -u)" = 0 ]; then
     _restore_readable "$1"
-    _bad "$2" "fixture unavailable: $1 stayed readable after chmod 000 (running as root?)"
+    _bad "$2" "fixture unavailable: running as root, which ignores the permission bit on $1"
+    return 1
+  fi
+  if _reads_anyway "$1"; then
+    _restore_readable "$1"
+    _bad "$2" "fixture unavailable: $1 stayed readable after chmod 000"
     return 1
   fi
   return 0

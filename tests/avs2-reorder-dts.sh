@@ -27,13 +27,17 @@ FF="$PREFIX/bin/ffmpeg"; FP="$PREFIX/bin/ffprobe"
 "$FF" -hide_banner -encoders 2>/dev/null | grep -q libxavs2 || { echo "SKIP: libxavs2 encoder absent"; exit 2; }
 "$FF" -hide_banner -decoders 2>/dev/null | grep -q libdavs2 || { echo "SKIP: libdavs2 decoder absent"; exit 2; }
 
-_out=$(mktemp -d); trap 'rm -rf "$_out"' EXIT INT TERM
+_out=$(mktemp -d)
+trap 'rm -rf "$_out"' EXIT
 _mkv="$_out/avs2.mkv"; _ts="$_out/ts.log"
 _nframes=50
 _src="testsrc=size=320x240:rate=25:duration=2"
 _fail=0
 # shellcheck source=tests/lib-assert.sh
 . "$_here/lib-assert.sh"
+# After the source rather than beside the trap above, because the helper is
+# defined here: the EXIT trap is registered before this file has one to call.
+_cleanup_on_signal
 
 # 1) Encode 50 frames to AVS2/MKV (8-bit, default bf=7 -> B-frame reorder), with
 #    -debug_ts so the encoder's real emitted pts/dts are logged ("muxer <-").
