@@ -65,7 +65,13 @@ _fail=0
 . "$ROOT/tests/lib-assert.sh"
 
 _tmp=$(mktemp -d) || exit 1
-trap 'rm -rf "$_tmp"' EXIT
+# chmod before rm, because this file's fixtures include a mode-000 DIRECTORY and
+# `rm -rf` cannot descend into one even as its owner -- the tree survives the
+# trap and the next run inherits it. The file it belongs to is deleted fine; a
+# directory is not. Pre-dates GH-80 and is not a regression, but the fixture that
+# needs it is now built by the shared _make_unreadable, so the cleanup belongs
+# with the mechanism rather than with whoever remembered.
+trap 'chmod -R u+rwX "$_tmp" 2>/dev/null; rm -rf "$_tmp"' EXIT
 _cleanup_on_signal
 
 # --- the fixture -----------------------------------------------------------

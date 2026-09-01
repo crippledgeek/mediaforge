@@ -9,8 +9,8 @@
 #     /bin/sh here is bash, so the leak is invisible on this machine
 #
 # So cleanup registered on EXIT alone is cleanup that happens only when nothing
-# goes wrong AND the interpreter is generous. Eight files were written that way,
-# and mediaforge is POSIX sh precisely so it runs where /bin/sh is dash --
+# goes wrong AND the interpreter is generous. Several files were written that
+# way, and mediaforge is POSIX sh precisely so it runs where /bin/sh is dash --
 # Debian and Ubuntu, where the leak is real.
 #
 # What this does NOT claim: that paired traps would have prevented the tmpfs
@@ -26,8 +26,8 @@
 #
 #   * the behavioural one signals a real test and looks at what survives, which
 #     is the only way to know the traps do what the grep thinks they do;
-#   * the static one is what catches the NINTH file, written next year by
-#     someone who copied the EXIT-only line from one of the eight. A behavioural
+#   * the static one is what catches the NEXT file, written next year by someone
+#     who copied the EXIT-only line from one already in the tree. A behavioural
 #     check cannot see a file it does not run.
 set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT"
@@ -43,17 +43,40 @@ _fail=0
 #
 #     trap '...' EXIT INT TERM, SIGINT -> cleaned up and KEPT RUNNING (dash, bash)
 #
-# So a file using it deletes its own fixtures and carries on against them. All 23
-# now call the helper, which exits; asserting the exact call is therefore both
-# possible and stronger than asserting the property loosely.
+# So a file using it deletes its own fixtures and carries on against them. Every
+# file that registers an EXIT trap now calls the helper, which exits; asserting
+# the exact call is therefore both possible and stronger than asserting the
+# property loosely.
 #
+# No census here, deliberately. This paragraph used to say "all 23", and it was
+# wrong twice over: the number had moved, and it was counted with the very `^`
+# anchor that could not see three of the files. A count in a comment is a
+# citation that nothing re-checks -- the assertion below reports the real
+# population every run, and its floor is what stops the claim going vacuous.
+#
+# WHOLE-LINE comments only, and not _code_only, which is the wrong tool for this
+# one question. _code_only is `sed 's/[[:space:]]*#.*$//'` with a zero-width
+# match allowed, so ANY `#` truncates the line -- including one inside the
+# handler's own quotes. Measured: a `trap 'rm -rf "$_t"; printf "#done\n"' EXIT
+# INT TERM` survives _code_only's filter with its `EXIT INT TERM` cut off, and
+# the gate never sees it. That is the hole this file was just fixed for, dug
+# again by the fix.
+#
+# The self-match that made a filter necessary is a BLOCK of `#`-leading lines
+# quoting the forbidden form, so removing whole comment lines answers it exactly
+# and costs nothing else. _code_only stays right for its other callers, where the
+# question really is "what does this file do".
+_uncommented() { # file
+  grep -v '^[[:space:]]*#' "$1"
+}
+
 # Only files that REGISTER an EXIT trap are examined: a test with no temporary
 # state has nothing to clean up and is not an offender for saying so.
 _unpaired=""
 _examined=0
 for _f in tests/*.sh .githooks/*; do
   [ -f "$_f" ] || continue
-  _code_only "$_f" | grep -qE '(^|[;&|][[:space:]]*)trap .*[[:space:]]EXIT' || continue
+  _uncommented "$_f" | grep -qE '(^|[;&|][[:space:]]*)trap .*[[:space:]]EXIT' || continue
   _examined=$((_examined + 1))
   # The helper as a CALL, anchored. An earlier, looser pattern matched `INT` and
   # `TERM` as bare substrings anywhere on a trap line -- so a handler removing
@@ -81,8 +104,9 @@ fi
 # INT TERM` looks like it covers the signals and does clean up, but POSIX resumes
 # execution after a signal handler rather than exiting -- measured on this host
 # under both dash and bash: a subject sent SIGINT ran on for the rest of its loop
-# with its temporary directory already deleted. Twelve files here used it, so
-# Ctrl-C on the suite removed their fixtures and kept going against them.
+# with its temporary directory already deleted. It was widespread when this gate
+# was written, so Ctrl-C on the suite removed those files' fixtures and kept
+# going against them.
 #
 # Separate from the assertion above rather than folded into it, because they fail
 # for different reasons and a reader of the failure should not have to guess
@@ -96,15 +120,19 @@ fi
 # widening). Both halves of this file shared the anchor, so those three escaped
 # the pairing check above as well -- a gate that examined nothing and reported
 # green, which is GH-80's defect wearing a test's clothes.
-# Read through _code_only, which widening the anchor made load-bearing: the
-# paragraph above QUOTES the forbidden form, and with `;` now admitted the gate
-# reported this very file as an offender for explaining what it forbids. That is
-# the prose-versus-code trap tests/ documents at length, arriving through a
-# change that was correct in itself.
+# Filtered for the reason _uncommented gives: widening the anchor made this gate
+# report ITSELF, matching the paragraph above that quotes what it forbids.
+#
+# The SAME population as the pairing loop, `.githooks/*` included. They disagreed
+# -- pairing examined the hooks, this one did not -- so a hook adopting the
+# forbidden form would have been checked for pairing and exempt from the
+# prohibition. Unreachable today, no hook registers a trap, and it is the same
+# asymmetry that let three test files through: one half of a rule looking
+# somewhere the other half does not.
 _combined=''
-for _f in tests/*.sh; do
+for _f in tests/*.sh .githooks/*; do
   [ -f "$_f" ] || continue
-  if _code_only "$_f" | grep -qE "(^|[;&|][[:space:]]*)trap .*[[:space:]]EXIT[[:space:]]+(INT|TERM)"; then
+  if _uncommented "$_f" | grep -qE "(^|[;&|][[:space:]]*)trap .*[[:space:]]EXIT[[:space:]]+(INT|TERM)"; then
     _combined="$_combined $_f"
   fi
 done
@@ -112,6 +140,45 @@ if [ -n "$_combined" ]; then
   _bad signal-ends-the-run "cleans up but keeps running, so Ctrl-C leaves the run going without its fixtures:$(printf '%s' "$_combined" | tr '\n' ' ')"
 else
   _pass signal-ends-the-run
+fi
+
+# The FILTER, exercised rather than trusted.
+#
+# Both searches above are "grep found nothing", so a filter that quietly eats the
+# line it was meant to hand over turns this whole file green while examining
+# nothing -- which is what the `^` anchor did, and what _code_only would do again
+# to any handler carrying a `#`. Neither failure is reachable from the tree's
+# current contents, so nothing in the suite would notice either: the probe below
+# is what makes the filter falsifiable.
+#
+# Two lines, one of each kind, and the oracle is EXACTLY ONE match: the code line
+# must be caught despite the `#` inside its handler, and the whole-line comment
+# quoting the same form must not be. A filter that strips too much scores 0, one
+# that strips nothing scores 2, and the anchor-only spelling scores 0 as well.
+_probe=$(mktemp) || _probe=''
+if [ -z "$_probe" ]; then
+  _bad filter-reads-code-not-prose "fixture unavailable: mktemp failed"
+else
+  # ASSEMBLED from a variable rather than written out, and that is not style: a
+  # literal probe line would BE a violation, on a non-comment line, in the file
+  # the gate scans -- so writing the fixture plainly makes this file report
+  # itself, which is the defect the filter above exists to answer. Holding the
+  # signal list in $_sig means the forbidden form never appears contiguously in
+  # this source while the line written to $_probe is byte-for-byte the real
+  # thing. The `#` inside the first handler is the whole point: it is what
+  # _code_only would truncate the line at.
+  _sig='EXIT INT TERM'
+  {
+    printf '%s %s\n' "_t=\$(mktemp -d); trap 'rm -rf \"\$_t\"; printf \"#done\\n\"'" "$_sig"
+    printf '# %s %s\n' "_t=\$(mktemp -d); trap 'rm -rf \"\$_t\"'" "$_sig"
+  } > "$_probe"
+  _hits=$(_uncommented "$_probe" | grep -cE "(^|[;&|][[:space:]]*)trap .*[[:space:]]EXIT[[:space:]]+(INT|TERM)" || true)
+  rm -f "$_probe"
+  if [ "$_hits" = 1 ]; then
+    _pass filter-reads-code-not-prose
+  else
+    _bad filter-reads-code-not-prose "expected the code line caught and the commented one ignored, got $_hits of 2"
+  fi
 fi
 
 # How many entries a directory holds. find rather than ls, because ls's output
