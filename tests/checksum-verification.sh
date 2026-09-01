@@ -22,16 +22,6 @@ _fail=0
 . "$ROOT/tests/lib-scratch.sh"
 _scratch_init "$ROOT"
 
-# Guard for negative assertions. On a tree without the feature an undefined
-# function exits 127, which a bare "expected it to fail" check reads as success
-# and reports PASS -- exactly what tests/oracle-baseline.sh rejects.
-_require_fn() {
-  if command -v "$1" >/dev/null 2>&1; then
-    return 0
-  fi
-  _bad "$2" "$1 is not defined"
-  return 1
-}
 
 # SCRIPT_DIR is how lib/utils.sh locates lib/stage.sh (GH-59). mediaforge.sh
 # sets it from $0; a test sourcing the library directly supplies it itself.

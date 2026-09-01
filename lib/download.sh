@@ -7,11 +7,30 @@
 # Backends are fed the file on STDIN, not by path, for two reasons: a path makes
 # the filename appear in the output, and `openssl dgst` labels the stream
 # differently across versions -- `SHA2-256(stdin)=` on OpenSSL 3.x versus
-# `SHA256(stdin)=` on LibreSSL and OpenSSL 1.1.x. Taking the last whitespace
-# field is correct for all three.
+# `SHA256(stdin)=` on LibreSSL and OpenSSL 1.1.x. _digest_run below reads the
+# digest out of whatever shape comes back; that one rule is stated there and
+# nowhere else, because this sentence used to give a second, contradictory
+# account of it ("the last whitespace field"), which is the rule that BREAKS the
+# coreutils shape.
 #
 # macOS does not ship sha256sum; it ships shasum (a Perl Digest::SHA front end).
 # The fallback chain is what makes this work there, not a convenience.
+# The digest width each algorithm produces, in hex characters.
+#
+# ONE table, because two things need it and they must agree: _digest_run rejects
+# a backend whose output is the wrong width, and hash_file_validate rejects a
+# sidecar record of the wrong width -- and a sidecar that disagreed with the
+# extractor would be a file mediaforge writes and then refuses to read. The awk
+# validator takes these as -v bindings rather than repeating the numerals.
+hash_digest_length() { # algo
+  case "$1" in
+    sha256) printf '64' ;;
+    sha512) printf '128' ;;
+    sha1)   printf '40' ;;
+    *) die "hash_digest_length: unsupported algorithm '$1' (sha256, sha512, sha1 only)" ;;
+  esac
+}
+
 digest_file() {
   _algo="$1"
   _dfile="$2"
@@ -22,11 +41,11 @@ digest_file() {
   esac
 
   if command_exists "${_algo}sum"; then
-    _digest_run "$_dfile" "${_algo}sum"
+    _digest_run "$_algo" "$_dfile" "${_algo}sum"
   elif command_exists shasum; then
-    _digest_run "$_dfile" shasum -a "${_algo#sha}"
+    _digest_run "$_algo" "$_dfile" shasum -a "${_algo#sha}"
   elif command_exists openssl; then
-    _digest_run "$_dfile" openssl dgst "-$_algo"
+    _digest_run "$_algo" "$_dfile" openssl dgst "-$_algo"
   else
     die "No digest backend found. Install coreutils (${_algo}sum), perl (shasum), or openssl."
   fi
@@ -66,13 +85,29 @@ digest_file() {
 # looks at, which is the very failure this function was hardened against. That
 # is why every call site below spells `|| die`, and why a test drives the whole
 # path rather than trusting the guard's presence.
-_digest_run() { # file  command...
-  _dr_file="$1"
-  shift
-  _dr_out=$("$@" < "$_dr_file") || die "digest_file: $1 failed on $_dr_file"
+# EQUIVALENT MUTANT, registered rather than left for the next pass to re-derive:
+# scanning the fields backwards (`for (i = NF; i >= 1; i--)`) survives a green
+# suite. Every backend shape in play carries exactly one hex field, so "first"
+# and "last" are indistinguishable in-tree, and no fixture could reasonably
+# separate them without inventing a backend nobody uses.
+_digest_run() { # algo  file  command...
+  _dr_algo="$1"
+  _dr_file="$2"
+  shift 2
+  # `$*`, not `$1`: for the fallbacks the command name alone reads as `shasum
+  # failed` or `openssl failed`, losing the `-a 256` / `dgst -sha256` that says
+  # WHICH invocation broke.
+  _dr_out=$("$@" < "$_dr_file") || die "digest_file: '$*' failed on $_dr_file"
+  _dr_want=$(hash_digest_length "$_dr_algo")
   _dr_hex=$(printf '%s\n' "$_dr_out" |
-    awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-f]+$/) { print $i; exit } }')
-  [ -n "$_dr_hex" ] || die "digest_file: $1 produced no digest for $_dr_file: $_dr_out"
+    awk -v n="$_dr_want" '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-f]+$/ && length($i) == n) { print $i; exit } }')
+  # The WIDTH, not merely the presence of hex. Output truncated mid-write -- a
+  # full pipe, a killed process, a wrapper that echoes a prefix -- prints a short
+  # but perfectly hex token, and accepting it puts a wrong digest into a sidecar
+  # as canonical, or produces the "man-in-the-middle" diagnosis for a local tool
+  # that broke. Same reason hash_file_validate checks the width of a recorded
+  # digest instead of trusting that hex is hex.
+  [ -n "$_dr_hex" ] || die "digest_file: '$*' produced no $_dr_algo digest ($_dr_want hex characters) for $_dr_file: $_dr_out"
   printf '%s\n' "$_dr_hex"
 }
 
@@ -88,7 +123,7 @@ _digest_run() { # file  command...
 # already succeeded in producing.
 file_size() {
   _fs_out=$(wc -c < "$1") || die "file_size: wc failed on $1"
-  printf '%s' "$_fs_out" | tr -d ' \t'
+  printf '%s' "$_fs_out" | tr -d ' '
 }
 
 # HASH_COMMENT_RE -- how much of a line is the comment marker, for the `.hash`
@@ -144,7 +179,10 @@ HASH_COMMENT_RE='^[[:space:]]*#[[:space:]]*'
 # it; keeping a weak-hash code path out of the tree entirely is the point.
 hash_file_validate() {
   _hf="$1"
-  _err=$(awk -v CMT="$HASH_COMMENT_RE" '
+  _err=$(awk -v CMT="$HASH_COMMENT_RE" \
+    -v n256="$(hash_digest_length sha256)" \
+    -v n512="$(hash_digest_length sha512)" \
+    -v n1="$(hash_digest_length sha1)" '
     $0 ~ CMT { next }
     /^[[:space:]]*$/ { next }
     {
@@ -159,7 +197,7 @@ hash_file_validate() {
         # surfaces at verify_file as a digest MISMATCH, which reads as
         # tampering and sends the reader hunting a compromised mirror for a
         # defect that is two characters in a text file.
-        want = (k == "sha256" ? 64 : (k == "sha512" ? 128 : 40))
+        want = (k == "sha256" ? n256 : (k == "sha512" ? n512 : n1))
         if (length(v) != want) {
           printf("line %d: %s value is %d hex characters, expected %d\n", NR, k, length(v), want)
           next

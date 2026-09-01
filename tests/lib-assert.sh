@@ -97,6 +97,24 @@ _cleanup_on_signal() {
   trap 'exit 143' TERM
 }
 
+# Guard for an assertion whose subject may not exist. On a tree without the
+# feature an undefined function exits 127, which a bare "expected it to fail"
+# check reads as success and reports PASS -- exactly what tests/oracle-baseline.sh
+# rejects. Reports through _bad rather than skipping, for the reason
+# _make_unreadable gives: a check that quietly stops checking is worse than one
+# that fails.
+#
+# Here after being written twice, byte-identically, in tests/checksum-verification.sh
+# and tests/recipe-identity.sh -- and a third file was about to inherit the
+# comment without the code, which is how a copy becomes a claim nothing enforces.
+_require_fn() { # function-name  assertion-name
+  if command -v "$1" >/dev/null 2>&1; then
+    return 0
+  fi
+  _bad "$2" "$1 is not defined"
+  return 1
+}
+
 _pass() { printf 'PASS [%s]\n' "$1"; }
 _bad() {
   if [ "$#" -ge 2 ]; then

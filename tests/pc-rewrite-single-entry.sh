@@ -30,9 +30,11 @@ SCRIPT_DIR="$ROOT"
 # shellcheck source=lib/utils.sh
 . "$ROOT/lib/utils.sh"
 
-# One stub for every driver below. lib/framework.sh defines no die() of its own,
-# so this survives into each subshell -- three copies of it was the shape this
-# file exists to argue against.
+# One stub for every driver below. lib/framework.sh defines no die() of its own
+# AND sources nothing when it is loaded -- the second half is what matters here:
+# it is why _drive's `. lib/framework.sh` cannot clobber this stub, and why
+# sourcing lib/utils.sh above it is safe. Three copies of the stub was the shape
+# this file exists to argue against.
 # Invoked from the sourced lib/framework.sh, which the linter's call graph does
 # not reach; the finding is wrong here rather than tolerated.
 # shellcheck disable=SC2329

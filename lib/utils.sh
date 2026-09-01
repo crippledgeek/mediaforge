@@ -144,7 +144,11 @@ run_stdin() {
 # not happen (GH-85).
 #
 # The tmp file is removed on either failure, so a run that dies leaves no
-# half-written sibling for the next run to trip over.
+# half-written sibling for the next run to trip over. EQUIVALENT MUTANT,
+# registered rather than re-derived: deleting the `rm -f` in the MV arm survives
+# a green suite, because a same-directory `mv` of a file that exists does not
+# fail on any filesystem a test can construct. The awk arm's `rm -f` is covered
+# twice over.
 #
 # $3 onwards are passed to awk BEFORE the program, which is what lets a caller
 # supply `-v` bindings (hash_record_write passes three) without this needing to
