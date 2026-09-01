@@ -10,7 +10,7 @@ PKG_FILENAME="Vulkan-Headers-${PKG_VERSION}.tar.gz"
 # needs libvulkan.a, which doesn't exist. Decided at source-time so
 # stamp-cache hits also see the override.
 if [ -n "$LDEXEFLAGS" ]; then
-  log "Skipping --enable-vulkan (incompatible with --enable-static — libvulkan.a not available)"
+  log "Skipping --enable-vulkan (incompatible with --enable-static -- libvulkan.a not available)"
   PKG_FFMPEG_OPT=""
 else
   PKG_FFMPEG_OPT="--enable-vulkan"

@@ -268,7 +268,7 @@ _place_file() {
     2) die "the install helper failed to parse while installing '$_dest'
   (exit 2). Its text is truncated or altered; check
   $SCRIPT_DIR/lib/install-one-file.sh." ;;
-    3) die "cannot resolve the install destination '$_dest' — refusing to write." ;;
+    3) die "cannot resolve the install destination '$_dest' -- refusing to write." ;;
     5) if [ -n "$_pf_context" ]; then
          die "$_pf_context"
        fi
@@ -434,10 +434,10 @@ _remove_manifest_entries() {
     0) ;;
     2) die "the removal helper failed to parse (exit 2). Its text is truncated or
   altered; check $SCRIPT_DIR/lib/remove-listed-files.sh." ;;
-    3) die "cannot resolve '$_mr_target_real' — refusing to remove anything under it." ;;
+    3) die "cannot resolve '$_mr_target_real' -- refusing to remove anything under it." ;;
     4) die "internal: lib/remove-listed-files.sh rejected its arguments
   (mode '$_mr_mode', list '$_mr_list')." ;;
-    7) die "cannot open the manifest at '$_mr_list' — refusing to report a sweep
+    7) die "cannot open the manifest at '$_mr_list' -- refusing to report a sweep
   that removed nothing over files that are still there. Check that it is
   readable$([ -n "$_priv" ] && printf ' by root' || printf ' by you')." ;;
     1|126|127) die "could not run the removal helper (status $_mr_rc).
@@ -465,7 +465,7 @@ _remove_manifest_entries() {
   ('$_mr_out'). Its text may be truncated or altered; check
   $SCRIPT_DIR/lib/remove-listed-files.sh." ;;
     'REMOVED '[0-9]*) _mr_removed="${_mr_out#REMOVED }" ;;
-    *) die "the removal helper reported success without completing — no REMOVED
+    *) die "the removal helper reported success without completing -- no REMOVED
   sentinel. Its text may be truncated or altered; check
   $SCRIPT_DIR/lib/remove-listed-files.sh." ;;
   esac
@@ -533,7 +533,7 @@ do_install() {
     [ -f "$_pc" ] || continue
     _name=$(basename "$_pc")
     if pc_is_excluded "$_name"; then
-      log "  lib/pkgconfig/$_name (skipped — transitive utility)"
+      log "  lib/pkgconfig/$_name (skipped -- transitive utility)"
       continue
     fi
     _tmppc="$PREFIX/.logs/_pc_rewrite_$$"
@@ -682,7 +682,7 @@ do_install() {
   # the whole signal. Say so out loud rather than leaving a caller to discover it.
   if [ ! -s "$_manifest_tmp" ]; then
     rm -f "$_manifest_tmp"
-    warn "Nothing was installed to $_install_prefix — no files found in $PREFIX."
+    warn "Nothing was installed to $_install_prefix -- no files found in $PREFIX."
     warn "  The existing installation and its manifest are left untouched."
     warn "  Run './mediaforge.sh build' first."
     return 0
@@ -862,7 +862,7 @@ do_uninstall() {
   for _target in $_locations; do
     _manifest="$_target/.mediaforge-manifest"
     if [ ! -f "$_manifest" ]; then
-      warn "No manifest found at $_target — skipping"
+      warn "No manifest found at $_target -- skipping"
       continue
     fi
 
@@ -887,7 +887,7 @@ do_uninstall() {
     # "<prefix>//lib" against "<prefix>/" and never reaches its terminator.
     _target_real=$(_resolve_existing "$_target" "$_priv")
     if [ -z "$_target_real" ]; then
-      warn "Cannot resolve $_target — skipping"
+      warn "Cannot resolve $_target -- skipping"
       continue
     fi
     # Rebound onto the RESOLVED prefix now that we have it. The discovery check

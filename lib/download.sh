@@ -250,7 +250,7 @@ fetch_git() {
   # confusing refspec error. `v2.6` reaching this function is the #28 bug.
   _notchex=$(printf '%s' "$_commit" | tr -d '0-9a-f')
   if [ "${#_commit}" -ne 40 ] || [ -n "$_notchex" ]; then
-    die "fetch_git: '$_commit' is not a 40-character commit SHA. Pin a commit, not a tag or branch — a tag is mutable server-side and authenticates nothing."
+    die "fetch_git: '$_commit' is not a 40-character commit SHA. Pin a commit, not a tag or branch -- a tag is mutable server-side and authenticates nothing."
   fi
 
   if mf_is_git_clone "$_dest"; then
@@ -259,7 +259,7 @@ fetch_git() {
       log "$_dest already at $_commit"
       return 0
     fi
-    warn "$_dest is at ${_have:-an unreadable HEAD}, wanted $_commit — re-fetching"
+    warn "$_dest is at ${_have:-an unreadable HEAD}, wanted $_commit -- re-fetching"
     rm -rf "${_dest:?}"
   elif [ -e "$_dest" ] || [ -L "$_dest" ]; then
     # Exists but is not a clone. This is the tarball-to-git conversion case: a recipe

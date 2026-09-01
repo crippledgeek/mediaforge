@@ -83,7 +83,9 @@ if ! _lib_code | grep -q '^mf_printable()'; then
             printable-text-survives newlines-survive-in-our-own-messages \
             message-survives-without-tr line-form-fails-closed-without-tr \
             payload-description-is-one-line payload-description-shares-the-helper \
-            remote-tag-is-filtered reporters-share-the-helper; do
+            remote-tag-is-filtered reporters-share-the-helper \
+            filter-still-deletes-multibyte ascii-separator-survives \
+            reporter-text-survives-the-filter; do
     _bad "$_a" "mf_printable is absent — claim would be vacuous"
   done
   printf 'DONE: output-and-startup-hygiene\n'
@@ -215,6 +217,83 @@ if [ -z "$_missing" ]; then
   _pass reporters-share-the-helper
 else
   _bad reporters-share-the-helper "these reporters print interpolated values unfiltered:$_missing"
+fi
+
+# --- what the reporters are allowed to SAY ---------------------------------
+# The filter above is byte-defined on purpose, and the cost of that is paid
+# here: `[:print:]` in the C locale is 0x20-0x7E, every byte of a multibyte
+# UTF-8 character is outside it, and `tr -d` deletes rather than replaces. An
+# em-dash written into a die() message is therefore gone before any operator
+# sees it, leaving the two spaces that surrounded it:
+#
+#   [mediaforge] FATAL: No stamps at .../.stamps  run 'mediaforge.sh build' first
+#
+# Two spellings would fix that and only one is safe. Relaxing the filter to
+# admit printable multibyte cannot be done with a byte class: C1 controls are
+# 0x80-0x9F and UTF-8 continuation bytes are 0x80-0xBF, so they overlap. The
+# em-dash U+2014 is E2 80 94 -- both of its continuation bytes sit inside C1 --
+# and no `tr` range separates "the tail of a character" from "a bare CSI on a
+# terminal in an 8-bit locale". Telling them apart needs a UTF-8 decoder, and
+# it would widen mf_printable_line, the form whose input is written by whoever
+# answers a request. So the filter stays strict and the call sites stay ASCII.
+#
+# That decision is only worth anything if it holds, which is what these two
+# assert: the filter still deletes what the decision assumes it deletes, and no
+# reporter argument in the tree contains such a byte.
+_out=$(log "em—dash" 2>&1 || true)
+case "$_out" in
+  *"em—dash"*) _bad filter-still-deletes-multibyte "mf_printable now passes multibyte through; the ASCII-only rule below rests on it not doing that, so the trade in lib/utils.sh needs re-deciding rather than this assertion relaxing" ;;
+  *"emdash"*) _pass filter-still-deletes-multibyte ;;
+  *) _bad filter-still-deletes-multibyte "unexpected result from a multibyte message: $_out" ;;
+esac
+
+# The ASCII separator the call sites use instead, asserted through die() --
+# the reporter that prints on a fresh checkout, and the one the issue's example
+# came from.
+_out=$( (die "No stamps -- run build first") 2>&1 || true )
+case "$_out" in
+  *"No stamps -- run build first"*) _pass ascii-separator-survives ;;
+  *) _bad ascii-separator-survives "the ASCII separator did not survive the filter: $_out" ;;
+esac
+
+# The census. Two things about how it is spelled, both load-bearing:
+#
+# COMMENTS ARE STRIPPED, because this repo quotes its own calls verbatim in
+# prose and an unstripped needle would flag paragraphs rather than code. The
+# direction of _code_only's `#` truncation is the unusual one here: it also cuts
+# a `#` inside a string, so a message with one could hide a later em-dash. That
+# is a missed offender, not a false alarm, and a cosmetic one -- the trade this
+# helper's own comment asks callers to state.
+#
+# THE ARGUMENT, NOT THE LINE. lib/resolve.sh builds menu_radiolist labels that
+# end `) || die "H.264 prompt cancelled"`, and those labels reach the terminal
+# through lib/menu.sh's own printf, never through this filter -- their em-dashes
+# render correctly today. A line-granular census demands four correct lines be
+# changed, so the needle keeps only the tail from the last reporter command word
+# onward. A second reporter earlier on the same line is the gap that leaves;
+# reporters end statements here (die exits, `|| warn "..."` terminates), so the
+# shape does not occur, and a continuation line of a multi-line message is
+# likewise unseen.
+#
+# The byte class is written out rather than borrowed from the filter, because
+# GNU grep and GNU tr DISAGREE about `[:print:]` under LC_ALL=C: grep counts
+# 0x80-0xFF as printable, tr does not. Asking grep for "what tr deletes" in tr's
+# own words returns nothing at all, and the census reads as clean on a tree full
+# of em-dashes.
+_offenders=$(
+  for _oh_f in mediaforge.sh lib/*.sh recipes/*.sh recipes/*/*.sh; do
+    [ -f "$ROOT/$_oh_f" ] || continue
+    _code_only "$ROOT/$_oh_f" \
+      | sed -n -E 's/^(.*[^[:alnum:]_])?(log|warn|die)[[:space:]]+//p' \
+      | LC_ALL=C grep '[^[:blank:] -~]' \
+      | sed "s|^|$_oh_f: |"
+  done
+)
+if [ -z "$_offenders" ]; then
+  _pass reporter-text-survives-the-filter
+else
+  _bad reporter-text-survives-the-filter "these reporter arguments contain a byte mf_printable deletes, so the operator never sees it:
+$_offenders"
 fi
 
 printf 'DONE: output-and-startup-hygiene\n'

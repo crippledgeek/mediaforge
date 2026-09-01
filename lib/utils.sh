@@ -38,6 +38,19 @@
 # a PATH without `tr` is a broken environment rather than an attacker. So the
 # message wins, and the filter applies wherever it can. `command -v` is a shell
 # builtin, so asking costs no fork.
+# CALL SITES ARE ASCII, and that is this filter's cost rather than an accident
+# of how the messages happen to be typed. `[:print:]` here is 0x20-0x7E, so
+# every byte of a multibyte character is deleted -- an em-dash written into a
+# die() leaves the two spaces that surrounded it and nothing between them, which
+# is what an operator met on a fresh checkout ("No stamps at ...  run build
+# first"). The other spelling, admitting printable multibyte, cannot be had from
+# a byte class: C1 controls are 0x80-0x9F and UTF-8 continuation bytes are
+# 0x80-0xBF, and U+2014 is E2 80 94 -- both its tail bytes sit inside C1, so no
+# `tr` range keeps the dash while dropping a bare CSI. Separating them needs a
+# UTF-8 decoder, and it would widen mf_printable_line, whose input is written by
+# whoever answers a request. So the strict filter is kept and `--` is written at
+# the call sites; tests/output-and-startup-hygiene.sh censuses them, because a
+# convention nothing checks is one the next message breaks.
 mf_printable() {
   if command -v tr >/dev/null 2>&1; then
     printf '%s' "$*" | LC_ALL=C tr -dc '[:print:][:blank:]\n'

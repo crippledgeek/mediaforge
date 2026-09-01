@@ -26,7 +26,7 @@ PKG_REQUIRES_MESON=true
 # vulkan-headers.sh does for its header-only install. Decided at source time so
 # stamp-cache hits also see the override.
 if [ -n "$LDEXEFLAGS" ]; then
-  log "Skipping libplacebo (Vulkan GPU processing incompatible with --enable-static — libvulkan.a unavailable)"
+  log "Skipping libplacebo (Vulkan GPU processing incompatible with --enable-static -- libvulkan.a unavailable)"
   PKG_FFMPEG_OPT=""
   PKG_DISABLED=true
 else
