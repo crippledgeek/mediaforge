@@ -272,51 +272,65 @@ case "$_out" in
 esac
 
 # The census, as one function so the probes below cannot drift from the thing
-# they are probing. Three things about how it is spelled:
+# they are probing.
 #
-# THE ARGUMENT, NOT THE LINE. lib/resolve.sh builds menu_radiolist labels that
-# end `) || die "H.264 prompt cancelled"`, and those labels reach the terminal
-# through lib/menu.sh's own printf, never through this filter -- their em-dashes
-# render correctly today. A line-granular census demands four correct lines be
-# changed, so the needle keeps only the tail from the last reporter command word
-# onward. A second reporter earlier on the same line is the gap that leaves;
-# reporters end statements here (die exits, `|| warn "..."` terminates), so the
-# shape does not occur, and a continuation line of a multi-line message is
-# likewise unseen.
+# IT FOLLOWS A MESSAGE ACROSS LINES. A first version read only the line the
+# reporter word sits on, and declared the tree clean while SIX em-dashes were
+# still being deleted from lib/install.sh's die() messages -- among them the
+# sudoers-policy diagnostic, the longest text in the tree and the one an
+# operator reads when a privileged install has failed. So the awk below keeps a
+# running double-quote parity and treats the whole quoted string as the
+# argument. Per-line parity is not enough and was the bug: a continuation line
+# carrying no quote at all is even, which reads as "the message ended here" and
+# closed it after one line.
 #
-# THE BYTE CLASS IS WRITTEN OUT rather than borrowed from the filter, because
-# GNU grep and GNU tr DISAGREE about `[:print:]` under LC_ALL=C: grep counts
-# 0x80-0xFF as printable, tr does not. Asking grep for "what tr deletes" in tr's
-# own words returns nothing at all, and the census reads as clean on a tree full
-# of em-dashes.
+# COMMENTS ARE STRIPPED, and this catches nothing TODAY -- see the equivalent
+# mutant registered at the top of this file. It is kept for the false ALARM it
+# prevents, not a miss it catches.
 #
-# COMMENTS ARE STRIPPED, and this is the one of the three that catches nothing
-# TODAY -- mutation removing _code_only left the census green, because the
-# paragraphs quoting a reporter call verbatim now quote the ASCII form. It stays
-# because the failure it prevents is a false ALARM rather than a miss: the next
-# paragraph to quote a call and then use a dash would fail a correct tree, and
-# this repo's prose uses the dash throughout. _code_only's truncation runs the
-# other way -- it cuts at a `#` inside a string too, so a message containing one
-# could hide a later em-dash. That is a missed offender, and a cosmetic one.
+# THE BYTE CLASS IS WRITTEN OUT rather than borrowed from the filter as
+# `[^[:print:][:blank:]]`, because that spelling means different things to
+# different greps. Measured 2026-09-02 on an em-dash: GNU grep 3.12 agrees with
+# GNU coreutils tr 9.11 and matches it, but ugrep 7.8.4 -- which some shells,
+# this harness's own included, shadow `grep` with -- treats 0x80-0xFF as
+# printable under LC_ALL=C and matches nothing. Borrowing the class would make
+# the census read clean on a tree full of em-dashes wherever such a grep answers
+# first. The explicit range matches under both, which is the property wanted.
 #
-# The path is a parameter rather than something read out of $ROOT. `VAR=x fn`
-# is not a scoped assignment when fn is a FUNCTION -- POSIX keeps it in the
-# shell afterwards -- so a probe calling this as `ROOT="$_tmp" _reporter_args`
-# silently redirected every later assertion at the temp dir, and the census
-# scanned nothing and passed. That was written here, and caught by the two
-# assertions below.
+# WHAT IT DOES NOT SEE, all of it a miss rather than a false alarm except the
+# first:
+#   * the reporter word is not required to be in command position, so
+#     `_msg="check the log -- really"` or an awk program containing `warn `
+#     would be reported as an offending argument. No line in the tree has that
+#     shape today; it is the one gap that can fail a CORRECT tree.
+#   * a message assembled into a variable on one line and passed to a reporter
+#     on another -- lib/install.sh's `_pf_context` is that shape. Seeing those
+#     needs dataflow, not grep.
+#   * a second reporter word earlier on the same line: the needle keeps the tail
+#     from the LAST one. No line in the tree has two.
+#   * _code_only truncates at a `#` inside a string, so a message containing one
+#     could hide a later em-dash.
 _reporter_args() { # path to a shell file
-  _code_only "$1" \
-    | sed -n -E 's/^(.*[^[:alnum:]_])?(log|warn|die)[[:space:]]+//p' \
-    | LC_ALL=C grep '[^[:blank:] -~]'
+  _code_only "$1" | awk '
+    {
+      line = $0
+      if (!inmsg) {
+        if (!match(line, /(^|[^[:alnum:]_])(log|warn|die)[ \t]+/)) next
+        line = substr(line, RSTART + RLENGTH)
+      }
+      print line
+      probe = line
+      gsub(/\\"/, "", probe)
+      if (gsub(/"/, "\"", probe) % 2 == 1) inmsg = !inmsg
+    }' | LC_ALL=C grep '[^[:blank:] -~]'
 }
 
-# The census itself takes the tree as a parameter, so the probe below runs THIS
-# loop rather than a second spelling of it. Three separate mutations survived
-# the earlier shape -- a dead needle, an empty file list, and the needle simply
-# not being called on the files -- and each of them looks exactly like a clean
-# tree, because that is what a census reports by saying nothing. A probe that
-# re-implements the walk cannot see any of the three.
+# The census takes the tree as a parameter and walks it through the shared
+# helper, so the probe below runs THIS code rather than a second spelling of it.
+# Three mutations survived an earlier shape -- a dead needle, an empty file
+# list, and the needle never being called on the files -- and all three look
+# exactly like a clean tree, because that is what a census reports by saying
+# nothing.
 _census() { # tree root
   # A root with no mediaforge.sh in it is a broken call, not a clean tree, and
   # the two are otherwise the same empty output: aiming this at a path that does
@@ -326,24 +340,27 @@ _census() { # tree root
     printf 'census: no tree at %s\n' "$1"
     return
   fi
-  for _oh_f in mediaforge.sh lib/*.sh recipes/*.sh recipes/*/*.sh; do
-    [ -f "$1/$_oh_f" ] || continue
+  for _oh_f in $(_tree_sh_files "$1"); do
     _reporter_args "$1/$_oh_f" | sed "s|^|$_oh_f: |"
   done
 }
 
-# A tree shaped like the real one, holding one message with an em-dash in it.
-# It is the whole population, so a walk that opens nothing and a needle that
-# matches nothing both show up here as silence where an offender was planted.
-mkdir -p "$_tmp/census/lib" "$_tmp/census/recipes/hwaccel"
-printf 'die "planted %s offender"\n' "$(printf '\342\200\224')" > "$_tmp/census/mediaforge.sh"
-: > "$_tmp/census/lib/utils.sh"
-: > "$_tmp/census/recipes/hwaccel/nv-codec.sh"
+# A tree shaped like the real one whose only message holds an em-dash, and one
+# whose offender is on the SECOND line of the message -- the shape that was
+# missed. Because _tree_sh_files roots its globs at the tree it is given, this
+# fixture is the whole population rather than an intersection with the repo's
+# filenames, so a planted file need not mirror a real one.
+mkdir -p "$_tmp/census/lib"
+_em=$(printf '\342\200\224')
+printf 'die "planted %s offender"\n' "$_em" > "$_tmp/census/mediaforge.sh"
+printf 'die "first line\n  second %s line"\n' "$_em" > "$_tmp/census/lib/multi.sh"
 _probe=$(_census "$_tmp/census")
 case "$_probe" in
-  *"mediaforge.sh: "*"planted"*) _pass census-sees-a-planted-offender ;;
-  '') _bad census-sees-a-planted-offender "the census reported nothing over a tree whose only message holds an em-dash, so its silence on the real tree is not evidence of anything" ;;
-  *) _bad census-sees-a-planted-offender "the census found something other than the planted offender: $_probe" ;;
+  *"mediaforge.sh: "*"planted"*"lib/multi.sh: "*"second"*)
+    _pass census-sees-a-planted-offender ;;
+  '') _bad census-sees-a-planted-offender "the census reported nothing over a tree whose only messages hold em-dashes, so its silence on the real tree is not evidence of anything" ;;
+  *"planted"*) _bad census-sees-a-planted-offender "the census saw the single-line offender but not the one on a message's second line, which is the shape that shipped six live offenders: $_probe" ;;
+  *) _bad census-sees-a-planted-offender "the census found something other than the planted offenders: $_probe" ;;
 esac
 
 _offenders=$(_census "$ROOT")

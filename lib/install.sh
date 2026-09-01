@@ -254,7 +254,7 @@ _place_file() {
     0)
       [ "$_helper_out" = "INSTALLED" ] \
         || die "the install helper reported success for '$_dest' without
-  completing — no INSTALLED sentinel. The helper text may be truncated or
+  completing -- no INSTALLED sentinel. The helper text may be truncated or
   altered; check $SCRIPT_DIR/lib/install-one-file.sh." ;;
     6) die "install destination '$_dest' resolves to '$_helper_out', outside the
   install prefix '$_install_prefix_real'. Refusing a privileged write through a
@@ -273,7 +273,7 @@ _place_file() {
          die "$_pf_context"
        fi
        die "failed to install $_dest (source: $_src).
-  Nothing is at that path now — the previous file, if any, was removed before
+  Nothing is at that path now -- the previous file, if any, was removed before
   the copy. Re-run install once the cause is fixed." ;;
     4) die "internal: lib/install-one-file.sh rejected its arguments for '$_dest'.
   A destination with a trailing slash is one cause: it names a directory, and
@@ -287,15 +287,15 @@ _place_file() {
     1|126|127) die "could not run the install helper for '$_dest' (status $_install_rc).
   For a privileged prefix this runs '$_priv sh -c' over
   $SCRIPT_DIR/lib/install-one-file.sh, which a sudoers policy permitting only
-  mkdir/cp/rm will refuse — that is one cause. A missing or unreadable helper is
+  mkdir/cp/rm will refuse -- that is one cause. A missing or unreadable helper is
   the other.
   A root install needs no per-file elevation at all and is the way past a
-  policy like that: re-run the whole command as root — from a root shell, or
+  policy like that: re-run the whole command as root -- from a root shell, or
   through a sudoers entry for this script, since a policy that refuses sh
   refuses 'sudo ./mediaforge.sh' just as readily. For example
   'sudo ./mediaforge.sh install --prefix=$_install_prefix'. Do that only for a
   SYSTEM prefix: as root into a user-owned one it leaves root-owned files
-  behind. Scoping an entry to the helper instead is not available — it reaches
+  behind. Scoping an entry to the helper instead is not available -- it reaches
   sh as text, not as a path, so there is no command name to name." ;;
     *) die "internal: the install helper for '$_dest' exited $_install_rc" ;;
   esac
@@ -443,7 +443,7 @@ _remove_manifest_entries() {
     1|126|127) die "could not run the removal helper (status $_mr_rc).
   For a privileged prefix this runs '$_priv sh -c' over
   $SCRIPT_DIR/lib/remove-listed-files.sh, which a sudoers policy permitting only
-  mkdir/cp/rm will refuse — that is one cause. A missing or unreadable helper is
+  mkdir/cp/rm will refuse -- that is one cause. A missing or unreadable helper is
   the other. Re-running the whole command as root needs no per-file elevation." ;;
     *) die "internal: the removal helper exited $_mr_rc" ;;
   esac

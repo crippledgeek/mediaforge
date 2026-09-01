@@ -51,6 +51,14 @@
 # whoever answers a request. So the strict filter is kept and `--` is written at
 # the call sites; tests/output-and-startup-hygiene.sh censuses them, because a
 # convention nothing checks is one the next message breaks.
+#
+# THE RULE BINDS THESE THREE REPORTERS, and nothing else. Text written straight
+# to the terminal with printf never passes through here, so it keeps whatever
+# characters its author chose -- cmd_check_shadowers' legend in mediaforge.sh,
+# lib/menu.sh's option rows, lib/resolve.sh's menu labels. That is why a screen
+# can show an ASCII separator from log() directly under an em-dash from printf:
+# the two lines went to the terminal by different routes and only one of them is
+# filtered. It reads as a half-applied convention and is not one.
 mf_printable() {
   if command -v tr >/dev/null 2>&1; then
     printf '%s' "$*" | LC_ALL=C tr -dc '[:print:][:blank:]\n'
