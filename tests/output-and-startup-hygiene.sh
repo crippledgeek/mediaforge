@@ -39,6 +39,14 @@
 # branch an assertion matched the words in a COMMENT rather than in the code --
 # once in this file, found by mutation -- so a needle that has not had comments
 # stripped is asking what a file SAYS, not what it does.
+# EQUIVALENT MUTANTS -- registered so a later pass reads this rather than
+# re-deriving it. Dropping _code_only from _reporter_args leaves the census
+# green: the paragraphs in this tree that quote a reporter call verbatim now
+# quote the ASCII form, so stripping comments removes nothing the needle would
+# otherwise have matched. It is kept for the false ALARM it prevents -- the next
+# paragraph to quote a call and then use a dash would fail a correct tree, and
+# this repo's prose uses the dash throughout -- and it will stop being equivalent
+# the moment one does.
 set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT"
 _fail=0
@@ -85,7 +93,7 @@ if ! _lib_code | grep -q '^mf_printable()'; then
             payload-description-is-one-line payload-description-shares-the-helper \
             remote-tag-is-filtered reporters-share-the-helper \
             filter-still-deletes-multibyte ascii-separator-survives \
-            census-sees-a-planted-offender census-scans-the-tree \
+            census-sees-a-planted-offender \
             reporter-text-survives-the-filter; do
     _bad "$_a" "mf_printable is absent — claim would be vacuous"
   done
@@ -297,48 +305,34 @@ _reporter_args() { # path to a shell file
     | LC_ALL=C grep '[^[:blank:] -~]'
 }
 
-# A census is silent on a clean tree, which is the same shape it has when the
-# needle has stopped matching anything: mutating the grep to a string no file
-# contains left it green. So the needle is shown a planted offender first.
-mkdir -p "$_tmp/census"
-printf 'die "planted %s offender"\n' "$(printf '\342\200\224')" > "$_tmp/census/probe.sh"
-if [ -n "$(_reporter_args "$_tmp/census/probe.sh")" ]; then
-  _pass census-sees-a-planted-offender
-else
-  _bad census-sees-a-planted-offender "the census needle did not flag a reporter argument holding an em-dash, so its silence on the tree means nothing"
-fi
-
-# The other half of that silence, and the one a working needle does not cover:
-# a loop handed no files reads identically to a clean tree. Inverting the `-f`
-# test left the census green. So it names back what it opened.
-_scanned=$(
+# The census itself takes the tree as a parameter, so the probe below runs THIS
+# loop rather than a second spelling of it. Three separate mutations survived
+# the earlier shape -- a dead needle, an empty file list, and the needle simply
+# not being called on the files -- and each of them looks exactly like a clean
+# tree, because that is what a census reports by saying nothing. A probe that
+# re-implements the walk cannot see any of the three.
+_census() { # tree root
   for _oh_f in mediaforge.sh lib/*.sh recipes/*.sh recipes/*/*.sh; do
-    [ -f "$ROOT/$_oh_f" ] && printf '%s\n' "$_oh_f"
+    [ -f "$1/$_oh_f" ] || continue
+    _reporter_args "$1/$_oh_f" | sed "s|^|$_oh_f: |"
   done
-)
-_missing=''
-for _oh_want in mediaforge.sh lib/utils.sh recipes/hwaccel/nv-codec.sh; do
-  case "
-$_scanned
-" in
-    *"
-$_oh_want
-"*) ;;
-    *) _missing="$_missing $_oh_want" ;;
-  esac
-done
-if [ -z "$_missing" ]; then
-  _pass census-scans-the-tree
-else
-  _bad census-scans-the-tree "the census never opened these files, so a silent result is an empty population rather than a clean one:$_missing"
-fi
+}
 
-_offenders=$(
-  printf '%s\n' "$_scanned" | while IFS= read -r _oh_f; do
-    [ -n "$_oh_f" ] || continue
-    _reporter_args "$ROOT/$_oh_f" | sed "s|^|$_oh_f: |"
-  done
-)
+# A tree shaped like the real one, holding one message with an em-dash in it.
+# It is the whole population, so a walk that opens nothing and a needle that
+# matches nothing both show up here as silence where an offender was planted.
+mkdir -p "$_tmp/census/lib" "$_tmp/census/recipes/hwaccel"
+printf 'die "planted %s offender"\n' "$(printf '\342\200\224')" > "$_tmp/census/mediaforge.sh"
+: > "$_tmp/census/lib/utils.sh"
+: > "$_tmp/census/recipes/hwaccel/nv-codec.sh"
+_probe=$(_census "$_tmp/census")
+case "$_probe" in
+  *"mediaforge.sh: "*"planted"*) _pass census-sees-a-planted-offender ;;
+  '') _bad census-sees-a-planted-offender "the census reported nothing over a tree whose only message holds an em-dash, so its silence on the real tree is not evidence of anything" ;;
+  *) _bad census-sees-a-planted-offender "the census found something other than the planted offender: $_probe" ;;
+esac
+
+_offenders=$(_census "$ROOT")
 if [ -z "$_offenders" ]; then
   _pass reporter-text-survives-the-filter
 else
