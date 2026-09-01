@@ -8,8 +8,9 @@
 
 # Reset a build directory: remove whatever is there, then recreate it empty.
 # Recipes call this instead of writing the removal and the creation out
-# themselves, because neither status was checked at any of the eighteen sites
-# that did (GH-84).
+# themselves, because not one of the twenty sites that did looked at either
+# status -- eighteen of them wrote both statements, two wrote only the removal
+# and left the build system to create the directory (GH-84).
 #
 # Nothing in mediaforge sets `set -e`, so `rm -rf build && mkdir -p build`
 # failing is silent twice over: the `&&` short-circuits, so the directory is
@@ -17,8 +18,9 @@
 # recipe then CONFIGURES AGAINST THE PREVIOUS BUILD'S TREE -- a CMake or meson
 # cache holding paths, feature results and dependency locations from a source
 # tree that no longer exists. The build succeeds; what breaks is FFmpeg's link
-# step, nowhere near the recipe that caused it. That displaced shape is what
-# GH-59 and GH-80 also exist to close.
+# step, nowhere near the recipe that caused it. That displaced shape -- a status
+# dropped where nothing looks at it, surfacing far from its cause -- is the one
+# GH-80 closed in the manifest walk.
 #
 # `rm -rf` failing is not hypothetical: a root-owned leftover from a `sudo`
 # misfire is enough, and so is EBUSY on a path something still holds open.
@@ -38,8 +40,19 @@
 # build directories it clears today -- a behaviour change riding inside a fix,
 # which is what nobody reviews for. It also logs to $PREFIX/.logs, and a
 # directory reset has no output worth a log file.
+#
+# An EMPTY argument is refused rather than acted on, and so is a call with no
+# arguments at all. `mf_reset_dir "$_src/build"` with $_src unset expands to
+# `/build`, which this cannot see -- but the empty case it can, and the rest of
+# lib/ already holds that line: lib/download.sh and lib/cleanup.sh spell it
+# `${x:?}` at their own `rm -rf` sites. A no-argument call is the same class of
+# mistake one loop iteration further out, and silently doing nothing is the
+# worst answer available to a function whose job is to guarantee a clean
+# directory.
 mf_reset_dir() {
+  [ "$#" -ge 1 ] || die "mf_reset_dir: called with no directory to reset"
   for _rd_dir in "$@"; do
+    [ -n "$_rd_dir" ] || die "mf_reset_dir: empty directory argument"
     rm -rf -- "$_rd_dir" || die "Failed to remove build directory: $_rd_dir"
     mkdir -p -- "$_rd_dir" || die "Failed to create build directory: $_rd_dir"
   done
