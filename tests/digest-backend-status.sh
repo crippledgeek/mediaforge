@@ -51,7 +51,18 @@ trap 'rm -rf "$_tmp"' EXIT
 # replacing is deliberate -- replacing PATH entirely would test "no tools at
 # all", which is a different claim and one command_exists already answers.
 mkdir -p "$_tmp/bin"
+# Each block declares the WHOLE set of broken tools it wants, because a stub left
+# behind by the previous block is not a harmless leftover: the size assertion
+# below inherited a broken `sha256sum` and passed because the DIGEST guard fired
+# first, which is the very confusion its own comment warns about. Clearing first
+# makes the set visible at every site instead of depending on what ran before.
 _stub() { # name  body
+  rm -f "$_tmp"/bin/*
+  _stub_add "$1" "$2"
+}
+
+# ...and the additive form, for a block that needs two tools broken at once.
+_stub_add() { # name  body
   printf '#!/bin/sh\n%s\n' "$2" > "$_tmp/bin/$1"
   chmod +x "$_tmp/bin/$1"
 }
@@ -144,7 +155,6 @@ fi
 _stub wc 'exit 1'
 _out=$(_sandboxed file_size "$_tmp/payload")
 _glob failed-wc-is-fatal "$_out" '*wc failed*' 'file_size with a wc that exits 1'
-rm -f "$_tmp/bin/wc"
 
 # A TRUNCATED digest is fatal too. Output cut mid-write is still perfectly hex,
 # so the emptiness guard above does not see it -- and what it costs is worse than
@@ -185,7 +195,6 @@ EOF
   # report "the wrong size" for the same broken host.
   _stub wc 'exit 1'
   _out=$(PKG_HASH_FILE="$_tmp/pkg.hash" _sandboxed verify_file "$_tmp/pkg.tar.gz" pkg.tar.gz)
-  rm -f "$_tmp/bin/wc"
   _glob verify-file-size-failure-is-fatal "$_out" '*cannot be sized*' 'verify_file with a wc that exits 1'
 fi
 
@@ -208,7 +217,6 @@ if _require_fn hash_record_write failed-sizing-records-nothing; then
   : > "$_tmp/nosize-sink.hash"
   _stub wc 'exit 1'
   _sandboxed hash_record_write "$_tmp/nosize-sink.hash" payload "$_tmp/payload" >/dev/null
-  rm -f "$_tmp/bin/wc"
   _reasons=""
   [ -s "$_tmp/nosize-sink.hash" ] &&
     _reasons=" a record was written though the file could not be sized:[$(cat "$_tmp/nosize-sink.hash")]"
@@ -254,7 +262,6 @@ esac
 [ "$(cat "$_tmp/rewrite-me")" = original ] || _reasons="$_reasons the original was replaced by the failed rewrite."
 [ -e "$_tmp/rewrite-me.tmp" ] && _reasons="$_reasons a .tmp sibling was left behind."
 _verdict failed-rewrite-dies-and-keeps-the-original "$_reasons"
-rm -f "$_tmp/bin/awk"
 
 # The `-v` pass-through, which is the part of mf_awk_rewrite's shape a reader
 # cannot infer from a call site: hash_record_write writes its three bindings
@@ -273,14 +280,23 @@ if _require_fn mf_awk_rewrite rewrite-passes-awk-bindings-through; then
   # lib/framework.sh's mf_pc_add_stdcxx already carry, and for the same reason:
   # the linter cannot tell an awk program from shell once it is an argument to a
   # shell function.
+  # In a subshell, like every other call that can die: reordering the arguments
+  # inside the helper makes awk fail here, and an unwrapped call would take the
+  # DONE sentinel with it -- reported by oracle-baseline as an abort rather than
+  # as this assertion failing, which is a diagnosis of the wrong thing.
+  _reasons=""
   # shellcheck disable=SC2016
-  mf_awk_rewrite "$_tmp/bindings" '{ print $0 " " tag }' -v tag=BOUND
-  _glob rewrite-passes-awk-bindings-through "$(cat "$_tmp/bindings")" '*keep BOUND*' 'mf_awk_rewrite with -v tag=BOUND'
+  ( mf_awk_rewrite "$_tmp/bindings" '{ print $0 " " tag }' -v tag=BOUND ) >/dev/null 2>&1 ||
+    _reasons=" the helper died on a well-formed call."
+  case "$(cat "$_tmp/bindings")" in
+    *"keep BOUND"*) ;;
+    *) _reasons="$_reasons the -v binding did not reach the program: [$(cat "$_tmp/bindings")]." ;;
+  esac
+  _verdict rewrite-passes-awk-bindings-through "$_reasons"
 
   printf 'original\n' > "$_tmp/named"
   _stub awk 'exit 2'
   _out=$(PKG_NAME=probe _sandboxed mf_awk_rewrite "$_tmp/named" '{print}')
-  rm -f "$_tmp/bin/awk"
   _glob rewrite-failure-names-the-package "$_out" '*probe: failed to rewrite*' 'mf_awk_rewrite under PKG_NAME=probe'
 fi
 
