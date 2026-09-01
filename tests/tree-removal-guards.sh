@@ -1,6 +1,7 @@
 #!/bin/sh
-# Pins that a build directory is reset in exactly one place (mf_reset_dir,
-# lib/framework.sh) and that a reset which cannot be completed KILLS the recipe.
+# Pins that no recipe removes a tree with a bare `rm -rf`, and that each of the
+# two removal POLICIES fires: mf_reset_dir / mf_remove_tree kill the recipe when
+# the removal is refused, mf_remove_temp reports and continues.
 #
 # Before this, twenty sites reset a build directory themselves: fourteen as the
 # `rm -rf X && mkdir -p X` one-liner (thirteen of them over a literal `build`,
@@ -12,6 +13,14 @@
 # the `&&`, the directory is never recreated, and the recipe configures against
 # the PREVIOUS build's cache -- which is a silent success now and a link error in
 # FFmpeg later, nowhere near the recipe that caused it (GH-84).
+#
+# The second policy exists because the two removals in this tree answer to
+# different reasons. Dropping files a previous version installed MUST succeed --
+# the staged install merges with a tar pipe and the merge only ever adds, so the
+# removal is the only way anything ever leaves $PREFIX (GH-86). Removing a
+# `mktemp -d` scratch tree need not: a failure there leaks a temp directory and
+# dying over it would abort a build. Naming both is what lets the grep below
+# demand that recipes/ contains no third answer.
 #
 # The behavioural half is the load-bearing one. A grep can only see that the
 # call sites route through the helper; it cannot see whether the helper's guard
@@ -27,8 +36,14 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT"
 SCRIPT_DIR="$ROOT"
 # shellcheck source=lib/utils.sh
 . lib/utils.sh
-# shellcheck source=lib/framework.sh
-. lib/framework.sh
+# Sourced only if it is there. tests/oracle-baseline.sh runs this file against
+# the MERGE BASE, where lib/remove.sh does not exist yet -- and under `set -e` a
+# failed `.` aborts the run, which the gate reads as "asserted nothing at all"
+# rather than as the nine failing assertions it should see. Absent the file the
+# helpers are simply undefined, which is what every assertion below then
+# reports.
+# shellcheck source=lib/remove.sh
+[ -f lib/remove.sh ] && . lib/remove.sh
 _fail=0
 # shellcheck source=tests/lib-assert.sh
 . "$ROOT/tests/lib-assert.sh"
@@ -41,12 +56,12 @@ trap 'chmod -R u+rwX "$_tmp" 2>/dev/null || true; rm -rf "$_tmp"' EXIT
 
 # 1. The mechanism exists once. Read through _lib_code, because this file's own
 #    header quotes the helper's name in prose and so does framework.sh's.
-_defs=$(_lib_code | grep -c 'mf_reset_dir() {' || true)
-if [ "$_defs" = 1 ]; then
-  _pass reset-defined-once
-else
-  _bad reset-defined-once "found $_defs definitions of mf_reset_dir in lib/"
-fi
+_reasons=""
+for _fn in mf_reset_dir mf_remove_tree mf_remove_temp; do
+  _defs=$(_lib_code | grep -c "$_fn() {" || true)
+  [ "$_defs" = 1 ] || _reasons="$_reasons $_fn:$_defs"
+done
+_verdict each-helper-defined-once "$_reasons"
 
 # 2. THE FLOOR for assertion 3, which is a "grep finds nothing" claim: a
 #    recipes/ that called the helper nowhere would satisfy it having verified
@@ -89,6 +104,20 @@ for _f in $(find recipes -name '*.sh' | sort); do
 "
 done
 _verdict no-recipe-resets-a-build-dir-itself "$(printf '%s' "$_own" | head -3)"
+
+# 3b. ...and no recipe removes a tree any other way either. This is the claim
+#     the two named policies buy: with both spelled out in lib/framework.sh, a
+#     bare `rm -rf` in a recipe is always a third answer nobody decided on, so
+#     the assertion needs no allowlist to maintain -- and an allowlist is
+#     maintained by whoever adds the next site, which is precisely who does not
+#     know it exists.
+_bare=""
+for _f in $(find recipes -name '*.sh' | sort); do
+  _hits=$(_code_only "$_f" | grep -n 'rm -rf' | sed "s|^|$_f:|")
+  [ -z "$_hits" ] || _bare="$_bare$_hits
+"
+done
+_verdict no-recipe-removes-a-tree-unguarded "$(printf '%s' "$_bare" | head -3)"
 
 # 4. A removal that cannot happen is fatal. Removing `build` needs write
 #    permission on its PARENT, not on `build` itself, so a 0555 parent stops the
@@ -173,7 +202,7 @@ _reset_is_clean reset-handles-every-directory-given \
 #    `${x:?}` at their own removals.
 _empty=""
 _out=$( (mf_reset_dir "$_empty") 2>&1 || true)
-_glob empty-argument-refused "$_out" '*empty directory argument*' 'mf_reset_dir with an empty argument'
+_glob empty-argument-refused "$_out" '*empty path argument*' 'mf_reset_dir with an empty argument'
 
 # 9. ...and so is a call with no arguments, which the loop would otherwise treat
 #    as "nothing to do". A function whose contract is "this directory is now
@@ -181,5 +210,41 @@ _glob empty-argument-refused "$_out" '*empty directory argument*' 'mf_reset_dir 
 _out=$( (mf_reset_dir) 2>&1 || true)
 _glob no-argument-call-refused "$_out" '*no directory to reset*' 'mf_reset_dir with no arguments'
 
-printf 'DONE: build-dir-reset\n'
+# 10. mf_remove_tree removes, and dies when it cannot. The 0555 parent from
+#     assertions 4 and 5 is reused: it is the same refusal, reached through the
+#     entry point recipes/hwaccel/amf.sh and recipes/tools/meson.sh call.
+_gone="$_tmp/gone"
+mkdir -p "$_gone/tree"
+: > "$_gone/tree/old-header.h"
+_reasons=""
+( mf_remove_tree "$_gone/tree" ) >/dev/null 2>&1 || _reasons=" helper returned non-zero"
+[ -e "$_gone/tree" ] && _reasons="$_reasons path-survived"
+_verdict remove-tree-removes "$_reasons"
+
+if [ -d "$_ro/build" ]; then
+  _out=$( (mf_remove_tree "$_ro/build") 2>&1 || true)
+  _glob remove-tree-failure-is-fatal "$_out" '*Failed to remove*' 'mf_remove_tree on a path it cannot unlink'
+else
+  _bad remove-tree-failure-is-fatal "fixture unavailable: $_ro/build was removed by an earlier assertion"
+fi
+
+_out=$( (mf_remove_tree) 2>&1 || true)
+_glob remove-tree-no-argument-refused "$_out" '*no path to remove*' 'mf_remove_tree with no arguments'
+
+# 11. mf_remove_temp is the OTHER policy, and the difference is the whole point:
+#     a failed temp cleanup warns and the caller keeps going. Asserted as both
+#     halves -- the warning is emitted AND the function returns 0 -- because a
+#     mutation that turned the warn into a die would still print something.
+_out=$( (mf_remove_temp "$_ro/build" && printf 'CONTINUED\n') 2>&1 || true)
+_glob remove-temp-warns-and-continues "$_out" '*WARNING*leaked*CONTINUED*' 'mf_remove_temp on a path it cannot unlink'
+
+_scratch="$_tmp/scratch"
+mkdir -p "$_scratch/probe"
+: > "$_scratch/probe/probe.cu"
+_reasons=""
+( mf_remove_temp "$_scratch/probe" ) >/dev/null 2>&1 || _reasons=" helper returned non-zero"
+[ -e "$_scratch/probe" ] && _reasons="$_reasons path-survived"
+_verdict remove-temp-removes "$_reasons"
+
+printf 'DONE: tree-removal-guards\n'
 exit "$_fail"

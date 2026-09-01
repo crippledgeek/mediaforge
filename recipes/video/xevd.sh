@@ -59,7 +59,7 @@ pkg_install() {
   cp src_main/libxevd.a "$_dest/lib/libxevd.a" \
     || die "xevd static lib (src_main/libxevd.a) not found"
   rm -f "$PREFIX/lib/libxevd.so" "$PREFIX/lib/libxevd.so".*
-  rm -rf "$PREFIX/lib/xevd"
+  mf_remove_tree "$PREFIX/lib/xevd"
 }
 
 # xevd is C++ but its pkgconfig omits -lstdc++ for static linking.

@@ -116,7 +116,7 @@ pkg_post_install() {
   # shellcheck disable=SC2086
   run ar cr "$_merged" -- "$_work"/*.o
   run ranlib "$_merged"
-  rm -rf "$_work"
+  mf_remove_temp "$_work"
   # Drop the split archives: the .pc and FFmpeg reference only -llcevc_dec now,
   # and leaving them would let a downstream pick the broken split set.
   rm -f "$_libdir"/liblcevc_dec_*.a

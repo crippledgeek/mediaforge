@@ -6,58 +6,6 @@
 # SC2034: PKG_* defaults below are read by recipe pkg_* functions after this
 # file is sourced; shellcheck can't see the cross-file consumer.
 
-# Reset a build directory: remove whatever is there, then recreate it empty.
-# Recipes call this instead of writing the removal and the creation out
-# themselves, because not one of the twenty sites that did looked at either
-# status -- eighteen of them wrote both statements, two wrote only the removal
-# and left the build system to create the directory (GH-84).
-#
-# Nothing in mediaforge sets `set -e`, so `rm -rf build && mkdir -p build`
-# failing is silent twice over: the `&&` short-circuits, so the directory is
-# never recreated, and the non-zero status is discarded by the caller. The
-# recipe then CONFIGURES AGAINST THE PREVIOUS BUILD'S TREE -- a CMake or meson
-# cache holding paths, feature results and dependency locations from a source
-# tree that no longer exists. The build succeeds; what breaks is FFmpeg's link
-# step, nowhere near the recipe that caused it. That displaced shape -- a status
-# dropped where nothing looks at it, surfacing far from its cause -- is the one
-# GH-80 closed in the manifest walk.
-#
-# `rm -rf` failing is not hypothetical: a root-owned leftover from a `sudo`
-# misfire is enough, and so is EBUSY on a path something still holds open.
-#
-# BOTH statuses are checked, because they fail for different reasons and a
-# reader needs to know which happened: the removal fails on what is already
-# there, the creation on the parent it has to write into. A single message
-# covering both would name neither.
-#
-# Variadic, because recipes/video/x265.sh resets three sibling directories
-# (8bit 10bit 12bit) as one step -- and it did so with `2>/dev/null` on the rm,
-# which is the strongest form of the same defect: the error text discarded as
-# well as the status.
-#
-# Deliberately NOT routed through `run`, which is the other way to reach a die.
-# `run` returns 0 without acting under DRY_RUN, so a dry run would stop clearing
-# build directories it clears today -- a behaviour change riding inside a fix,
-# which is what nobody reviews for. It also logs to $PREFIX/.logs, and a
-# directory reset has no output worth a log file.
-#
-# An EMPTY argument is refused rather than acted on, and so is a call with no
-# arguments at all. `mf_reset_dir "$_src/build"` with $_src unset expands to
-# `/build`, which this cannot see -- but the empty case it can, and the rest of
-# lib/ already holds that line: lib/download.sh and lib/cleanup.sh spell it
-# `${x:?}` at their own `rm -rf` sites. A no-argument call is the same class of
-# mistake one loop iteration further out, and silently doing nothing is the
-# worst answer available to a function whose job is to guarantee a clean
-# directory.
-mf_reset_dir() {
-  [ "$#" -ge 1 ] || die "mf_reset_dir: called with no directory to reset"
-  for _rd_dir in "$@"; do
-    [ -n "$_rd_dir" ] || die "mf_reset_dir: empty directory argument"
-    rm -rf -- "$_rd_dir" || die "Failed to remove build directory: $_rd_dir"
-    mkdir -p -- "$_rd_dir" || die "Failed to create build directory: $_rd_dir"
-  done
-}
-
 # The one place cmake is configured. Recipes call this instead of `run cmake`,
 # so the install prefix and the build type are set once rather than at the 21
 # configure call sites spread over 17 recipes -- the build type in particular is

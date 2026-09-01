@@ -183,8 +183,18 @@ _unseed() { # prefix-root  $PREFIX-relative-dir
 # `default_noop` is not reached by these two phases -- meson uses it for
 # configure and build -- and is here so a recipe that grows one fails on its own
 # terms rather than on a missing stub.
+# The REMOVAL helpers are the real ones, not stubs: two of the phases driven
+# here (amf, meson) exist to drop what a previous version installed, and this
+# file's own assertions check that the drop happened. A stub of mf_remove_tree
+# would be a second implementation of the policy under test, free to drift from
+# it silently -- which is the defect class GH-84/GH-86 closed. lib/remove.sh is
+# exactly that policy and nothing else, which is why it is its own file: sourcing
+# the whole engine here would drag $PREFIX-reading functions into a file that
+# sets PREFIX inside subshells, and shellcheck is right to call that confusing.
 # shellcheck disable=SC2329
 _recipe_stubs() {
+  # shellcheck source=lib/remove.sh
+  . "$ROOT/lib/remove.sh"
   die()  { printf 'die: %s\n' "$*" >&2; exit 1; }
   run()  { "$@"; }
   log()  { printf 'log: %s\n' "$*"; }
