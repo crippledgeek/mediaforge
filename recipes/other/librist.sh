@@ -38,7 +38,7 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  rm -rf build && mkdir -p build
+  mf_reset_dir build
   mf_meson build \
     -Dbuilt_tools=false -Dtest=false
 }

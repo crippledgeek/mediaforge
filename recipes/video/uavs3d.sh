@@ -50,8 +50,7 @@ pkg_prepare() {
 
 pkg_configure() {
   _src="$DISTDIR/uavs3d-${PKG_VERSION}"
-  rm -rf "$_src/build/linux"
-  mkdir -p "$_src/build/linux"
+  mf_reset_dir "$_src/build/linux"
   cd "$_src/build/linux" || die "Failed to cd to uavs3d build dir"
   # uavs3d's CMakeLists declares cmake_minimum_required(VERSION 3.1), which the
   # bundled cmake 4.x rejects on its own. The global CMAKE_POLICY_VERSION_MINIMUM=3.5

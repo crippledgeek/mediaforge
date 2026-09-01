@@ -16,7 +16,7 @@ pkg_prepare() {
 }
 
 pkg_configure() {
-  rm -rf build && mkdir -p build
+  mf_reset_dir build
   mf_cmake \
     -DENABLE_SHARED=OFF -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_TESTING=OFF -DUNITTEST=OFF \

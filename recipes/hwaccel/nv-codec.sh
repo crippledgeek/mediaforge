@@ -56,14 +56,14 @@ pkg_post_install() {
   printf '__global__ void _mf_probe(){}\n' > "$_probe_dir/probe.cu"
   if ! nvcc -arch="compute_${_cuda_cc}" -ptx -o "$_probe_dir/probe.ptx" \
        "$_probe_dir/probe.cu" >/dev/null 2>&1; then
-    rm -rf "$_probe_dir"
+    mf_remove_temp "$_probe_dir"
     warn "nvcc rejects compute_${_cuda_cc} (CUDA toolkit too new for this GPU?)"
     warn "Skipping --enable-cuda-nvcc / --enable-cuda-llvm — NVENC/NVDEC still active."
     warn "Workaround: install a CUDA toolkit ≤12.x for this GPU, or set"
     warn "CUDA_COMPUTE_CAPABILITY=75 (or higher supported value) and rebuild."
     return 0
   fi
-  rm -rf "$_probe_dir"
+  mf_remove_temp "$_probe_dir"
 
   if [ -n "$_cuda_home" ]; then
     printf '%s\n' "-I$_cuda_home/include" >> "$PREFIX/.extra_cflags"

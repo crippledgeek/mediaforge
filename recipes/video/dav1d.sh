@@ -24,7 +24,7 @@ pkg_configure() {
     # on exactly the platform this branch exists to support.
     export CFLAGS="$CFLAGS -arch arm64"
   fi
-  rm -rf build && mkdir -p build
+  mf_reset_dir build
   # FFmpeg links libdav1d.a; it never invokes dav1d's CLI. Building the tools
   # cost compile time and installed a ~3MB $PREFIX/bin/dav1d that nothing in
   # this project or downstream of it uses.

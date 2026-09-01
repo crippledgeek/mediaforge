@@ -46,8 +46,7 @@ pkg_prepare() {
 # nested lib/xeve/ subdir. pkg_install corrects that (see below).
 pkg_configure() {
   _src="$DISTDIR/xeve-${PKG_VERSION}"
-  rm -rf "$_src/build"
-  mkdir -p "$_src/build"
+  mf_reset_dir "$_src/build"
   cd "$_src/build" || die "Failed to cd to xeve build dir"
   mf_cmake -DBUILD_SHARED_LIBS=OFF ..
 }
@@ -75,8 +74,8 @@ pkg_install() {
   mf_dest_mkdir lib
   cp src_main/libxeve.a "$_dest/lib/libxeve.a" \
     || die "xeve static lib (src_main/libxeve.a) not found"
-  rm -f "$PREFIX/lib/libxeve.so" "$PREFIX/lib/libxeve.so".*
-  rm -rf "$PREFIX/lib/xeve"
+  mf_remove_file "$PREFIX/lib/libxeve.so" "$PREFIX/lib/libxeve.so".*
+  mf_remove_tree "$PREFIX/lib/xeve"
 }
 
 # xeve is C++ but its pkgconfig omits -lstdc++ for static linking.

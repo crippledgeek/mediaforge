@@ -64,7 +64,7 @@ pkg_configure() {
   else
     _spv_a="-Dglslang=enabled"; _spv_b="-Dshaderc=disabled"
   fi
-  rm -rf build && mkdir -p build
+  mf_reset_dir build
   mf_meson build \
     -Dvulkan=enabled -Ddemos=false -Dtests=false "$_spv_a" "$_spv_b"
 }

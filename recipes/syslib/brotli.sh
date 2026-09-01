@@ -17,7 +17,11 @@ PKG_PC_FILES="libbrotlicommon libbrotlidec libbrotlienc"
 # brotli's cmake config builds both shared and static. We only want static —
 # remove the .so files post-install so consumers' static probes pick the .a.
 pkg_post_install() {
-  rm -f "$PREFIX/lib/libbrotlicommon.so"* \
+  # The 2>/dev/null this replaces was the strongest form of the defect: the
+  # status dropped AND the reason for the failure discarded. An unmatched glob is
+  # not a failure -- rm -f ignores an absent path -- so nothing is lost by
+  # letting the errors through.
+  mf_remove_file "$PREFIX/lib/libbrotlicommon.so"* \
         "$PREFIX/lib/libbrotlidec.so"* \
-        "$PREFIX/lib/libbrotlienc.so"* 2>/dev/null
+        "$PREFIX/lib/libbrotlienc.so"*
 }

@@ -32,8 +32,7 @@ pkg_configure() {
 
 pkg_build() {
   cd build/linux || die "Failed to cd to build/linux"
-  rm -rf 8bit 10bit 12bit 2>/dev/null
-  mkdir -p 8bit 10bit 12bit
+  mf_reset_dir 8bit 10bit 12bit
 
   # NUMA support requires libnuma.a, which Arch doesn't ship. Disable for
   # static builds so x265.pc's Libs.private doesn't reference -lnuma.
