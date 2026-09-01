@@ -149,6 +149,25 @@ _make_unreadable() { # path  assertion-name
 
 # Does this path still yield its contents? A directory is probed by walking it,
 # anything else by reading it -- see _make_unreadable for why the kind decides.
+#
+# The kind branch IS load-bearing and was mutation-checked: collapsing it to the
+# find-probe alone turns tests/stamp-reconcile.sh's mode-000 FILE fixture into
+# "fixture unavailable" and fails `tar-read-failure-is-fatal`.
+#
+# EQUIVALENT MUTANTS, registered here so a later pass reads this list rather than
+# re-deriving it. Each survives a green suite by construction, not by oversight:
+#
+#   * `[ -r "$1" ]` in place of the probe -- the spelling this helper replaced.
+#     It agrees with the real operation on an ordinary mode-000 path, so no
+#     fixture in this suite separates them; they diverge on ACLs and on
+#     filesystems whose bits do not decide the open, which is why the operation
+#     is what is performed, but that divergence has no in-tree oracle.
+#   * Deleting the `id -u` short-circuit -- only reachable AS root, where every
+#     probe succeeds anyway and the helper already reports unavailable. It buys
+#     the honest message rather than a different verdict.
+#   * A no-op `_restore_readable` -- nothing asserts on cleanup. Its failure mode
+#     is a leaked mode-000 temp tree, which the EXIT trap's own `chmod -R u+rwX`
+#     in tests/stage-manifest-walk.sh is the belt-and-braces for.
 _reads_anyway() {
   if [ -d "$1" ]; then
     find "$1" >/dev/null 2>&1
