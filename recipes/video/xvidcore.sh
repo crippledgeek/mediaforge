@@ -16,9 +16,9 @@ pkg_configure() {
 
 pkg_post_install() {
   if [ -f "$PREFIX/lib/libxvidcore.4.dylib" ]; then
-    rm -f "$PREFIX/lib/libxvidcore.4.dylib"
+    mf_remove_file "$PREFIX/lib/libxvidcore.4.dylib"
   fi
   if [ -f "$PREFIX/lib/libxvidcore.so" ]; then
-    rm -f "$PREFIX"/lib/libxvidcore.so*
+    mf_remove_file "$PREFIX"/lib/libxvidcore.so*
   fi
 }

@@ -74,7 +74,7 @@ pkg_install() {
   mf_dest_mkdir lib
   cp src_main/libxeve.a "$_dest/lib/libxeve.a" \
     || die "xeve static lib (src_main/libxeve.a) not found"
-  rm -f "$PREFIX/lib/libxeve.so" "$PREFIX/lib/libxeve.so".*
+  mf_remove_file "$PREFIX/lib/libxeve.so" "$PREFIX/lib/libxeve.so".*
   mf_remove_tree "$PREFIX/lib/xeve"
 }
 

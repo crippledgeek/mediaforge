@@ -44,5 +44,5 @@ pkg_post_install() {
   mf_dest_mkdir lib/pkgconfig
   cp "$_src" "$_dest/lib/pkgconfig/shaderc.pc" \
     || die "shaderc: failed to stage shaderc.pc"
-  rm -f "$_src"
+  mf_remove_file "$_src"
 }

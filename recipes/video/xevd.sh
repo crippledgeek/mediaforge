@@ -58,7 +58,7 @@ pkg_install() {
   mf_dest_mkdir lib
   cp src_main/libxevd.a "$_dest/lib/libxevd.a" \
     || die "xevd static lib (src_main/libxevd.a) not found"
-  rm -f "$PREFIX/lib/libxevd.so" "$PREFIX/lib/libxevd.so".*
+  mf_remove_file "$PREFIX/lib/libxevd.so" "$PREFIX/lib/libxevd.so".*
   mf_remove_tree "$PREFIX/lib/xevd"
 }
 

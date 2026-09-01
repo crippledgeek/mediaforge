@@ -74,14 +74,14 @@ sh tests/meson-single-entry.sh
 # check that the .pc was there, so a library whose upstream .pc name changed
 # would link without the flag its recipe exists to add and nothing would say so.
 sh tests/pc-rewrite-single-entry.sh
-# The fourth sibling: every `rm -rf` a recipe performs. Twenty sites reset a
-# build directory themselves -- eighteen writing both `rm -rf X` and `mkdir -p X`,
-# two writing only the removal -- and six more dropped a path outright, and not
-# one of the twenty-six looked at the status. A failed reset left the recipe
-# configuring against the previous build's cache; a failed drop left the previous
-# version's files in a prefix the staged merge only ever adds to. Both are a
-# success now and a failure much later, with nothing pointing back at the recipe.
-# Half grep (recipes/ contains no bare `rm -rf` at all, so a third policy cannot
+# The fourth sibling: every `rm` a recipe performs. Thirty-five of them, and not
+# one looked at its status -- twenty resetting a build directory (eighteen
+# writing both `rm -rf X` and `mkdir -p X`, two only the removal), seven dropping
+# a path recursively, and eight dropping files with `rm -f`. A failed reset left
+# the recipe configuring against the previous build's cache; a failed drop left
+# the previous version's files in a prefix the staged merge only ever adds to.
+# Both are a success now and a failure much later, with nothing pointing back at
+# the recipe. Half grep (recipes/ runs no `rm` at all, so a fifth answer cannot
 # arrive unnoticed), half behavioural (each guard fires, and mf_remove_temp's
 # deliberately does not).
 sh tests/tree-removal-guards.sh

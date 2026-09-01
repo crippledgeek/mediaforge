@@ -1,7 +1,7 @@
 #!/bin/sh
-# Pins that no recipe removes a tree with a bare `rm -rf`, and that each of the
-# two removal POLICIES fires: mf_reset_dir / mf_remove_tree kill the recipe when
-# the removal is refused, mf_remove_temp reports and continues.
+# Pins that no recipe runs `rm` at all, and that each removal POLICY fires:
+# mf_reset_dir / mf_remove_tree / mf_remove_file kill the recipe when the
+# removal is refused, mf_remove_temp reports and continues.
 #
 # Before this, twenty sites reset a build directory themselves: fourteen as the
 # `rm -rf X && mkdir -p X` one-liner (thirteen of them over a literal `build`,
@@ -39,7 +39,7 @@ SCRIPT_DIR="$ROOT"
 # Sourced only if it is there. tests/oracle-baseline.sh runs this file against
 # the MERGE BASE, where lib/remove.sh does not exist yet -- and under `set -e` a
 # failed `.` aborts the run, which the gate reads as "asserted nothing at all"
-# rather than as the nine failing assertions it should see. Absent the file the
+# rather than as the failing assertions it should see. Absent the file the
 # helpers are simply undefined, which is what every assertion below then
 # reports.
 # shellcheck source=lib/remove.sh
@@ -57,7 +57,7 @@ trap 'chmod -R u+rwX "$_tmp" 2>/dev/null || true; rm -rf "$_tmp"' EXIT
 # 1. The mechanism exists once. Read through _lib_code, because this file's own
 #    header quotes the helper's name in prose and so does framework.sh's.
 _reasons=""
-for _fn in mf_reset_dir mf_remove_tree mf_remove_temp; do
+for _fn in mf_reset_dir mf_remove_tree mf_remove_file mf_remove_temp; do
   _defs=$(_lib_code | grep -c "$_fn() {" || true)
   [ "$_defs" = 1 ] || _reasons="$_reasons $_fn:$_defs"
 done
@@ -105,19 +105,73 @@ for _f in $(find recipes -name '*.sh' | sort); do
 done
 _verdict no-recipe-resets-a-build-dir-itself "$(printf '%s' "$_own" | head -3)"
 
-# 3b. ...and no recipe removes a tree any other way either. This is the claim
-#     the two named policies buy: with both spelled out in lib/framework.sh, a
+# 3b. ...and no recipe runs `rm` at all. This is the claim
+#     the two named policies buy: with both spelled out in lib/remove.sh, a
 #     bare `rm -rf` in a recipe is always a third answer nobody decided on, so
 #     the assertion needs no allowlist to maintain -- and an allowlist is
 #     maintained by whoever adds the next site, which is precisely who does not
 #     know it exists.
+# The floor for 3b, mirroring assertion 2: "grep finds nothing" is also
+# satisfied by a recipes/ that calls neither helper, so a call site DELETED
+# rather than replaced would pass. Four mf_remove_tree sites (amf, meson, xeve,
+# xevd) and two files calling mf_remove_temp (nv-codec twice, lcevc).
+_reasons=""
+for _pair in mf_remove_tree:4 mf_remove_file:6 mf_remove_temp:2; do
+  _fn=${_pair%:*}
+  _min=${_pair#*:}
+  _n=$(grep -rlE "(^|[^_[:alnum:]])$_fn " recipes/ 2>/dev/null | wc -l | tr -d ' ')
+  [ "$_n" -ge "$_min" ] || _reasons="$_reasons only $_n recipe(s) call $_fn; expected >=$_min."
+done
+_verdict recipes-route-through-the-removal-helpers "$_reasons"
+
 _bare=""
 for _f in $(find recipes -name '*.sh' | sort); do
-  _hits=$(_code_only "$_f" | grep -n 'rm -rf' | sed "s|^|$_f:|")
+  # ANY `rm`, not a list of spellings. `rm -rf`, `rm -fr`, `rm -r`,
+  # `rm --recursive` and plain `rm -f` are one statement with one dropped status
+  # between them, and a grep enumerating spellings is a rule that the next
+  # reformat walks straight through. With four policies named in lib/remove.sh
+  # there is no removal a recipe still has to hand-roll, so the claim can be the
+  # simple one -- which is also the one that cannot rot.
+  #
+  # Anchored so `mf_remove_*` and a word ending in `rm` do not match, and read
+  # through _code_only so the several comments that discuss "the rm" are not
+  # reported as call sites.
+  _hits=$(_code_only "$_f" | grep -nE '(^|[^_[:alnum:]-])rm[[:space:]]' | sed "s|^|$_f:|")
   [ -z "$_hits" ] || _bare="$_bare$_hits
 "
 done
-_verdict no-recipe-removes-a-tree-unguarded "$(printf '%s' "$_bare" | head -3)"
+_verdict no-recipe-runs-rm-itself "$(printf '%s' "$_bare" | head -3)"
+
+# "This call DIED": the message came out AND control never came back.
+#
+# One verdict, not two assertions, because the halves are not equally new. On the
+# merge base the helper does not exist, so the call fails, the `&&` never fires,
+# and a separately-reported "control did not return" passes there having proved
+# nothing -- tests/oracle-baseline.sh caught exactly that. Reported together, the
+# claim is false on the base and true here.
+#
+# The FATAL prefix is load-bearing and was the reviewer's finding: die() prints
+# `[mediaforge] FATAL:` and warn() prints `[mediaforge] WARNING:` with the same
+# sentence after it, so matching the sentence alone is satisfied by a helper that
+# warns and carries on -- the exact inverse of GH-84 and GH-86, and it survived a
+# green suite until someone ran the mutant. The CONTINUED sentinel is the second
+# half of the same claim, borrowed from the mf_remove_temp assertion that already
+# used it for the opposite polarity.
+_dies_with() { # assertion-name  message-needle  command...
+  _dw_name="$1"
+  _dw_needle="$2"
+  shift 2
+  _dw_out=$( ("$@" && printf 'CONTINUED\n') 2>&1 || true)
+  _dw_why=""
+  case "$_dw_out" in
+    *FATAL*"$_dw_needle"*) ;;
+    *) _dw_why=" no FATAL '$_dw_needle' in the output: got=[$_dw_out]." ;;
+  esac
+  case "$_dw_out" in
+    *CONTINUED*) _dw_why="$_dw_why control returned to the caller instead of dying." ;;
+  esac
+  _verdict "$_dw_name" "$_dw_why"
+}
 
 # 4. A removal that cannot happen is fatal. Removing `build` needs write
 #    permission on its PARENT, not on `build` itself, so a 0555 parent stops the
@@ -127,27 +181,41 @@ _verdict no-recipe-removes-a-tree-unguarded "$(printf '%s' "$_bare" | head -3)"
 _ro="$_tmp/readonly"
 mkdir -p "$_ro/build"
 : > "$_ro/build/stale.cache"
+# A file directly INSIDE the read-only directory, planted before the chmod:
+# assertion 13 needs a removal that fails, and unlinking needs write permission
+# on the PARENT -- a file under $_ro/build would be removable, since that
+# directory keeps its own default mode.
+: > "$_ro/stale.so"
 chmod 555 "$_ro"
 # Does the fixture BITE? Under root, and on any filesystem that does not honour
 # the bit, every operation below succeeds and the two assertions would report
 # the guard missing when what is missing is the fixture. Reported, not skipped:
 # tests/oracle-baseline.sh counts assertion lines, and a silent skip is a test
 # that has quietly stopped testing.
+# The result is recorded rather than branched on twice, because FOUR assertions
+# depend on this fixture and the two later ones used to run outside the branch --
+# under root they would have reported a missing message rather than an
+# unavailable fixture, which is a misleading diagnosis of a working guard.
+_ro_bites=yes
+_ro_why="fixture unavailable: $_ro stayed writable after chmod 555"
 if mkdir "$_ro/probe" 2>/dev/null; then
   rmdir "$_ro/probe"
-  _bad removal-failure-is-fatal "fixture unavailable: $_ro stayed writable after chmod 555"
-  _bad creation-failure-is-fatal "fixture unavailable: $_ro stayed writable after chmod 555"
+  _ro_bites=no
+fi
+if [ "$_ro_bites" = no ]; then
+  _bad removal-failure-is-fatal "$_ro_why"
+  _bad removal-failure-stops-the-recipe "$_ro_why"
+  _bad creation-failure-is-fatal "$_ro_why"
+  _bad creation-failure-stops-the-recipe "$_ro_why"
 else
   # die() exits, so each call runs in a subshell that the exit terminates.
-  _out=$( (mf_reset_dir "$_ro/build") 2>&1 || true)
-  _glob removal-failure-is-fatal "$_out" '*Failed to remove*' 'mf_reset_dir on a directory it cannot unlink'
+  _dies_with removal-failure-is-fatal 'Failed to remove' mf_reset_dir "$_ro/build"
 
   # 5. ...and so is a creation that cannot happen. Distinct message, because the
   #    two statuses fail for different reasons and a single guard covering both
   #    would name neither -- a mutation that drops the mkdir's `|| die` leaves
   #    assertion 4 green.
-  _out=$( (mf_reset_dir "$_ro/fresh") 2>&1 || true)
-  _glob creation-failure-is-fatal "$_out" '*Failed to create*' 'mf_reset_dir under a parent it cannot write'
+  _dies_with creation-failure-is-fatal 'Failed to create' mf_reset_dir "$_ro/fresh"
 fi
 
 # The success-path contract, asserted the same way for one directory and for
@@ -201,14 +269,12 @@ _reset_is_clean reset-handles-every-directory-given \
 #    to hold the line lib/download.sh and lib/cleanup.sh already hold with
 #    `${x:?}` at their own removals.
 _empty=""
-_out=$( (mf_reset_dir "$_empty") 2>&1 || true)
-_glob empty-argument-refused "$_out" '*empty path argument*' 'mf_reset_dir with an empty argument'
+_dies_with empty-argument-refused 'empty path argument' mf_reset_dir "$_empty"
 
 # 9. ...and so is a call with no arguments, which the loop would otherwise treat
 #    as "nothing to do". A function whose contract is "this directory is now
 #    empty and exists" has no honest way to return success having done nothing.
-_out=$( (mf_reset_dir) 2>&1 || true)
-_glob no-argument-call-refused "$_out" '*no directory to reset*' 'mf_reset_dir with no arguments'
+_dies_with no-argument-call-refused 'no directory to reset' mf_reset_dir
 
 # 10. mf_remove_tree removes, and dies when it cannot. The 0555 parent from
 #     assertions 4 and 5 is reused: it is the same refusal, reached through the
@@ -221,22 +287,26 @@ _reasons=""
 [ -e "$_gone/tree" ] && _reasons="$_reasons path-survived"
 _verdict remove-tree-removes "$_reasons"
 
-if [ -d "$_ro/build" ]; then
-  _out=$( (mf_remove_tree "$_ro/build") 2>&1 || true)
-  _glob remove-tree-failure-is-fatal "$_out" '*Failed to remove*' 'mf_remove_tree on a path it cannot unlink'
-else
+if [ "$_ro_bites" = yes ] && [ -d "$_ro/build" ]; then
+  _dies_with remove-tree-failure-is-fatal 'Failed to remove' mf_remove_tree "$_ro/build"
+elif [ "$_ro_bites" = yes ]; then
   _bad remove-tree-failure-is-fatal "fixture unavailable: $_ro/build was removed by an earlier assertion"
+else
+  _bad remove-tree-failure-is-fatal "$_ro_why"
 fi
 
-_out=$( (mf_remove_tree) 2>&1 || true)
-_glob remove-tree-no-argument-refused "$_out" '*no path to remove*' 'mf_remove_tree with no arguments'
+_dies_with remove-tree-no-argument-refused 'no path to remove' mf_remove_tree
 
 # 11. mf_remove_temp is the OTHER policy, and the difference is the whole point:
 #     a failed temp cleanup warns and the caller keeps going. Asserted as both
 #     halves -- the warning is emitted AND the function returns 0 -- because a
 #     mutation that turned the warn into a die would still print something.
-_out=$( (mf_remove_temp "$_ro/build" && printf 'CONTINUED\n') 2>&1 || true)
-_glob remove-temp-warns-and-continues "$_out" '*WARNING*leaked*CONTINUED*' 'mf_remove_temp on a path it cannot unlink'
+if [ "$_ro_bites" = yes ]; then
+  _out=$( (mf_remove_temp "$_ro/build" && printf 'CONTINUED\n') 2>&1 || true)
+  _glob remove-temp-warns-and-continues "$_out" '*WARNING*leaked*CONTINUED*' 'mf_remove_temp on a path it cannot unlink'
+else
+  _bad remove-temp-warns-and-continues "$_ro_why"
+fi
 
 _scratch="$_tmp/scratch"
 mkdir -p "$_scratch/probe"
@@ -245,6 +315,57 @@ _reasons=""
 ( mf_remove_temp "$_scratch/probe" ) >/dev/null 2>&1 || _reasons=" helper returned non-zero"
 [ -e "$_scratch/probe" ] && _reasons="$_reasons path-survived"
 _verdict remove-temp-removes "$_reasons"
+
+# 12. The product SOURCES the policy. This is what the split into its own file
+#     costs if nobody watches it: delete the line from mediaforge.sh and every
+#     helper becomes an unset command, whose "not found" is swallowed by the
+#     first `>/dev/null 2>&1` it meets -- twenty resets and four drops silently
+#     become no-ops, reverting GH-84 and GH-86 together, with the suite still
+#     green because both test files source lib/remove.sh themselves.
+_wired mediaforge-sources-the-removal-policy mediaforge.sh 'lib/remove.sh'
+
+#     ...and sources it BEFORE the framework, whose mf_reset_dir callers are
+#     recipes loaded later still. Order asserted rather than described, because
+#     the header of lib/remove.sh states it as a fact.
+_reasons=""
+_ln_remove=$(_code_line mediaforge.sh 'lib/remove\.sh')
+_ln_framework=$(_code_line mediaforge.sh 'lib/framework\.sh')
+if [ -z "$_ln_remove" ] || [ -z "$_ln_framework" ]; then
+  _reasons=" mediaforge.sh sources one of the two not at all (remove=[$_ln_remove] framework=[$_ln_framework])"
+elif [ "$_ln_remove" -ge "$_ln_framework" ]; then
+  _reasons=" lib/remove.sh is sourced at line $_ln_remove, after lib/framework.sh at $_ln_framework"
+fi
+_verdict removal-policy-sourced-before-the-framework "$_reasons"
+
+# 13. mf_remove_file: the non-recursive policy, guarded the same way. Its
+#     failure is provoked with a read-only PARENT, since removing a file needs
+#     write permission there rather than on the file itself.
+if [ "$_ro_bites" = yes ]; then
+  _dies_with remove-file-failure-is-fatal 'Failed to remove file' mf_remove_file "$_ro/stale.so"
+else
+  _bad remove-file-failure-is-fatal "$_ro_why"
+fi
+
+# 14. ...and it removes, and an unmatched glob is NOT a failure -- which is the
+#     property every converted site depends on, since they all name a `.so*`
+#     pattern that a static-only build may legitimately have nothing for.
+_files="$_tmp/files"
+mkdir -p "$_files"
+: > "$_files/libprobe.so"
+_reasons=""
+( mf_remove_file "$_files/libprobe.so" "$_files"/libabsent.so* ) >/dev/null 2>&1 ||
+  _reasons=" the helper returned non-zero"
+[ -e "$_files/libprobe.so" ] && _reasons="$_reasons the file survived"
+_verdict remove-file-removes-and-tolerates-an-unmatched-glob "$_reasons"
+
+# 15. mf_remove_temp's own two edges, which nothing watched: a no-argument call
+#     is a caller bug like everywhere else, while an EMPTY argument is the one
+#     case this policy deliberately skips rather than dying on -- a mktemp -d
+#     that never happened is nothing to clean up.
+_dies_with remove-temp-no-argument-refused 'no path to remove' mf_remove_temp
+_empty=""
+_out=$( (mf_remove_temp "$_empty" && printf 'CONTINUED\n') 2>&1 || true)
+_glob remove-temp-skips-an-empty-path "$_out" '*CONTINUED*' 'mf_remove_temp with an empty argument'
 
 printf 'DONE: tree-removal-guards\n'
 exit "$_fail"

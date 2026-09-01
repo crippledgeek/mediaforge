@@ -1,10 +1,16 @@
 #!/bin/sh
-# The three removal policies, and the reason recipes never write `rm -rf`.
+# The removal policies, and the reason a recipe never writes `rm` itself.
+#
+# Three policies, four functions: a removal that MUST succeed (mf_remove_tree,
+# and mf_remove_file for the non-recursive case), one that need not
+# (mf_remove_temp), and mf_reset_dir, which is not a policy of its own but
+# mf_remove_tree plus the mkdir.
 #
 # Its own file rather than a corner of lib/framework.sh because the policy is
-# what several things need in isolation: recipes call all three, and
-# tests/staged-shell-installs.sh drives two recipes' install phases with stubs
-# for the rest of the framework and needs the REAL removal here -- a stubbed one
+# what several things need in isolation: recipes call all four, and
+# tests/staged-shell-installs.sh drives eleven install phases with stubs for the
+# rest of the framework, two of which (amf, meson) exist to perform exactly this
+# removal and are asserted on -- so it needs the REAL one here; a stubbed one
 # would be a second implementation of the policy under test, free to drift from
 # it silently, which is the defect class GH-84 and GH-86 closed.
 #
@@ -85,6 +91,31 @@ mf_remove_tree() {
   done
 }
 
+# The non-recursive twin of mf_remove_tree, for dropping FILES a previous version
+# installed: the shared libraries a static-only build must not leave behind
+# (recipes/video/xvidcore.sh, xeve.sh, xevd.sh, recipes/syslib/brotli.sh), the
+# split archives lcevc replaces with a merged one, and the .pc shaderc stages
+# under a different name.
+#
+# `rm -f`, not `rm -rf`, and that is why it is a separate function rather than
+# those sites calling mf_remove_tree: every one of them names a file or a glob of
+# files, and a recursive removal at the same path would silently take a DIRECTORY
+# with it if upstream ever put one there. The guard is the point of the change;
+# widening what the removal can delete is not.
+#
+# Globs are expanded by the caller and arrive as separate arguments -- or, when
+# nothing matches, as the literal pattern, which `rm -f` then ignores as an
+# absent path. That is why an unmatched glob is not a failure here.
+# recipes/syslib/brotli.sh additionally sent the errors to /dev/null, which is
+# the strongest form of the defect: the status dropped AND the reason discarded.
+mf_remove_file() {
+  [ "$#" -ge 1 ] || die "mf_remove_file: called with no path to remove"
+  for _rf_path in "$@"; do
+    [ -n "$_rf_path" ] || die "mf_remove_file: empty path argument"
+    rm -f -- "$_rf_path" || die "Failed to remove file: $_rf_path"
+  done
+}
+
 # The other removal policy, named so the difference is in the code rather than
 # in a reviewer's head: a `mktemp -d` scratch directory, where a failed removal
 # leaks a temp tree and costs nothing else. Dying there would abort a build over
@@ -97,6 +128,12 @@ mf_remove_tree() {
 # particular bare removals are fine" would have to be maintained by whoever adds
 # the next one, which is precisely who will not know.
 mf_remove_temp() {
+  # A no-argument call is a caller bug here exactly as it is in mf_remove_tree --
+  # the loop simply would not run -- so it dies like the others. An EMPTY
+  # argument is the one case that differs and is skipped rather than fatal: a
+  # `mktemp -d` that never happened is genuinely nothing to clean up, and dying
+  # over it would contradict the policy this function exists to state.
+  [ "$#" -ge 1 ] || die "mf_remove_temp: called with no path to remove"
   for _rtmp_path in "$@"; do
     [ -n "$_rtmp_path" ] || continue
     rm -rf -- "$_rtmp_path" || warn "Failed to remove temporary directory (leaked): $_rtmp_path"

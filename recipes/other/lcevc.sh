@@ -109,7 +109,7 @@ pkg_post_install() {
   done
   # Both names, because the two live in different trees now: the stale merged
   # archive to be replaced is in the live prefix, while $_merged is the stage.
-  rm -f "$_merged" "$_libdir/liblcevc_dec.a"
+  mf_remove_file "$_merged" "$_libdir/liblcevc_dec.a"
   # `--` terminates ar option processing so a crafted upstream member name
   # beginning with '-' can't be read as a flag. shellcheck disable: the *.o
   # glob must word-split into separate member arguments.
@@ -119,5 +119,5 @@ pkg_post_install() {
   mf_remove_temp "$_work"
   # Drop the split archives: the .pc and FFmpeg reference only -llcevc_dec now,
   # and leaving them would let a downstream pick the broken split set.
-  rm -f "$_libdir"/liblcevc_dec_*.a
+  mf_remove_file "$_libdir"/liblcevc_dec_*.a
 }
