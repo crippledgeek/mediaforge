@@ -47,6 +47,12 @@
 # paragraph to quote a call and then use a dash would fail a correct tree, and
 # this repo's prose uses the dash throughout -- and it will stop being equivalent
 # the moment one does.
+#
+# _census's "no tree at $1" guard is equivalent for the same structural reason a
+# guard usually is: it fires only when the caller is already wrong, so removing
+# it changes nothing a correct tree can observe. Its test is the mutation that
+# aims the census at a path that does not exist, which the guard turns from a
+# clean-looking PASS into a named failure.
 set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT"
 _fail=0
