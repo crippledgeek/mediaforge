@@ -454,11 +454,21 @@ printf '_p=%s{_f#lib/}; warn "expanded %s offender"\n' '$' "$_em" \
 # literal one cannot sit inside this single-quoted format.
 printf 'true;#it%ss uncut\ndie "real message\n  with %s a dash"\n' "'" "$_em" \
   > "$_tmp/census/lib/operator-comment.sh"
+# The two carve-outs from that class, each ahead of a call on its own line. A
+# `#` after `{` or `$` is a parameter length, not a comment, and admitting
+# either character cuts the line before the reporter word so the message is
+# never read. Both shapes are in the tree -- lib/download.sh and mediaforge.sh
+# argument parsing -- though only inside quotes, where the state already
+# protects them. The `$` arrives as an argument so the literal expansions this
+# is ABOUT do not read as ones shellcheck should warn on.
+printf '_n=%s{#_list}; warn "brace %s offender"\n_c=%s#; die "dollar %s offender"\n' \
+  '$' "$_em" '$' "$_em" > "$_tmp/census/lib/length-expansions.sh"
 
 _probe=$(_census "$_tmp/census")
 _probe_missing=''
 for _oh_want in 'mediaforge.sh: ' 'lib/multi.sh: ' 'lib/escaped.sh: ' \
                 'lib/expansion-then-call.sh: ' 'lib/operator-comment.sh: ' \
+                'lib/length-expansions.sh: ' \
                 'recipes/hwaccel/nested.sh: '; do
   case "$_probe" in
     *"$_oh_want"*) ;;
