@@ -40,13 +40,8 @@
 # once in this file, found by mutation -- so a needle that has not had comments
 # stripped is asking what a file SAYS, not what it does.
 # EQUIVALENT MUTANTS -- registered so a later pass reads this rather than
-# re-deriving it. Dropping _code_only from _reporter_args leaves the census
-# green: the paragraphs in this tree that quote a reporter call verbatim now
-# quote the ASCII form, so stripping comments removes nothing the needle would
-# otherwise have matched. It is kept for the false ALARM it prevents -- the next
-# paragraph to quote a call and then use a dash would fail a correct tree, and
-# this repo's prose uses the dash throughout -- and it will stop being equivalent
-# the moment one does.
+# re-deriving it.
+#
 #
 # _census's "no tree at $1" guard is equivalent for the same structural reason a
 # guard usually is: it fires only when the caller is already wrong, so removing
@@ -300,29 +295,73 @@ esac
 # WHAT IT DOES NOT SEE, all of it a miss rather than a false alarm except the
 # first:
 #   * the reporter word is not required to be in command position, so
-#     `_msg="check the log -- really"` or an awk program containing `warn `
-#     would be reported as an offending argument. No line in the tree has that
-#     shape today; it is the one gap that can fail a CORRECT tree.
+#     `_msg="check the log -- really"`, a case label, or a heredoc body that
+#     emits a generated script containing one would be reported as an offending
+#     argument. No line in the tree has that shape today -- checked, including
+#     every heredoc body in the walked files -- and it is the gap that can fail
+#     a CORRECT tree, so it is the one to watch.
 #   * a message assembled into a variable on one line and passed to a reporter
-#     on another -- lib/install.sh's `_pf_context` is that shape. Seeing those
+#     on another -- _pf_context in lib/install.sh is that shape. Seeing those
 #     needs dataflow, not grep.
-#   * a second reporter word earlier on the same line: the needle keeps the tail
-#     from the LAST one. No line in the tree has two.
-#   * _code_only truncates at a `#` inside a string, so a message containing one
-#     could hide a later em-dash.
+#   * a SINGLE-quoted message spanning lines. The scan tracks both quote kinds,
+#     so nothing desyncs, but only a double quote marks a message as continuing;
+#     the later lines of a `log '"'"'...'"'"'` written across two are not read. No
+#     reporter in the tree takes a single-quoted argument.
+#   * two reporter words on one line: awk match() is leftmost, so the tail is
+#     kept from the FIRST -- and text between the two is therefore read as part
+#     of the first message. No line in the tree has two.
 _reporter_args() { # path to a shell file
-  _code_only "$1" | awk '
-    {
-      line = $0
-      if (!inmsg) {
-        if (!match(line, /(^|[^[:alnum:]_])(log|warn|die)[ \t]+/)) next
-        line = substr(line, RSTART + RLENGTH)
+  awk '
+    # Cut a comment only where a comment can START: outside both quote kinds,
+    # at line start or after whitespace. This is deliberately NOT _code_only,
+    # which cuts at ANY `#` -- the same departure tests/signal-cleanup.sh makes
+    # for its own question, and for the same reason: _code_only is right for a
+    # caller asking "does this file contain X", and wrong for one carrying
+    # state across lines. Truncating a warn whose argument holds a ${VAR#...}
+    # takes the closing quote with it, the count goes odd, and every line after
+    # it reads as message text until another odd line or EOF. That was live at
+    # two sites, swallowing nine lines and twenty-seven, and it fails a CORRECT
+    # tree -- the worse direction, since lib/resolve.sh menu labels are
+    # legitimately non-ASCII and one new ${VAR#...} above them away from being
+    # reported as broken messages.
+    BEGIN { SQ = sprintf("%c", 39) }   # a literal quote here would end the program
+    function code(s,   i, c, cut) {
+      cut = length(s) + 1
+      esc = 0
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (esc)              { esc = 0; continue }
+        if (c == "\\" && !sq) { esc = 1; continue }
+        if (c == SQ && !dq)   { sq = !sq; continue }
+        if (c == "\"" && !sq) { dq = !dq; continue }
+        if (c == "#" && !dq && !sq && (i == 1 || substr(s, i - 1, 1) ~ /[ \t]/)) {
+          cut = i
+          break
+        }
       }
-      print line
-      probe = line
-      gsub(/\\"/, "", probe)
-      if (gsub(/"/, "\"", probe) % 2 == 1) inmsg = !inmsg
-    }' | LC_ALL=C grep '[^[:blank:] -~]'
+      return substr(s, 1, cut - 1)
+    }
+    {
+      # $dq carried from the previous line IS "we are inside a message". A
+      # character scan rather than a quote count, because counting cannot see
+      # which quote opened first: an awk -F option in lib/registry.sh and the
+      # sed programs in lib/updates.sh each hold one double quote inside a
+      # single-quoted span, and a counter reads those as opening a string.
+      # Scanning also ends a message correctly at a trailing escaped backslash,
+      # which a count reads as an escaped quote and follows past.
+      was_in = dq
+      line = code($0)
+      if (!was_in) {
+        emitting = 0
+        if (match(line, /(^|[^[:alnum:]_])(log|warn|die)[ \t]+/)) {
+          emitting = 1
+          print substr(line, RSTART + RLENGTH)
+        }
+      } else if (emitting) {
+        print line
+      }
+      if (!dq) emitting = 0
+    }' "$1" | LC_ALL=C grep '[^[:blank:] -~]'
 }
 
 # The census takes the tree as a parameter and walks it through the shared
@@ -398,6 +437,28 @@ elif [ -z "$_probe" ]; then
 else
   _bad census-sees-a-planted-offender "the census missed a planted offender in:$_probe_missing
 it reported: $_probe"
+fi
+
+# The census must also stay SILENT where it should. Comment-stripping used to
+# cut at any `#`, so `warn "  ${_st_f#"$1"}"` lost its closing quote, the state
+# flipped on, and every line after it was reported as message text -- nine lines
+# at one live site, twenty-seven at another. Nothing in the tree happened to be
+# non-ASCII inside those windows, so the census stayed green while being one new
+# parameter expansion away from failing a correct tree. The second file is the
+# shape that fails a message-count: a double quote inside a single-quoted span,
+# as lib/registry.sh and lib/updates.sh both carry.
+mkdir -p "$_tmp/quiet/lib"
+: > "$_tmp/quiet/mediaforge.sh"
+# The `$` arrives as an argument so the literal parameter expansion this
+# fixture is ABOUT does not read as one shellcheck should warn on.
+printf 'warn "x %s{_v#pfx}"\n_label="menu %s label"\n' '$' "$_em" > "$_tmp/quiet/lib/expansion.sh"
+printf 'log %s"-F%s\n_x="menu %s label"\n' "'" "'" "$_em" > "$_tmp/quiet/lib/sqspan.sh"
+_quiet=$(_census "$_tmp/quiet")
+if [ -z "$_quiet" ]; then
+  _pass census-does-not-cry-wolf
+else
+  _bad census-does-not-cry-wolf "the census reported an offender in code that holds no reporter message, so a correct tree fails this gate:
+$_quiet"
 fi
 
 _offenders=$(_census "$ROOT")

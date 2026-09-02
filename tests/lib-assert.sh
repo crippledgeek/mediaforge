@@ -330,6 +330,14 @@ _code_only() { # file, or - for stdin
 #
 # Paths come back RELATIVE to $1, because both callers report them to a reader
 # and an absolute path from a temp fixture names nothing the reader can act on.
+#
+# CALLERS WORD-SPLIT THE OUTPUT -- `for _f in $(_tree_sh_files)` -- and that is
+# safe only because this population is tracked repo paths, none of which holds a
+# space or a glob character; an unquoted substitution splits on IFS and then
+# re-globs what it produced. A `while read` loop would be the general answer and
+# is the wrong one here: it puts the body in a subshell, so a caller
+# accumulating into a variable (tests/pc-exclusions-durable.sh builds $_deleters
+# that way) would lose every hit and pass silently.
 _tree_sh_files() { # tree root, default $ROOT
   _tsf_root=${1:-$ROOT}
   for _tsf_f in "$_tsf_root"/mediaforge.sh "$_tsf_root"/lib/*.sh \
