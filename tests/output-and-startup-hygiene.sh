@@ -461,14 +461,19 @@ printf 'true;#it%ss uncut\ndie "real message\n  with %s a dash"\n' "'" "$_em" \
 # argument parsing -- though only inside quotes, where the state already
 # protects them. The `$` arrives as an argument so the literal expansions this
 # is ABOUT do not read as ones shellcheck should warn on.
-printf '_n=%s{#_list}; warn "brace %s offender"\n_c=%s#; die "dollar %s offender"\n' \
-  '$' "$_em" '$' "$_em" > "$_tmp/census/lib/length-expansions.sh"
+# ONE PER FILE, because the check below asks whether a file was named and two
+# offenders in one file leave it named when only one is lost -- which is how
+# both of these first survived.
+printf '_n=%s{#_list}; warn "brace %s offender"\n' '$' "$_em" \
+  > "$_tmp/census/lib/brace-length.sh"
+printf '_c=%s#; die "dollar %s offender"\n' '$' "$_em" \
+  > "$_tmp/census/lib/dollar-length.sh"
 
 _probe=$(_census "$_tmp/census")
 _probe_missing=''
 for _oh_want in 'mediaforge.sh: ' 'lib/multi.sh: ' 'lib/escaped.sh: ' \
                 'lib/expansion-then-call.sh: ' 'lib/operator-comment.sh: ' \
-                'lib/length-expansions.sh: ' \
+                'lib/brace-length.sh: ' 'lib/dollar-length.sh: ' \
                 'recipes/hwaccel/nested.sh: '; do
   case "$_probe" in
     *"$_oh_want"*) ;;
