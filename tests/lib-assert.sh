@@ -338,8 +338,20 @@ _code_only() { # file, or - for stdin
 # is the wrong one here: it puts the body in a subshell, so a caller
 # accumulating into a variable (tests/pc-exclusions-durable.sh builds $_deleters
 # that way) would lose every hit and pass silently.
-_tree_sh_files() { # tree root, default $ROOT
-  _tsf_root=${1:-$ROOT}
+# An ABSENT root is fatal, never an empty corpus. Every gate built on this asks
+# "does any file in the tree do X", so a walk that reads nothing answers "no"
+# about a tree it never opened -- and the caller consumes it as `for f in
+# $(_tree_sh_files)`, where a command substitution discards the status, so
+# nothing downstream can notice.
+#
+# `${ROOT:?}` rather than `${ROOT}` because six of this helper's seven callers
+# do not `set -u`: for them an unset root expanded to empty, the paths became
+# "/lib/*.sh", the glob matched nothing and the walk returned status 0 having
+# emitted nothing. tests/pc-exclusions-durable.sh scanned zero files that way
+# and reported PASS; it was the only caller that sets -u, which is the sole
+# reason a message about it was ever printed.
+_tree_sh_files() { # tree root, default $ROOT (which must then be set)
+  _tsf_root=${1:-${ROOT:?_tree_sh_files needs a root: pass one or set \$ROOT}}
   for _tsf_f in "$_tsf_root"/mediaforge.sh "$_tsf_root"/lib/*.sh \
                 "$_tsf_root"/recipes/*.sh "$_tsf_root"/recipes/*/*.sh; do
     [ -f "$_tsf_f" ] || continue
@@ -358,7 +370,7 @@ _tree_sh_files() { # tree root, default $ROOT
 # verbatim as a habit. Naming individual files is the other half of the trap: a
 # copy can grow in a file the list does not mention.
 _lib_code() {
-  for _lc_f in "$ROOT"/lib/*.sh; do
+  for _lc_f in "${ROOT:?_lib_code needs \$ROOT set}"/lib/*.sh; do
     _code_only "$_lc_f"
   done
 }

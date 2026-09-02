@@ -336,15 +336,21 @@ chmod 600 "$_ws4/.pc-skip-queue" 2>/dev/null
 # rewrite of it.
 # $_root passed explicitly. _tree_sh_files defaults its root to $ROOT, which
 # every other caller of it sets; this file is the one that spells the variable
-# $_root, so the default expanded under `set -u` and the walk aborted -- it
-# yielded 0 files where it should yield 131, and the loop below then found no
-# deleters because it read no files at all. The assertion reported PASS for the
-# whole of its life having scanned nothing.
+# $_root. Nothing aborted: under `set -u` the unbound expansion killed the
+# command substitution's SUBSHELL, which printed a message to stderr and
+# yielded an empty string, so the loop below ran zero times against a corpus
+# that should hold 131 files. It found no deleters because it opened nothing,
+# and reported PASS that way for the whole of its life.
 #
-# The floor is what makes that unrepeatable. A search whose corpus can silently
-# go empty needs an assertion that the corpus was non-empty, or "found nothing"
-# and "looked at nothing" are the same result -- the vacuity guard the suite
-# already carries for upstream-provenance and sidecars-in-tree-validate.
+# Two guards, because they catch different halves and only together close it.
+# _tree_sh_files now treats an absent root as fatal (`${ROOT:?}`), which is the
+# fix for every caller -- six of the seven do not `set -u`, and for those the
+# same mistake produced status 0 and no message at all. The floor here is the
+# half that survives a corpus going empty for some FUTURE reason the helper
+# cannot see: a search whose corpus can silently empty needs an assertion that
+# it was non-empty, or "found nothing" and "looked at nothing" are one result.
+# That is the vacuity guard upstream-provenance and sidecars-in-tree-validate
+# already carry, applied to the third case of it.
 _scanned=0
 _deleters=''
 for _f in $(_tree_sh_files "$_root"); do
