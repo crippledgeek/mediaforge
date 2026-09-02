@@ -42,6 +42,14 @@
 # EQUIVALENT MUTANTS -- registered so a later pass reads this rather than
 # re-deriving it.
 #
+# Spelling the needle as `[^[:print:][:blank:]]` -- borrowing the class from the
+# filter instead of writing the range out -- is equivalent HERE and only here.
+# `sh` on this machine resolves /usr/bin/grep, which is GNU grep 3.12, and that
+# agrees with GNU tr about the class. It stops being equivalent the moment a
+# grep that calls 0x80-0xFF printable answers first, which ugrep 7.8.4 does, so
+# the explicit range stays. Killing it would mean running the suite under a
+# second grep, which is a bigger apparatus than the risk.
+#
 # _ascii_census's "no tree at $1" guard is equivalent for the structural reason a
 # guard usually is: it fires only when the caller is already wrong, so removing
 # it changes nothing a correct tree can observe. Its test is the mutation that
