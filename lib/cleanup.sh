@@ -13,10 +13,23 @@ set_current_package() {
 on_exit() {
   _exit_code=$?
 
+  # framework.sh clears _CURRENT_PACKAGE when a package finishes, so an empty
+  # value here means the failure happened OUTSIDE any package build -- after
+  # FFmpeg linked, in the install step, in argument handling. The old text
+  # asserted a package failure regardless and advised resuming from it, which
+  # for that case named a package that never failed and pointed at work there
+  # is none of: every stamp is intact precisely because everything succeeded
+  # (GH-90). The `:-unknown` fallback was the handler admitting it could not
+  # name a package while the lines around it claimed one anyway.
   if [ "$_exit_code" -ne 0 ]; then
-    warn "Build failed during: ${_CURRENT_PACKAGE:-unknown}"
-    warn "Successfully built packages are preserved (stamp files intact)."
-    warn "Fix the issue and re-run to resume from the failed package."
+    if [ -n "$_CURRENT_PACKAGE" ]; then
+      warn "Build failed during: $_CURRENT_PACKAGE"
+      warn "Successfully built packages are preserved (stamp files intact)."
+      warn "Fix the issue and re-run to resume from the failed package."
+    else
+      warn "Failed with status $_exit_code outside a package build."
+      warn "Any packages already built are preserved (stamp files intact)."
+    fi
   fi
 
   # Drop any staged install that never got merged (GH-59). A build that dies

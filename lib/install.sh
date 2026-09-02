@@ -320,6 +320,23 @@ _select_prefix() {
     else
       _install_prefix="$HOME/.local"
     fi
+  elif ! is_interactive; then
+    # No terminal: a script, a CI job, a background run. `read` would take EOF
+    # as an answer and the catch-all arm below would report it as a typo, so a
+    # build that has already produced its binaries would exit non-zero for
+    # having nobody to ask (GH-90).
+    #
+    # is_interactive rather than a second `[ -t 0 ]` here: it already folds in
+    # AUTOINSTALL and $CI, and lib/resolve.sh consults it at both of its own
+    # prompts. A private check would be a fourth answer to one question.
+    #
+    # Skipped rather than defaulted. Choosing a prefix on the operator's behalf
+    # writes ~1500 files somewhere they did not name, and --prefix, -y and
+    # --no-install each say what was meant -- so the message names all three.
+    warn "Not a terminal -- skipping the post-build install."
+    warn "Use --prefix=PATH or -y to install without prompting, or --no-install"
+    warn "to skip it deliberately."
+    return 1
   else
     printf '\n'
     printf '  Install location:\n'
@@ -476,7 +493,10 @@ _remove_manifest_entries() {
 do_install() {
   _cli_prefix="$1"
 
-  _select_prefix
+  # A non-zero return is "no prefix was chosen", not a failure: the only source
+  # of it is the headless branch, which has already said why. Returning 0 keeps
+  # a successful build successful (GH-90).
+  _select_prefix || return 0
 
   log "Installing to $_install_prefix ..."
 
