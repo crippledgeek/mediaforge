@@ -326,18 +326,32 @@ _reporter_args() { # path to a shell file
     # legitimately non-ASCII and one new ${VAR#...} above them away from being
     # reported as broken messages.
     BEGIN { SQ = sprintf("%c", 39) }   # a literal quote here would end the program
-    # dq, sq and dqpos are deliberately global -- they are the state the caller
-    # reads. esc is local because it never outlives a line: a backslash at end
-    # of line is a continuation, which this needle does not follow anyway.
-    function code(s,   i, c, cut, esc) {
+    # dq, sq, dqn and dqi are deliberately global -- they are the state the
+    # caller reads. esc and depth are local because neither outlives a line: a
+    # backslash at end of line is a continuation, which this needle does not
+    # follow, and a command substitution spanning lines is rarer than the damage
+    # an unbalanced one would do by leaking a depth into every later line.
+    #
+    # Positions go into an ARRAY rather than a built string. Re-splitting a
+    # string worked, but only through two POSIX rules that read as incidental
+    # here -- a single-blank separator means default field splitting, which is
+    # what silently ate the leading space, and split() clears its target first.
+    # Either would break under a separator someone changed for tidiness.
+    function code(s,   i, c, cut, esc, depth) {
       cut = length(s) + 1
-      dqpos = ""
+      dqn = 0
       for (i = 1; i <= length(s); i++) {
         c = substr(s, i, 1)
         if (esc)              { esc = 0; continue }
         if (c == "\\" && !sq) { esc = 1; continue }
         if (c == SQ && !dq)   { sq = !sq; continue }
-        if (c == "\"" && !sq) { dq = !dq; dqpos = dqpos " " i; continue }
+        # A command substitution is its own quoting context: the quotes inside
+        # `$(basename "$_f")` do not open or close the message around it. Only
+        # depth-0 quotes move the state, which is what lets a message survive a
+        # nested call on its opening line.
+        if (c == "$" && !sq && substr(s, i + 1, 1) == "(") { depth++; i++; continue }
+        if (c == ")" && !sq && depth > 0) { depth--; continue }
+        if (c == "\"" && !sq && depth == 0) { dq = !dq; dqi[++dqn] = i; continue }
         if (c == "#" && !dq && !sq && (i == 1 || substr(s, i - 1, 1) ~ /[ \t;&|()]/)) {
           cut = i
           break
@@ -364,9 +378,13 @@ _reporter_args() { # path to a shell file
           # shape `warn "done"; _x="opens` leaves one open that the reporter
           # did not start, and reading "a reporter appeared" as "a message is
           # open" reports the next line of an unrelated value as broken.
+          # Counted only AFTER the reporter word, because a message-opening
+          # line may carry quoted text before the call -- the hash-file die in
+          # fetch_git, lib/download.sh, sits behind a quoted [ -f ] test, and
+          # counting its two quotes too would take _n past one and hide the
+          # second line of that message.
           _n = 0
-          split(dqpos, _q, " ")
-          for (_k in _q) if (_q[_k] + 0 > RSTART + RLENGTH - 1) _n++
+          for (_k = 1; _k <= dqn; _k++) if (dqi[_k] > RSTART + RLENGTH - 1) _n++
           emitting = (dq && _n == 1)
         }
       } else if (emitting) {
@@ -468,12 +486,25 @@ printf '_n=%s{#_list}; warn "brace %s offender"\n' '$' "$_em" \
   > "$_tmp/census/lib/brace-length.sh"
 printf '_c=%s#; die "dollar %s offender"\n' '$' "$_em" \
   > "$_tmp/census/lib/dollar-length.sh"
+# QUOTED TEXT BEFORE THE CALL, which is why the toggle count is taken only from
+# after the reporter word. The hash-file die in fetch_git, lib/download.sh, is
+# exactly this: a quoted [ -f ] test, then a two-line message. Counting the
+# test quotes too puts the total past one and the second line goes unread, so
+# this is a live message the rule protects.
+printf '[ -d "%s_dir" ] || die "quoted arg before the call\n  and a %s dash after it"\n' \
+  '$' "$_em" > "$_tmp/census/lib/quoted-before-call.sh"
+# A COMMAND SUBSTITUTION on the opening line. Its quotes belong to their own
+# context and must not count as opening or closing the message; flat counting
+# sees three toggles here and stops following at the first line.
+printf 'die "cannot read %s(basename "%s_f") now\n  because of a %s dash"\n' \
+  '$' '$' "$_em" > "$_tmp/census/lib/nested-subshell.sh"
 
 _probe=$(_census "$_tmp/census")
 _probe_missing=''
 for _oh_want in 'mediaforge.sh: ' 'lib/multi.sh: ' 'lib/escaped.sh: ' \
                 'lib/expansion-then-call.sh: ' 'lib/operator-comment.sh: ' \
                 'lib/brace-length.sh: ' 'lib/dollar-length.sh: ' \
+                'lib/quoted-before-call.sh: ' 'lib/nested-subshell.sh: ' \
                 'recipes/hwaccel/nested.sh: '; do
   case "$_probe" in
     *"$_oh_want"*) ;;
