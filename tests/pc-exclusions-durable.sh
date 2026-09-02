@@ -334,15 +334,31 @@ chmod 600 "$_ws4/.pc-skip-queue" 2>/dev/null
 # inside quotes or a `${VAR#…}` expansion. Catching either needs dataflow, not
 # grep. What this does catch is the defect that occurred and every one-line
 # rewrite of it.
+# $_root passed explicitly. _tree_sh_files defaults its root to $ROOT, which
+# every other caller of it sets; this file is the one that spells the variable
+# $_root, so the default expanded under `set -u` and the walk aborted -- it
+# yielded 0 files where it should yield 131, and the loop below then found no
+# deleters because it read no files at all. The assertion reported PASS for the
+# whole of its life having scanned nothing.
+#
+# The floor is what makes that unrepeatable. A search whose corpus can silently
+# go empty needs an assertion that the corpus was non-empty, or "found nothing"
+# and "looked at nothing" are the same result -- the vacuity guard the suite
+# already carries for upstream-provenance and sidecars-in-tree-validate.
+_scanned=0
 _deleters=''
-for _f in $(_tree_sh_files); do
+for _f in $(_tree_sh_files "$_root"); do
+  _scanned=$((_scanned + 1))
   if _logical_lines "$_f" | sed 's/#.*//' |
      grep -E '[$](PREFIX|[{]PREFIX[}])/lib/pkgconfig' |
      grep -qE '(^|[[:space:];&|(])(rm|rmdir|unlink|shred|cd)[[:space:]]|-delete|-exec[[:space:]]+rm'; then
     _deleters="$_deleters $_f"
   fi
 done
-if [ -z "$_deleters" ]; then
+if [ "$_scanned" -lt 100 ]; then
+  _bad no-production-code-deletes-from-the-workspace-pkgconfig-dir \
+    "the walk scanned $_scanned files -- too few to have covered lib/ and recipes/, so a clean result means nothing"
+elif [ -z "$_deleters" ]; then
   _pass no-production-code-deletes-from-the-workspace-pkgconfig-dir
 else
   _bad no-production-code-deletes-from-the-workspace-pkgconfig-dir \
