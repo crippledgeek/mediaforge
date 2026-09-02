@@ -421,10 +421,17 @@ printf 'die "first line\n  second line\n  third %s line\n  fourth line"\n' "$_em
   > "$_tmp/census/lib/multi.sh"
 printf 'warn "opens with a \\" escape\n  then %s here"\n' "$_em" > "$_tmp/census/lib/escaped.sh"
 printf 'log "nested %s offender"\n' "$_em" > "$_tmp/census/recipes/hwaccel/nested.sh"
+# A bare parameter expansion BEFORE a call on the same line. Its `#` is outside
+# quotes, which is where a comment can legally start -- only the preceding
+# character says otherwise. Cutting on `#` alone truncates the line before the
+# reporter and the message is never seen at all.
+printf '_p=%s{_f#lib/}; warn "expanded %s offender"\n' '$' "$_em" \
+  > "$_tmp/census/lib/expansion-then-call.sh"
 
 _probe=$(_census "$_tmp/census")
 _probe_missing=''
-for _oh_want in 'mediaforge.sh: ' 'lib/multi.sh: ' 'lib/escaped.sh: ' 'recipes/hwaccel/nested.sh: '; do
+for _oh_want in 'mediaforge.sh: ' 'lib/multi.sh: ' 'lib/escaped.sh: ' \
+                'lib/expansion-then-call.sh: ' 'recipes/hwaccel/nested.sh: '; do
   case "$_probe" in
     *"$_oh_want"*) ;;
     *) _probe_missing="$_probe_missing $_oh_want" ;;
@@ -457,7 +464,11 @@ printf 'log %s"-F%s\n_x="menu %s label"\n' "'" "'" "$_em" > "$_tmp/quiet/lib/sqs
 # inside double quotes exactly as a message's do, so the only thing separating
 # them is whether a reporter word opened the string -- and emitting on the quote
 # state alone, without that, reports an ordinary assignment as a broken message.
-printf '_x="a multi-line value\n  with %s a dash"\n' "$_em" > "$_tmp/quiet/lib/notareporter.sh"
+# The completed reporter call on the first line matters: it is what leaves the
+# emitting flag set, so a version that never clears it carries that state into
+# the assignment below and reports its continuation as a broken message.
+printf 'warn "a clean message"\n_x="a multi-line value\n  with %s a dash"\n' "$_em" \
+  > "$_tmp/quiet/lib/notareporter.sh"
 _quiet=$(_census "$_tmp/quiet")
 if [ -z "$_quiet" ]; then
   _pass census-does-not-cry-wolf
