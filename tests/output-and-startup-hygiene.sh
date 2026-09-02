@@ -360,8 +360,10 @@ _census() { # tree root
 #                   lib/install.sh's six and missed the four inside its longest
 #                   message. Per-line parity still prints line two, because the
 #                   opening line already set the flag; it only loses the thread
-#                   on the line AFTER a quote-less one. lib/install.sh:290 is
-#                   the fourth line of its message, which is why it was missed.
+#                   on the line AFTER a quote-less one, which is why the four
+#                   it missed were all inside _place_file's sudoers-policy die
+#                   in lib/install.sh -- the offending line there is the fourth
+#                   of its message.
 #   lib/escaped.sh  a message carrying an escaped quote before the offender. An
 #                   unescaped count reads `\"` as closing the string and stops
 #                   following the message there.
