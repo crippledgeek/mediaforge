@@ -453,6 +453,11 @@ mkdir -p "$_tmp/quiet/lib"
 # fixture is ABOUT does not read as one shellcheck should warn on.
 printf 'warn "x %s{_v#pfx}"\n_label="menu %s label"\n' '$' "$_em" > "$_tmp/quiet/lib/expansion.sh"
 printf 'log %s"-F%s\n_x="menu %s label"\n' "'" "'" "$_em" > "$_tmp/quiet/lib/sqspan.sh"
+# A multi-line string that is NOT a reporter argument. Its later lines sit
+# inside double quotes exactly as a message's do, so the only thing separating
+# them is whether a reporter word opened the string -- and emitting on the quote
+# state alone, without that, reports an ordinary assignment as a broken message.
+printf '_x="a multi-line value\n  with %s a dash"\n' "$_em" > "$_tmp/quiet/lib/notareporter.sh"
 _quiet=$(_census "$_tmp/quiet")
 if [ -z "$_quiet" ]; then
   _pass census-does-not-cry-wolf
