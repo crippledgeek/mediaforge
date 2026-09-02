@@ -35,13 +35,14 @@
 # on a sane host, and still an absolute-path rm executed in the course of
 # proving those paths must never be targeted.
 #
-# Every grep over shell source here reads through _code_only. Twice on this
+# Every grep over shell source here reads through _code_only EXCEPT
+# _reporter_args, which does its own quote-aware strip for the reason given
+# at its definition. Twice on this
 # branch an assertion matched the words in a COMMENT rather than in the code --
 # once in this file, found by mutation -- so a needle that has not had comments
 # stripped is asking what a file SAYS, not what it does.
 # EQUIVALENT MUTANTS -- registered so a later pass reads this rather than
 # re-deriving it.
-#
 #
 # _census's "no tree at $1" guard is equivalent for the same structural reason a
 # guard usually is: it fires only when the caller is already wrong, so removing
@@ -94,7 +95,7 @@ if ! _lib_code | grep -q '^mf_printable()'; then
             payload-description-is-one-line payload-description-shares-the-helper \
             remote-tag-is-filtered reporters-share-the-helper \
             filter-still-deletes-multibyte ascii-separator-survives \
-            census-sees-a-planted-offender \
+            census-sees-a-planted-offender census-does-not-cry-wolf \
             reporter-text-survives-the-filter; do
     _bad "$_a" "mf_printable is absent — claim would be vacuous"
   done
@@ -305,7 +306,7 @@ esac
 #     needs dataflow, not grep.
 #   * a SINGLE-quoted message spanning lines. The scan tracks both quote kinds,
 #     so nothing desyncs, but only a double quote marks a message as continuing;
-#     the later lines of a `log '"'"'...'"'"'` written across two are not read. No
+#     the later lines of a `log '...'` written across two are not read. No
 #     reporter in the tree takes a single-quoted argument.
 #   * two reporter words on one line: awk match() is leftmost, so the tail is
 #     kept from the FIRST -- and text between the two is therefore read as part
@@ -325,16 +326,19 @@ _reporter_args() { # path to a shell file
     # legitimately non-ASCII and one new ${VAR#...} above them away from being
     # reported as broken messages.
     BEGIN { SQ = sprintf("%c", 39) }   # a literal quote here would end the program
-    function code(s,   i, c, cut) {
+    # dq, sq and dqpos are deliberately global -- they are the state the caller
+    # reads. esc is local because it never outlives a line: a backslash at end
+    # of line is a continuation, which this needle does not follow anyway.
+    function code(s,   i, c, cut, esc) {
       cut = length(s) + 1
-      esc = 0
+      dqpos = ""
       for (i = 1; i <= length(s); i++) {
         c = substr(s, i, 1)
         if (esc)              { esc = 0; continue }
         if (c == "\\" && !sq) { esc = 1; continue }
         if (c == SQ && !dq)   { sq = !sq; continue }
-        if (c == "\"" && !sq) { dq = !dq; continue }
-        if (c == "#" && !dq && !sq && (i == 1 || substr(s, i - 1, 1) ~ /[ \t]/)) {
+        if (c == "\"" && !sq) { dq = !dq; dqpos = dqpos " " i; continue }
+        if (c == "#" && !dq && !sq && (i == 1 || substr(s, i - 1, 1) ~ /[ \t;&|()]/)) {
           cut = i
           break
         }
@@ -354,8 +358,16 @@ _reporter_args() { # path to a shell file
       if (!was_in) {
         emitting = 0
         if (match(line, /(^|[^[:alnum:]_])(log|warn|die)[ \t]+/)) {
-          emitting = 1
           print substr(line, RSTART + RLENGTH)
+          # A string left open at end of line belongs to this reporter only
+          # when exactly one quote stands open after the reporter word. The
+          # shape `warn "done"; _x="opens` leaves one open that the reporter
+          # did not start, and reading "a reporter appeared" as "a message is
+          # open" reports the next line of an unrelated value as broken.
+          _n = 0
+          split(dqpos, _q, " ")
+          for (_k in _q) if (_q[_k] + 0 > RSTART + RLENGTH - 1) _n++
+          emitting = (dq && _n == 1)
         }
       } else if (emitting) {
         print line
@@ -363,7 +375,10 @@ _reporter_args() { # path to a shell file
       # No reset here. Every line that is not a continuation re-enters the
       # branch above, which clears the flag before deciding again, so a trailing
       # `if (!dq) emitting = 0` is unreachable state-keeping -- it cannot be
-      # mutated away, which is how it was found.
+      # mutated away, which is how it was found. That rests on emitting being
+      # READ only here, under was_in: a later edit reading it in an END block,
+      # or on a non-continuation line before the clear, makes a reset load-
+      # bearing again.
     }' "$1" | LC_ALL=C grep '[^[:blank:] -~]'
 }
 
@@ -430,11 +445,19 @@ printf 'log "nested %s offender"\n' "$_em" > "$_tmp/census/recipes/hwaccel/neste
 # reporter and the message is never seen at all.
 printf '_p=%s{_f#lib/}; warn "expanded %s offender"\n' '$' "$_em" \
   > "$_tmp/census/lib/expansion-then-call.sh"
+# A comment introduced by an operator rather than whitespace, holding an
+# apostrophe, ahead of a real message. POSIX starts a comment at the beginning
+# of a WORD, so `;#` is one; a rule accepting only whitespace leaves it uncut,
+# its apostrophe opens a single-quoted span that never closes, and from there no
+# comment can be cut and no offender seen for the rest of the file.
+printf 'true;#do not cut me\ndie "real message\n  with %s a dash"\n' "$_em" \
+  > "$_tmp/census/lib/operator-comment.sh"
 
 _probe=$(_census "$_tmp/census")
 _probe_missing=''
 for _oh_want in 'mediaforge.sh: ' 'lib/multi.sh: ' 'lib/escaped.sh: ' \
-                'lib/expansion-then-call.sh: ' 'recipes/hwaccel/nested.sh: '; do
+                'lib/expansion-then-call.sh: ' 'lib/operator-comment.sh: ' \
+                'recipes/hwaccel/nested.sh: '; do
   case "$_probe" in
     *"$_oh_want"*) ;;
     *) _probe_missing="$_probe_missing $_oh_want" ;;
@@ -472,6 +495,10 @@ printf 'log %s"-F%s\n_x="menu %s label"\n' "'" "'" "$_em" > "$_tmp/quiet/lib/sqs
 # the assignment below and reports its continuation as a broken message.
 printf 'warn "a clean message"\n_x="a multi-line value\n  with %s a dash"\n' "$_em" \
   > "$_tmp/quiet/lib/notareporter.sh"
+# A reporter that COMPLETES and a foreign string that opens on the same line.
+# The string still open at end of line is not the message, so carrying "a
+# reporter appeared" forward reports the next line of an unrelated value.
+printf 'warn "done"; _x="opens\n  %s dash"\n' "$_em" > "$_tmp/quiet/lib/sameline.sh"
 _quiet=$(_census "$_tmp/quiet")
 if [ -z "$_quiet" ]; then
   _pass census-does-not-cry-wolf
