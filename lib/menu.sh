@@ -34,7 +34,7 @@ menu_radiolist() {
     _tag=$1; _desc=$2; shift 2
     _i=$((_i + 1))
     [ "$_tag" = "$_default" ] && _default_idx=$_i
-    printf '  %d) %s — %s\n' "$_i" "$_tag" "$_desc" >&2
+    printf '  %d) %s -- %s\n' "$_i" "$_tag" "$_desc" >&2
     _tags="$_tags $_tag"
   done
   while :; do

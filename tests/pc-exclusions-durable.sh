@@ -335,8 +335,7 @@ chmod 600 "$_ws4/.pc-skip-queue" 2>/dev/null
 # grep. What this does catch is the defect that occurred and every one-line
 # rewrite of it.
 _deleters=''
-for _f in mediaforge.sh lib/*.sh recipes/*.sh recipes/*/*.sh; do
-  [ -f "$_f" ] || continue
+for _f in $(_tree_sh_files); do
   if _logical_lines "$_f" | sed 's/#.*//' |
      grep -E '[$](PREFIX|[{]PREFIX[}])/lib/pkgconfig' |
      grep -qE '(^|[[:space:];&|(])(rm|rmdir|unlink|shred|cd)[[:space:]]|-delete|-exec[[:space:]]+rm'; then

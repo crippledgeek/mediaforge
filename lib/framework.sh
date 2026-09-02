@@ -420,7 +420,7 @@ check_guards() {
   # recipes were disabled or failed to build. Fail loud rather than skip.
   if [ "$PKG_REQUIRES_MESON" = true ]; then
     if ! command_exists meson || ! command_exists ninja; then
-      die "$PKG_NAME requires meson and ninja, which mediaforge builds in recipes/tools/. They are missing — the meson/ninja recipe was disabled or failed. Re-enable it, or skip this package with --disable=$_guard_key."
+      die "$PKG_NAME requires meson and ninja, which mediaforge builds in recipes/tools/. They are missing -- the meson/ninja recipe was disabled or failed. Re-enable it, or skip this package with --disable=$_guard_key."
     fi
   fi
 

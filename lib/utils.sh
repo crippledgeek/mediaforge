@@ -38,6 +38,29 @@
 # a PATH without `tr` is a broken environment rather than an attacker. So the
 # message wins, and the filter applies wherever it can. `command -v` is a shell
 # builtin, so asking costs no fork.
+# CALL SITES ARE ASCII, and that is this filter's cost rather than an accident
+# of how the messages happen to be typed. `[:print:]` here is 0x20-0x7E, so
+# every byte of a multibyte character is deleted -- an em-dash written into a
+# die() leaves the two spaces that surrounded it and nothing between them, which
+# is what an operator met on a fresh checkout ("No stamps at ...  run build
+# first"). The other spelling, admitting printable multibyte, cannot be had from
+# a byte class: C1 controls are 0x80-0x9F and UTF-8 continuation bytes are
+# 0x80-0xBF, and U+2014 is E2 80 94 -- both its tail bytes sit inside C1, so no
+# `tr` range keeps the dash while dropping a bare CSI. Separating them needs a
+# UTF-8 decoder, and it would widen mf_printable_line, whose input is written by
+# whoever answers a request. So the strict filter is kept and `--` is written at
+# the call sites.
+#
+# THE RULE IS WIDER THAN THIS FILTER: mediaforge source is ASCII throughout, and
+# tests/output-and-startup-hygiene.sh holds the whole tree to it. Scoping it to
+# these three reporters would leave the damage that does NOT come through here.
+# whiptail is an ncursesw front end whose multibyte decoding is gated on
+# LC_CTYPE, so under LC_ALL=C the em-dash in a lib/resolve.sh menu label renders
+# as \342<80><94> -- the lead byte raw, its continuations in escape notation,
+# eight columns where one dash was meant -- and nothing filters that path at
+# all. GNU's coding standards ask for the same thing in the same words: in the C
+# locale, output sticks to plain ASCII. FFmpeg's own configure, which mediaforge
+# wraps, carries no non-ASCII byte either.
 mf_printable() {
   if command -v tr >/dev/null 2>&1; then
     printf '%s' "$*" | LC_ALL=C tr -dc '[:print:][:blank:]\n'

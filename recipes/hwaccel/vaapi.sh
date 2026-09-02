@@ -10,7 +10,7 @@ PKG_SKIP_EXTRACT=true
 # framework appends PKG_FFMPEG_OPT before pkg_prepare runs on stamp-cached
 # hits, so a runtime override there is too late.
 if [ -n "$LDEXEFLAGS" ]; then
-  log "Skipping vaapi (incompatible with --enable-static — Arch ships .so only)"
+  log "Skipping vaapi (incompatible with --enable-static -- Arch ships .so only)"
   PKG_FFMPEG_OPT=""
 elif ! library_exists "libva"; then
   log "Skipping vaapi (libva not found on host)"

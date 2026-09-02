@@ -85,7 +85,7 @@ mf_storage_guard() { # dir  allow_ram(true|false)
   case "$(mf_fs_type "$1")" in
     tmpfs | ramfs | devtmpfs)
       if [ "$2" = true ]; then
-        warn "building into RAM ($1) — a full tree is larger than most tmpfs mounts, and running one out of memory takes more than this build with it"
+        warn "building into RAM ($1) -- a full tree is larger than most tmpfs mounts, and running one out of memory takes more than this build with it"
       else
         die "$1 is on a RAM-backed filesystem. A build that fills it exhausts memory rather than disk, and the OOM killer's SIGKILL leaves the tree behind because no shell can trap it. Build from a directory on disk, or pass --allow-tmpfs if you know this one is large enough."
       fi

@@ -58,6 +58,6 @@ pkg_install() {
   elif [ -d amf/public/include/components ] && [ -d amf/public/include/core ]; then
     run cp -r amf/public/include/components amf/public/include/core "$_dest/include/AMF/"
   else
-    die "amf: none of the known header layouts found in $(pwd) — upstream changed the archive shape again"
+    die "amf: none of the known header layouts found in $(pwd) -- upstream changed the archive shape again"
   fi
 }

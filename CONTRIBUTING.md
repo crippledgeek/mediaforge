@@ -72,6 +72,32 @@ All code must be **POSIX sh** — no Bashisms.
 - `sed ... > tmp && mv tmp orig` not `sed -i`
 - Prefer `awk` over `sed` for field-based edits
 - Use `patch -p1` for complex multi-line source fixes (store in `patches/`)
+- **Shipped shell source is ASCII** — `mediaforge.sh`, `lib/`, `recipes/`: write `--`, not an em-dash. Tests and Markdown are exempt.
+
+`tests/output-and-startup-hygiene.sh` fails on any byte outside printable ASCII
+in the **code** — comments excepted — of `mediaforge.sh`, `lib/*.sh`,
+`recipes/*.sh` and `recipes/*/*.sh`. Two separate paths damage such a byte and
+neither is obvious from the source. `tests/` is exempt: its text reaches a
+developer through `printf`, never through either path. So are non-`.sh` files;
+`recipes/_order.conf` carries an em-dash in a comment today. `log`/`warn`/`die` run their text through
+`mf_printable`, which filters in the C locale where `[:print:]` is 0x20-0x7E, so
+a multibyte character is deleted outright and the message reaches the operator
+with a gap where the author wrote a dash. whiptail takes the other path: it is
+an ncursesw front end whose multibyte decoding is gated on `LC_CTYPE`, so under
+`LC_ALL=C` a menu label's em-dash renders as `\342<80><94>` — the lead byte raw
+and its continuations in escape notation, eight columns where one dash was
+meant. Nothing filters that path at all.
+
+Widen this rule rather than teaching the check to tell a menu label from a
+`die` argument. An earlier version did exactly that, and disambiguating four
+lines cost ~85 lines of awk that still could not see backticks or heredocs, and
+whose rules were going untested faster than they could be fixtured.
+
+This is the convention the tools mediaforge sits between already follow. GNU's
+coding standards make it normative — in the C locale, output sticks to plain
+ASCII, and non-ASCII is permitted only once a program has positively detected a
+non-C locale — and FFmpeg's own `configure`, the script mediaforge wraps, holds
+no non-ASCII byte at all.
 
 ## Adding a Recipe
 

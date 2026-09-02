@@ -123,7 +123,7 @@ cmd_help() {
   printf '      --enable-lto          Enable LTO in recipes that support it (default: off; archives may break on GCC major bumps)\n'
   printf '      --disable-lto         Force LTO off (default)\n'
   printf '      --allow-tmpfs         Build even when the working directory is on a RAM-backed\n'
-  printf '                            filesystem (refused by default — a full tree is ~34GB)\n'
+  printf '                            filesystem (refused by default -- a full tree is ~34GB)\n'
   printf '      --ccache              Compile through ccache; fail if it is not installed\n'
   printf '                            (default: used when installed, unless CCACHE_DISABLE is set)\n'
   printf '      --no-ccache           Do not use ccache, meson recipes included\n'
@@ -536,8 +536,8 @@ cmd_build() {
   # lib/ccache.sh, beside the mechanism it selects.
   mf_ccache_apply "$MF_CCACHE"
 
-  command_exists "cargo"   || warn "cargo not installed — rav1e will be skipped"
-  command_exists "python3" || warn "python3 not installed — dav1d and lv2 will be skipped"
+  command_exists "cargo"   || warn "cargo not installed -- rav1e will be skipped"
+  command_exists "python3" || warn "python3 not installed -- dav1d and lv2 will be skipped"
 
   # Static build: warn about static system libs that are neither bundled by
   # mediaforge's own recipes (recipes/syslib/) nor present in /usr/lib/.
@@ -1036,11 +1036,11 @@ cmd_check_shadowers() {
         printf 'Usage: %s check-shadowers [--strict]\n\n' "$PROGNAME"
         printf 'Audit workspace .pc files against the system pkgconfig path.\n'
         printf 'Reports each system overlap as either:\n'
-        printf '  [expected dropped]   — recipe declared PKG_TRANSITIVE_UTIL=true and the\n'
-        printf '                         system provides it; .pc kept in the workspace, not installed\n'
-        printf '  [expected NO SYSTEM] — recipe drops it but the system has no replacement\n'
-        printf '  [NEW SHADOW]         — would be installed AND system has it; review whether the\n'
-        printf '                         recipe should set PKG_TRANSITIVE_UTIL=true\n\n'
+        printf '  [expected dropped]   -- recipe declared PKG_TRANSITIVE_UTIL=true and the\n'
+        printf '                          system provides it; .pc kept in the workspace, not installed\n'
+        printf '  [expected NO SYSTEM] -- recipe drops it but the system has no replacement\n'
+        printf '  [NEW SHADOW]         -- would be installed AND system has it; review whether the\n'
+        printf '                          recipe should set PKG_TRANSITIVE_UTIL=true\n\n'
         printf '  --strict   exit 1 when new shadowers are found (default: warn only)\n'
         exit 0 ;;
       *) die "Unknown option for check-shadowers: $1" ;;
@@ -1049,12 +1049,12 @@ cmd_check_shadowers() {
   done
 
   if ! command_exists pkg-config; then
-    die "pkg-config not found — install pkgconf or pkg-config first"
+    die "pkg-config not found -- install pkgconf or pkg-config first"
   fi
 
   _pc_dir="$PREFIX/lib/pkgconfig"
   if [ ! -d "$_pc_dir" ]; then
-    die "No pkgconfig dir at $_pc_dir — run '$PROGNAME build' first"
+    die "No pkgconfig dir at $_pc_dir -- run '$PROGNAME build' first"
   fi
 
   # Collect the .pc files that recipes have declared as transitive utils.
@@ -1092,10 +1092,10 @@ cmd_check_shadowers() {
   for _e in $_expected_set; do
     if PKG_CONFIG_PATH="" pkg-config --exists "$_e" 2>/dev/null; then
       _sys_ver=$(PKG_CONFIG_PATH="" pkg-config --modversion "$_e" 2>/dev/null)
-      log "  [expected dropped]   $_e  (system=$_sys_ver) — recipe intent + system fallback ✓"
+      log "  [expected dropped]   $_e  (system=$_sys_ver) -- recipe intent + system fallback OK"
       _known=$((_known + 1))
     else
-      warn "  [expected NO SYSTEM] $_e — recipe dropped but system doesn't provide it; downstream consumers asking for $_e will fail"
+      warn "  [expected NO SYSTEM] $_e -- recipe dropped but system doesn't provide it; downstream consumers asking for $_e will fail"
       _known=$((_known + 1))
     fi
   done
@@ -1122,7 +1122,7 @@ cmd_check_shadowers() {
     if PKG_CONFIG_PATH="" pkg-config --exists "$_name" 2>/dev/null; then
       _sys_ver=$(PKG_CONFIG_PATH="" pkg-config --modversion "$_name" 2>/dev/null)
       _prv_ver=$(awk -F': ' '/^Version:/ {print $2; exit}' "$_pc")
-      warn "  [NEW SHADOW]         $_name  (private=$_prv_ver  system=$_sys_ver) — set PKG_TRANSITIVE_UTIL=true on the owning recipe if this should be dropped"
+      warn "  [NEW SHADOW]         $_name  (private=$_prv_ver  system=$_sys_ver) -- set PKG_TRANSITIVE_UTIL=true on the owning recipe if this should be dropped"
       _new=$((_new + 1))
     fi
   done
@@ -1132,7 +1132,7 @@ cmd_check_shadowers() {
   log "New shadows (recipe didn't declare):               $_new"
 
   if [ "$_new" -gt 0 ]; then
-    warn "$_new new shadowing .pc file(s) found — review whether the owning recipe should set PKG_TRANSITIVE_UTIL=true"
+    warn "$_new new shadowing .pc file(s) found -- review whether the owning recipe should set PKG_TRANSITIVE_UTIL=true"
     [ "$_strict" = true ] && exit 1
   fi
   exit 0
@@ -1209,7 +1209,7 @@ _reconcile_stamps() {
     # this command.
     if [ ! -s "$_rc_stamp" ]; then
       _rc_unverifiable=$((_rc_unverifiable + 1))
-      [ "$_rc_quiet" = true ] || log "  [unverifiable] $_rc_name — stamp carries no manifest"
+      [ "$_rc_quiet" = true ] || log "  [unverifiable] $_rc_name -- stamp carries no manifest"
       continue
     fi
 
@@ -1245,7 +1245,7 @@ _reconcile_stamps() {
       _rc_drifted=$((_rc_drifted + 1))
       _rc_drifted_list="$_rc_drifted_list$_rc_stamp
 "
-      warn "  [DRIFTED]      $_rc_name — the stamp vouches for files that are gone:"
+      warn "  [DRIFTED]      $_rc_name -- the stamp vouches for files that are gone:"
       printf '%s\n' "$_rc_missing" | while IFS= read -r _rc_m; do
         [ -n "$_rc_m" ] || continue
         warn "                   $_rc_m"
@@ -1282,7 +1282,7 @@ _reconcile_orphan_artifacts() {
 
     for _rc_pc in $_rc_pcs; do
       if [ -f "$PREFIX/lib/pkgconfig/${_rc_pc}.pc" ]; then
-        warn "  [lost stamp]   $_rc_pkg — lib/pkgconfig/${_rc_pc}.pc is present with no stamp; it will be rebuilt"
+        warn "  [lost stamp]   $_rc_pkg -- lib/pkgconfig/${_rc_pc}.pc is present with no stamp; it will be rebuilt"
         _rc_orphans=$((_rc_orphans + 1))
         break
       fi
@@ -1604,7 +1604,7 @@ cmd_reconcile() {
         printf 'Check each build stamp against the artifacts it vouches for.\n'
         printf 'Reports each stamp as:\n'
         printf '  [verified]      every path in the stamp is present\n'
-        printf '  [DRIFTED]       the stamp names a path that is gone — the next\n'
+        printf '  [DRIFTED]       the stamp names a path that is gone -- the next\n'
         printf '                  build would SKIP that recipe without building it.\n'
         printf '                  FFmpeg is the exception: nothing gates on its\n'
         printf '                  stamp, so it rebuilds every run and heals its own\n'
@@ -1613,7 +1613,7 @@ cmd_reconcile() {
         printf '                  installs nothing and correctly records nothing, or\n'
         printf '                  a stamp written by an older mediaforge\n'
         printf '  [unclaimed]     the other direction: a file in the prefix that no\n'
-        printf '                  stamp claims — a disabled recipe left it, a rebuild\n'
+        printf '                  stamp claims -- a disabled recipe left it, a rebuild\n'
         printf '                  stopped installing it, or it was placed by hand.\n'
         printf '                  ADVISORY: it does not affect the exit status, and\n'
         printf '                  --prune does not remove it.\n\n'
@@ -1628,7 +1628,7 @@ cmd_reconcile() {
     shift
   done
 
-  [ -d "$PREFIX/.stamps" ] || die "No stamps at $PREFIX/.stamps — run '$PROGNAME build' first"
+  [ -d "$PREFIX/.stamps" ] || die "No stamps at $PREFIX/.stamps -- run '$PROGNAME build' first"
 
   # --quiet means only problems, and that has to include the framing. A mode
   # documented as "report only problems" that still prints a header, two blank

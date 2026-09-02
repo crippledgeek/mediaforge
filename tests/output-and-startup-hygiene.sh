@@ -39,6 +39,22 @@
 # branch an assertion matched the words in a COMMENT rather than in the code --
 # once in this file, found by mutation -- so a needle that has not had comments
 # stripped is asking what a file SAYS, not what it does.
+# EQUIVALENT MUTANTS -- registered so a later pass reads this rather than
+# re-deriving it.
+#
+# Spelling the needle as `[^[:print:][:blank:]]` -- borrowing the class from the
+# filter instead of writing the range out -- is equivalent HERE and only here.
+# `sh` on this machine resolves /usr/bin/grep, which is GNU grep 3.12, and that
+# agrees with GNU tr about the class. It stops being equivalent the moment a
+# grep that calls 0x80-0xFF printable answers first, which ugrep 7.8.4 does, so
+# the explicit range stays. Killing it would mean running the suite under a
+# second grep, which is a bigger apparatus than the risk.
+#
+# _ascii_census's "no tree at $1" guard is equivalent for the structural reason a
+# guard usually is: it fires only when the caller is already wrong, so removing
+# it changes nothing a correct tree can observe. Its test is the mutation that
+# aims the census at a path that does not exist, which the guard turns from a
+# clean-looking PASS into a named failure.
 set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT"
 _fail=0
@@ -83,7 +99,9 @@ if ! _lib_code | grep -q '^mf_printable()'; then
             printable-text-survives newlines-survive-in-our-own-messages \
             message-survives-without-tr line-form-fails-closed-without-tr \
             payload-description-is-one-line payload-description-shares-the-helper \
-            remote-tag-is-filtered reporters-share-the-helper; do
+            remote-tag-is-filtered reporters-share-the-helper \
+            filter-still-deletes-multibyte ascii-separator-survives \
+            census-sees-a-planted-offender source-is-ascii; do
     _bad "$_a" "mf_printable is absent — claim would be vacuous"
   done
   printf 'DONE: output-and-startup-hygiene\n'
@@ -215,6 +233,169 @@ if [ -z "$_missing" ]; then
   _pass reporters-share-the-helper
 else
   _bad reporters-share-the-helper "these reporters print interpolated values unfiltered:$_missing"
+fi
+
+# --- what the reporters are allowed to SAY ---------------------------------
+# The filter above is byte-defined on purpose, and the cost of that is paid
+# here: `[:print:]` in the C locale is 0x20-0x7E, every byte of a multibyte
+# UTF-8 character is outside it, and `tr -d` deletes rather than replaces. An
+# em-dash written into a die() message is therefore gone before any operator
+# sees it, leaving the two spaces that surrounded it:
+#
+#   [mediaforge] FATAL: No stamps at .../.stamps  run 'mediaforge.sh build' first
+#
+# Two spellings would fix that and only one is safe. Relaxing the filter to
+# admit printable multibyte cannot be done with a byte class: C1 controls are
+# 0x80-0x9F and UTF-8 continuation bytes are 0x80-0xBF, so they overlap. The
+# em-dash U+2014 is E2 80 94 -- both of its continuation bytes sit inside C1 --
+# and no `tr` range separates "the tail of a character" from "a bare CSI on a
+# terminal in an 8-bit locale". Telling them apart needs a UTF-8 decoder, and
+# it would widen mf_printable_line, the form whose input is written by whoever
+# answers a request. So the filter stays strict and the call sites stay ASCII.
+#
+# That decision is only worth anything if it holds, which is what these two
+# assert: the filter still deletes what the decision assumes it deletes, and no
+# reporter argument in the tree contains such a byte.
+_out=$(log "em—dash" 2>&1 || true)
+case "$_out" in
+  *"em—dash"*) _bad filter-still-deletes-multibyte "mf_printable now passes multibyte through; the ASCII-only rule below rests on it not doing that, so the trade in lib/utils.sh needs re-deciding rather than this assertion relaxing" ;;
+  *"emdash"*) _pass filter-still-deletes-multibyte ;;
+  *) _bad filter-still-deletes-multibyte "unexpected result from a multibyte message: $_out" ;;
+esac
+
+# The ASCII separator the call sites use instead, asserted through die() --
+# the reporter that prints on a fresh checkout, and the one the issue's example
+# came from.
+_out=$( (die "No stamps -- run build first") 2>&1 || true )
+case "$_out" in
+  *"No stamps -- run build first"*) _pass ascii-separator-survives ;;
+  *) _bad ascii-separator-survives "the ASCII separator did not survive the filter: $_out" ;;
+esac
+
+# THE SHIPPED SOURCE IS ASCII -- mediaforge.sh, lib/ and recipes/, the files an
+# operator runs. This is what holds it that way.
+#
+# WHERE IT STOPS, first because it is the part that gets read past. If this ever
+# needs to tell one kind of text on a line from another again, the rule has been
+# narrowed back and a parser is coming with it: widen the rule instead. The
+# parser this replaced reached ~85 lines of awk, sixteen fixtures and six review
+# passes -- to disambiguate FOUR lines -- and still missed backticks, heredocs
+# and messages assembled in a variable. Seven of its rules had no fixture at
+# all when it was retired, two of them guarding shapes live in the tree. Not
+# unkillable, which would have been harmless: load-bearing and untested, which
+# is why it went.
+#
+# tests/ and .githooks/ are deliberately OUT of scope, and several test files
+# carry a dash today (`grep -rln '[^[:blank:] -~]' tests/`). Neither damage path below reaches them: their text goes to a
+# developer through _bad's printf, never through mf_printable and never through
+# whiptail. A gate over them would assert a rule with no defect behind it.
+#
+# The rule is not a lint we invented. GNU's coding standards make it normative
+# for exactly this class of tool -- "in the C locale, the output of GNU programs
+# should stick to plain ASCII", with non-ASCII permitted only once a program has
+# positively detected a non-C locale -- and FFmpeg's own configure, the script
+# mediaforge wraps, carries no non-ASCII byte at all. POSIX says why: outside
+# the Portable Character Set the encoding is locale-dependent, and a build tool
+# cannot assume anything about the locale it is invoked under.
+#
+# It started as "reporter arguments must be ASCII", because mf_printable deletes
+# multibyte and an em-dash written into a die() vanished before any operator saw
+# it. Deciding which text on a line was a reporter argument and which was a menu
+# label needed a shell-quoting scanner -- double quotes, single quotes, escapes,
+# substitution depth -- and that scanner existed to tell those apart on FOUR
+# lines in the tree. The whole population was 21 non-ASCII code lines, 17 of
+# which were printf text no reporter ever touched.
+#
+# Two things made the narrow rule the wrong one. The filter was never the only
+# way this text is damaged: whiptail is an ncursesw front end whose multibyte
+# decoding is gated on LC_CTYPE, so under LC_ALL=C a menu label's em-dash is
+# rendered \342<80><94> -- the lead byte raw, the continuations in escape
+# notation, eight columns where one dash was meant, widening the row. Measured
+# on whiptail here, not inferred. And that path has no filter in front of it at
+# all. Meanwhile the scanner could only ever be as complete as the shell
+# constructs it modelled: backticks, heredocs, and messages assembled through a
+# variable were all misses, and each new shape argued for one more rule.
+#
+# So the tree is ASCII and the needle stops parsing. It asks the only question
+# left, it has no state, and it cannot miss: a multi-line message, a
+# single-quoted one, a backtick, a heredoc body, a message built in a variable,
+# and every shape nobody has thought of are all just bytes in a file.
+#
+# TWO RESIDUALS, both small and both stated so nobody has to rediscover them.
+# _code_only's `#` truncation cuts inside a string too, so it can hide a byte
+# after one -- stateless, one line wide, and a miss rather than a false alarm.
+# And that sed runs in the caller's locale while the needle runs under LC_ALL=C,
+# which can only differ on invalid UTF-8, and differs loudly.
+#
+# There is no companion assertion checking the census stays SILENT on correct
+# code, and that is deliberate rather than missing: a false alarm is now
+# structurally impossible. _code_only can only over-strip, never under-strip, so
+# nothing the needle sees was hidden from it by a comment -- and under a rule
+# this wide any surviving byte is an offender whatever it sits in, code or a
+# heredoc body alike. The scanner needed such an assertion because it
+# decided which text was a message and could decide wrong.
+_ascii_census() { # tree root
+  # A root with no mediaforge.sh in it is a broken call, not a clean tree, and
+  # the two are otherwise the same empty output: aiming this at a path that does
+  # not exist read as a pass.
+  if [ ! -f "$1/mediaforge.sh" ]; then
+    printf 'census: no tree at %s\n' "$1"
+    return
+  fi
+  for _oh_f in $(_tree_sh_files "$1"); do
+    _code_only "$1/$_oh_f" | LC_ALL=C grep -n '[^[:blank:] -~]' | sed "s|^|$_oh_f:|"
+  done
+}
+
+# A census is silent on a clean tree, which is the shape it also has when the
+# needle has stopped matching anything, or when the walk was handed no files.
+# Both of those passed as clean before they were probed, so the needle is shown
+# a planted tree first. One file per shape, because this asks whether a FILE was
+# named and two offenders in one file leave it named when only one is lost.
+#
+# The byte class is written out rather than borrowed from the filter as
+# `[^[:print:][:blank:]]`, because that spelling means different things to
+# different greps: measured 2026-09-02, GNU grep 3.12 agrees with GNU tr 9.11
+# and matches an em-dash, but ugrep 7.8.4 -- which some shells, this harness
+# among them, shadow `grep` with -- calls 0x80-0xFF printable under LC_ALL=C and
+# matches nothing at all.
+mkdir -p "$_tmp/census/lib" "$_tmp/census/recipes/hwaccel"
+_em=$(printf '\342\200\224')
+printf 'die "planted %s offender"\n' "$_em" > "$_tmp/census/mediaforge.sh"
+# The shape the narrow needle could not see without a scanner: an offender on
+# the third line of a message, after a line carrying no quote of its own.
+printf 'die "first line\n  second line\n  third %s line\n  fourth line"\n' "$_em" \
+  > "$_tmp/census/lib/multi.sh"
+# Text that is not a reporter argument at all -- a menu label beside a call, the
+# four lines the whole scanner existed for. Now simply an offender like any
+# other, which is the point of widening the rule.
+printf 'x264 "x264 %s GPL") || die "cancelled"\n' "$_em" > "$_tmp/census/lib/label.sh"
+# The doubly-nested glob, which nothing else here is deep enough to exercise.
+printf 'log "nested %s offender"\n' "$_em" > "$_tmp/census/recipes/hwaccel/nested.sh"
+
+_probe=$(_ascii_census "$_tmp/census")
+_probe_missing=''
+for _oh_want in 'mediaforge.sh:' 'lib/multi.sh:' 'lib/label.sh:' 'recipes/hwaccel/nested.sh:'; do
+  case "$_probe" in
+    *"$_oh_want"*) ;;
+    *) _probe_missing="$_probe_missing $_oh_want" ;;
+  esac
+done
+if [ -z "$_probe_missing" ]; then
+  _pass census-sees-a-planted-offender
+elif [ -z "$_probe" ]; then
+  _bad census-sees-a-planted-offender "the census reported nothing over a tree in which every file holds an em-dash, so its silence on the real tree is not evidence of anything"
+else
+  _bad census-sees-a-planted-offender "the census missed a planted offender in:$_probe_missing
+it reported: $_probe"
+fi
+
+_offenders=$(_ascii_census "$ROOT")
+if [ -z "$_offenders" ]; then
+  _pass source-is-ascii
+else
+  _bad source-is-ascii "these source lines carry a byte outside printable ASCII. In a reporter argument mf_printable deletes it before any operator sees it; in a whiptail label it renders as its raw bytes under LC_ALL=C:
+$_offenders"
 fi
 
 printf 'DONE: output-and-startup-hygiene\n'

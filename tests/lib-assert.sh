@@ -313,6 +313,40 @@ _code_only() { # file, or - for stdin
   sed 's/[[:space:]]*#.*$//' "$1"
 }
 
+# Every shell source file mediaforge SHIPS, as paths under the tree given. The
+# third caller is what made this a helper: tests/pc-exclusions-durable.sh and
+# tests/output-and-startup-hygiene.sh both walked this list character-for-
+# character, and tests/comment-citations.sh passes the same four globs as awk
+# operands. A fourth top-level directory, or a recipes/*/*/ nesting, otherwise
+# has to be remembered in three places that no test compares against each other.
+#
+# The globs are rooted at $1 rather than expanded against the cwd, which is not
+# a detail: expanded against the cwd they yield the REAL repo's path names and
+# the `-f` test then keeps only those that also exist under $1, so a caller
+# passing a synthetic tree gets the intersection rather than its own population.
+# A fixture is then silently required to mirror the repo's filenames, and a file
+# planted at any other path is invisible. An unmatched glob stays literal and is
+# dropped by the `-f` test, which is what makes the bare loop safe here.
+#
+# Paths come back RELATIVE to $1, because both callers report them to a reader
+# and an absolute path from a temp fixture names nothing the reader can act on.
+#
+# CALLERS WORD-SPLIT THE OUTPUT -- `for _f in $(_tree_sh_files)` -- and that is
+# safe only because this population is tracked repo paths, none of which holds a
+# space or a glob character; an unquoted substitution splits on IFS and then
+# re-globs what it produced. A `while read` loop would be the general answer and
+# is the wrong one here: it puts the body in a subshell, so a caller
+# accumulating into a variable (tests/pc-exclusions-durable.sh builds $_deleters
+# that way) would lose every hit and pass silently.
+_tree_sh_files() { # tree root, default $ROOT
+  _tsf_root=${1:-$ROOT}
+  for _tsf_f in "$_tsf_root"/mediaforge.sh "$_tsf_root"/lib/*.sh \
+                "$_tsf_root"/recipes/*.sh "$_tsf_root"/recipes/*/*.sh; do
+    [ -f "$_tsf_f" ] || continue
+    printf '%s\n' "${_tsf_f#"$_tsf_root"/}"
+  done
+}
+
 # Every file in lib/, comments stripped, as one stream. Requires the caller to
 # have set $ROOT, the same caller contract this file's header already states for
 # $_fail.
