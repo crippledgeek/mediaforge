@@ -450,7 +450,9 @@ printf '_p=%s{_f#lib/}; warn "expanded %s offender"\n' '$' "$_em" \
 # of a WORD, so `;#` is one; a rule accepting only whitespace leaves it uncut,
 # its apostrophe opens a single-quoted span that never closes, and from there no
 # comment can be cut and no offender seen for the rest of the file.
-printf 'true;#do not cut me\ndie "real message\n  with %s a dash"\n' "$_em" \
+# The apostrophe is the whole mechanism and arrives as an argument, since a
+# literal one cannot sit inside this single-quoted format.
+printf 'true;#it%ss uncut\ndie "real message\n  with %s a dash"\n' "'" "$_em" \
   > "$_tmp/census/lib/operator-comment.sh"
 
 _probe=$(_census "$_tmp/census")
