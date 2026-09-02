@@ -360,7 +360,10 @@ _reporter_args() { # path to a shell file
       } else if (emitting) {
         print line
       }
-      if (!dq) emitting = 0
+      # No reset here. Every line that is not a continuation re-enters the
+      # branch above, which clears the flag before deciding again, so a trailing
+      # `if (!dq) emitting = 0` is unreachable state-keeping -- it cannot be
+      # mutated away, which is how it was found.
     }' "$1" | LC_ALL=C grep '[^[:blank:] -~]'
 }
 
