@@ -14,7 +14,10 @@
 # `grep -c '^FAIL'` to decide whether a newly added file could detect its own
 # change, so the reporters' exact bytes are a gate input, not cosmetics.
 #
-# FOUR assertions, and the split is deliberate.
+# SIX assertions, and the split is deliberate. This line read FOUR while the
+# file already emitted five, so it had been stale for at least one group before
+# this one arrived -- a count in prose is only as current as its last editor,
+# and nothing checks it.
 #
 # Probes 1-6 are ONE compound assertion, for a reason that is now HISTORICAL and
 # is written in the past tense on purpose. oracle-baseline requires that no
@@ -233,7 +236,8 @@ rm -rf "$_probe_dir"
 _wrong_cflags=$_wrong
 _wrong=''
 
-# 16-17. _tree_sh_files and _lib_code walk a corpus rooted at $ROOT, and a
+# 16-17. _tree_sh_files and _lib_code are the fifth thing this library owns:
+# they walk a corpus rooted at $ROOT, and a
 # corpus that silently goes EMPTY is the worst failure either can have: every
 # gate built on them asks "does any file in the tree do X", so an empty walk
 # answers "no" for a tree nobody read. That is not hypothetical -- it shipped.
@@ -270,7 +274,7 @@ fi
 _wrong_root=$_wrong
 _wrong=''
 
-# 16-18. _verdict is the fifth thing this library owns: the report of a COMPOUND
+# 18-20. _verdict is the sixth thing this library owns: the report of a COMPOUND
 # assertion, chosen by whether the caller's accumulator is empty. It is pinned
 # here for the same reason the pair below it is -- a defect in it does not fail
 # a test, it changes what a test PRINTS, and printing is what
