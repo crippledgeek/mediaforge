@@ -71,6 +71,14 @@ _d sym-full-has-g3           mf_debug_cflags full     '*-g3*'
 # Frame pointers at EVERY level including symbols -- an optimized build whose
 # backtrace is unreliable defeats the only purpose that level has.
 _d sym-symbols-frame-pointer mf_debug_cflags symbols  '*-fno-omit-frame-pointer*'
+# -gsplit-dwarf at EVERY level, for the same reason the frame pointer is: the
+# symbol axis is one axis. Before it, the three levels varied only the -O half
+# and every one of them shipped its whole DWARF inside each --disable-shared
+# archive, so an operator who wanted cheaper links had no lever short of not
+# passing --debug at all -- which is the one thing they asked for (#92).
+_d sym-symbols-split-dwarf   mf_debug_cflags symbols  '*-gsplit-dwarf*'
+_d sym-balanced-split-dwarf  mf_debug_cflags balanced '*-gsplit-dwarf*'
+_d sym-full-split-dwarf      mf_debug_cflags full     '*-gsplit-dwarf*'
 # ...and nothing at all when no level is active.
 if _have mf_debug_cflags && [ -z "$(mf_debug_cflags '')" ]; then
   _pass sym-none-when-no-debug
@@ -207,7 +215,75 @@ for _pair in 'full:-O0' 'balanced:-Og' 'symbols:-O2'; do
       esac ;;
     *) _bad "composed-$_lv-has-opt-and-symbols" "no $_want in [$_got]" ;;
   esac
+  # Separate from the pair above rather than a third arm of it: the -O and the
+  # -g3 are what the level PROMISES, and where the DWARF lands is what #92
+  # changed. Naming it apart is what makes a regression say which half broke.
+  case "$_got" in
+    *-gsplit-dwarf*) _pass "composed-$_lv-splits-dwarf" ;;
+    *) _bad "composed-$_lv-splits-dwarf" "no -gsplit-dwarf in [$_got]" ;;
+  esac
 done
+
+# ...and the same claim MEASURED, which is the only form that can see a flag
+# the compiler accepts and ignores. Every assertion above is a string match: a
+# table that emitted -gsplit-dwarf into a build whose compiler silently dropped
+# it would satisfy all six and ship exactly the archives #92 is about.
+#
+# The reference probe decides whether the claim is measurable here at all.
+# Splitting is an ELF property: clang for a Mach-O target accepts -gsplit-dwarf,
+# writes no .dwo, and emits a byte-identical object (measured, clang 22.1.8,
+# -target arm64-apple-darwin). So a macOS run cannot assert a smaller object,
+# and asserting one would fail for the platform rather than for the defect. It
+# says so on a plain line instead of claiming a PASS it did not measure.
+_probe_dir=$(mktemp -d) || _probe_dir=""
+if [ -n "$_probe_dir" ] && _have cc; then
+  printf '#define MF_PROBE_MACRO 1\nint mf_probe(void){ return MF_PROBE_MACRO; }\n' > "$_probe_dir/p.c"
+  ( cd "$_probe_dir" && cc -g3 -gsplit-dwarf -c p.c -o ref.o ) >/dev/null 2>&1 || true
+fi
+if [ -n "$_probe_dir" ] && [ -f "$_probe_dir/ref.dwo" ]; then
+  for _lv in symbols balanced full; do
+    _cf=$(_composed "$_lv")
+    rm -f "$_probe_dir/lvl.o" "$_probe_dir/lvl.dwo" "$_probe_dir/plain.o"
+    # The level's REAL composed CFLAGS, split into arguments the way a build
+    # would split them -- through `sh -c` rather than an unquoted expansion,
+    # which is the same splitting without the SC2086 the linter is right to
+    # raise everywhere else. -I/p/include comes from _composed's fixture and
+    # names no real directory; a missing -I is not an error for a file that
+    # includes nothing.
+    ( cd "$_probe_dir" && sh -c "cc $_cf -c p.c -o lvl.o" ) >/dev/null 2>&1 || true
+    # The counterfactual: the same level with the split removed. Comparing
+    # against it rather than against a fixed number is what keeps this from
+    # re-measuring gcc's absolute object size on every toolchain bump.
+    _cf_nosplit=$(printf '%s' "$_cf" | sed 's/-gsplit-dwarf//')
+    ( cd "$_probe_dir" && sh -c "cc $_cf_nosplit -c p.c -o plain.o" ) >/dev/null 2>&1 || true
+    if [ ! -f "$_probe_dir/lvl.dwo" ]; then
+      _bad "measured-$_lv-emits-dwo" "compiling with the composed [$_cf] produced no .dwo"
+    elif [ ! -s "$_probe_dir/plain.o" ]; then
+      _bad "measured-$_lv-emits-dwo" "the no-split counterfactual did not compile"
+    else
+      _lvl_sz=$(wc -c < "$_probe_dir/lvl.o")
+      _plain_sz=$(wc -c < "$_probe_dir/plain.o")
+      if [ "$_lvl_sz" -lt "$_plain_sz" ]; then
+        _pass "measured-$_lv-emits-dwo"
+      else
+        _bad "measured-$_lv-emits-dwo" "object did not shrink: $_lvl_sz vs $_plain_sz bytes without the split"
+      fi
+    fi
+    # The -g3 half has to survive the split, or the level quietly drops the
+    # macro definitions it chose level 3 for. They move INTO the .dwo, which is
+    # where a debugger reads them from.
+    if command -v readelf >/dev/null 2>&1 && [ -f "$_probe_dir/lvl.dwo" ]; then
+      if readelf --debug-dump=macro "$_probe_dir/lvl.dwo" 2>/dev/null | grep -q MF_PROBE_MACRO; then
+        _pass "measured-$_lv-keeps-macros-in-dwo"
+      else
+        _bad "measured-$_lv-keeps-macros-in-dwo" "no macro definitions in the .dwo — -g3 did not survive the split"
+      fi
+    fi
+  done
+else
+  printf 'note: no ELF toolchain emitting .dwo here — the measured split assertions did not run\n'
+fi
+[ -n "$_probe_dir" ] && rm -rf "$_probe_dir"
 
 # The cmake counterpart of the meson _mf_bt_count harness below: drive the real
 # helper and read the build type it emits. wired-cmake is a grep; this asserts

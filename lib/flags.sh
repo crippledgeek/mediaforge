@@ -46,6 +46,10 @@ MF_DEFAULT_OPT="-O2"
 #   balanced  -Og -g3   assertions ON     ~2x slower
 #   full      -O0 -g3   assertions ON     4-5x slower  (bare --debug)
 #
+# Every level also splits its DWARF into .dwo files beside the objects, so the
+# levels trade runtime speed and nothing else; see the -gsplit-dwarf paragraph
+# below for what that costs (the build tree has to survive) and what it buys.
+#
 # "Measured" means lame, dav1d and svtav1 built at each level and timed on one
 # fixture each -- three packages, not the whole tree, and one machine. Treat the
 # multipliers as the right order of magnitude rather than as a promise.
@@ -75,6 +79,54 @@ MF_DEFAULT_OPT="-O2"
 #
 # The -O half is the mirror image and also holds: Debug supplies no -O at all,
 # which is what lets this table's -Og/-O0 arrive through CFLAGS and survive.
+#
+# -gsplit-dwarf at every level, which is what makes the symbol axis a real axis
+# rather than a column that never varies (#92). The levels used to differ only
+# in -O: all three emitted the same -g3, so an operator who wanted cheaper links
+# had no lever short of dropping --debug, which is the one thing they asked for.
+#
+# What it changes is WHERE the DWARF lands, not how much of it exists. gcc
+# writes the debug info to a sibling .dwo and leaves a skeleton in the object;
+# `ar` archives the object alone, so the .a a downstream consumer links collapses
+# to roughly its non-debug size while gdb still resolves the full info through
+# DW_AT_comp_dir + DW_AT_dwo_name. The prefix is --disable-shared, so every
+# consumer links all of that DWARF -- 3.0 GB of .a in a --debug=full prefix, and
+# a 94 GB target/ in the downstream tree that links it (#92).
+#
+# Measured on real libavcodec sources rather than a toy, recompiled with this
+# tree's own configured FFmpeg CFLAGS, gcc 16.2.1: 23 of its largest objects came
+# to 12896 KiB at -O0 -g3 and 4332 KiB with the split, a 3.0x drop in what a
+# linker reads. The same measurement at -O2, which is `symbols`, gave 8796 ->
+# 2484 KiB (3.5x) -- so the ratio holds at every level rather than only at the
+# -O0 one the issue measured, which is why this is not restricted to
+# balanced/full. gdb was then driven against a static archive built this way: it
+# breaks in the library source, prints locals, and answers `info macro`, so the
+# -g3 macro payload survives the move into the .dwo.
+#
+# It survives the same cmake ordering -g3 does, and for a different reason worth
+# separating: a trailing plain -g does not downgrade -g3, and -gsplit-dwarf is
+# not a -g level at all, so nothing cmake appends can turn it off. Measured on
+# the same probe -- "-g3 -gsplit-dwarf -O2 -g -DNDEBUG" still emits the .dwo.
+#
+# THE COST, which is the reason this is documented rather than just set: the
+# .dwo files are not installed. They stay in the build tree under packages/, and
+# a debugger that cannot find them falls back to the skeleton -- the binary still
+# links and still runs, and only the debugger notices. `clean` removes those
+# trees, so lib/cleanup.sh says so before it does. Anything that discards
+# packages/ discards stepping for the prefix already installed.
+#
+# On macOS it is a no-op rather than a hazard: splitting is an ELF feature, and
+# clang for a Mach-O target accepts the flag, writes no .dwo, and emits a
+# byte-identical object (measured, clang 22.1.8, -target arm64-apple-darwin).
+# ccache handles it -- a cache hit restores the .dwo beside the object, measured
+# on ccache 4.13.6, which matters because lib/ccache.sh puts one in front of
+# every compile it can.
+#
+# Not on the rust or nvcc columns. Field 7 (cargo) and field 8 (nvcc) are the
+# levels restated for toolchains that read no CFLAGS, and each has its own
+# spelling for this -- cargo's is `split-debuginfo`, nvcc's is different again.
+# Recorded here rather than discovered: rav1e and nv-codec still ship their DWARF
+# inside their objects.
 
 # THE LEVEL TABLE. One row per level, and every consumer below reads a field
 # from it, so adding a level is adding a row rather than editing five parallel
@@ -152,19 +204,19 @@ mf_debug_field() { # level field-number
   _mf_dbg_f="$2"
   case "$1" in
     symbols)
-      set -- '-O2' '-g3 -fno-omit-frame-pointer' 'RelWithDebInfo' \
+      set -- '-O2' '-g3 -fno-omit-frame-pointer -gsplit-dwarf' 'RelWithDebInfo' \
              '--buildtype=debugoptimized -Db_ndebug=true -Db_lto=false' \
              '--enable-debug=3 --disable-stripping' 'symbols' \
              'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_LTO=false' \
              '-lineinfo' 'off' ;;
     balanced)
-      set -- '-Og' '-g3 -fno-omit-frame-pointer' 'Debug' \
+      set -- '-Og' '-g3 -fno-omit-frame-pointer -gsplit-dwarf' 'Debug' \
              '--buildtype=debug --optimization=g -Db_ndebug=false -Db_lto=false' \
              '--enable-debug=3 --disable-stripping --disable-optimizations' 'balanced' \
              'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_OPT_LEVEL=1 CARGO_PROFILE_RELEASE_LTO=false' \
              '-g -lineinfo' 'on' ;;
     full)
-      set -- '-O0' '-g3 -fno-omit-frame-pointer' 'Debug' \
+      set -- '-O0' '-g3 -fno-omit-frame-pointer -gsplit-dwarf' 'Debug' \
              '--buildtype=debug -Db_ndebug=false -Db_lto=false' \
              '--enable-debug=3 --disable-stripping --disable-optimizations' 'full' \
              'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_OPT_LEVEL=0 CARGO_PROFILE_RELEASE_LTO=false' \

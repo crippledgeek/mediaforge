@@ -146,7 +146,39 @@ _prune_one_entry() {
   _pruned=$((_pruned + 1))
 }
 
+# What a --debug build leaves in $DISTDIR that removing it costs, said BEFORE
+# the removal.
+#
+# Since #92 every debug level compiles with -gsplit-dwarf, so the DWARF lives in
+# .dwo files beside the objects rather than inside them. That is what makes the
+# installed archives small, and it is why the build tree stops being disposable:
+# the objects and the installed libraries carry a skeleton that points at those
+# .dwo files by DW_AT_comp_dir, and nothing installs them. Remove the trees and
+# every binary already linked against the prefix keeps linking and running and
+# quietly loses its source lines and locals -- a loss visible only inside a
+# debugger, months after the command that caused it.
+#
+# Both removal paths reach it: the default prunes entry by entry, --all removes
+# $DISTDIR whole. One function so the path that discards MORE cannot be the
+# silent one.
+#
+# `find`, not a glob, because .dwo sit wherever the build put its objects --
+# nested arbitrarily deep, under ~110 recipe trees. -name is POSIX; -quit is
+# not, so the walk is bounded by `head -1` closing the pipe instead, and the
+# worst case is the one with no match, which walks all of it: 106 ms over the
+# 160,996 files of a real 24 GB packages/ here. Once per clean, on a directory
+# the same command is about to delete.
+warn_split_dwarf_loss() {
+  [ -d "$DISTDIR" ] || return 0
+  [ -n "$(find "$DISTDIR" -type f -name '*.dwo' 2>/dev/null | head -n 1)" ] || return 0
+  warn "The unpacked sources hold .dwo files: the split debug info of a --debug build."
+  warn "They are not installed, so removing them leaves every binary already linked"
+  warn "against $PREFIX with skeleton debug info only -- it still runs, and a"
+  warn "debugger stops showing source lines and locals. Rebuild with --debug to restore."
+}
+
 prune_extracted_sources() {
+  warn_split_dwarf_loss
   _pruned=0
   mf_each_dist_entry _prune_one_entry
   [ "$_pruned" -gt 0 ] || return 0
@@ -199,6 +231,10 @@ full_cleanup() {
     warn "Also removing $_discarding from $DISTDIR"
     warn "Refetching them depends on every upstream still serving the same bytes."
   fi
+  # Before workspace_cleanup, for the same reason the two lines above are: this
+  # path removes $DISTDIR whole rather than through the prune, so it is the one
+  # place the .dwo warning has to be repeated by hand rather than inherited.
+  warn_split_dwarf_loss
   workspace_cleanup
   rm -rf "$DISTDIR"
   log "Cleanup done."

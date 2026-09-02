@@ -67,6 +67,11 @@ _cleanup_on_signal
 # with content, so "the directory still exists" and "the bytes are still there"
 # are distinguishable — an implementation that removed the files and left the
 # empty directory would otherwise read as a pass.
+# Whether the seeded source tree carries split-DWARF debug info. A variable
+# rather than a fourth seed value: it varies independently of which directories
+# exist, and folding it into $_seed would double every arm of both case
+# statements to express one boolean.
+_seed_dwo=yes
 _clean_run() { # seed(both|cache-only|workspace-only)  [args...]
   _seed=$1; shift
   _scratch_cleanup
@@ -82,6 +87,16 @@ _clean_run() { # seed(both|cache-only|workspace-only)  [args...]
       printf 'tarball bytes\n' > "$_MF_SCRATCH/packages/libfoo-1.0.tar.xz"
       mkdir -p "$_MF_SCRATCH/packages/libfoo-1.0"
       printf 'unpacked source\n' > "$_MF_SCRATCH/packages/libfoo-1.0/configure"
+      # A .dwo, which is where every --debug build's DWARF now lives (#92): the
+      # objects carry a skeleton and the debug info sits beside them, inside the
+      # very trees this command removes. Seeded by default and suppressed for
+      # the one assertion that measures the silence, because "warns" and "warns
+      # only when there is something to warn about" are different claims and a
+      # fixture that always carries one can only see the first.
+      if [ "$_seed_dwo" = yes ]; then
+        mkdir -p "$_MF_SCRATCH/packages/libfoo-1.0/src"
+        printf 'debug info\n' > "$_MF_SCRATCH/packages/libfoo-1.0/src/foo.dwo"
+      fi
       # .git is what tells a clone from an unpacked archive, so the fixture has
       # to carry one or it is a test of the wrong predicate.
       mkdir -p "$_MF_SCRATCH/packages/libbar/.git"
@@ -135,6 +150,9 @@ if [ "$_have" = false ]; then
             default-leaves-symlinked-entries-alone \
             all-says-what-it-discards-before-discarding-it default-says-what-it-kept \
             clone-predicate-has-one-definition \
+            default-names-the-split-dwarf-it-discards \
+            quiet-when-there-is-no-split-dwarf \
+            all-names-the-split-dwarf-it-discards \
             help-names-the-build-tree help-names-the-cache; do
     _bad "$_a" "the workspace-only default is absent — claim would be vacuous"
   done
@@ -189,6 +207,42 @@ case "$_said" in
   *) _bad default-says-what-it-kept "the default path did not name the cache it kept or the flag that removes it: $_said" ;;
 esac
 
+# --- the split-DWARF the prune takes with it --------------------------------
+# Since #92 every --debug build leaves its DWARF in .dwo files beside the
+# objects, inside the unpacked trees this command removes. The installed prefix
+# keeps only the skeletons, so a `clean` after an install costs stepping in an
+# already-installed toolchain -- and costs it invisibly: the binaries still link
+# and still run, and only a debugger notices, which is the one place nobody
+# looks until they need it. So the loss is named before it happens, on the same
+# GNU convention `--all` already answers to.
+#
+# The ORDER is the claim, read from line numbers for the reason the --all
+# assertion below gives: a warning printed after the rm satisfies a flattened
+# match identically.
+_warn_at=$(printf '%s\n' "$_out" | _match_line '[.]dwo')
+_rm_at=$(printf '%s\n' "$_out" | _match_line 'unpacked source tree')
+if [ -z "$_warn_at" ]; then
+  _bad default-names-the-split-dwarf-it-discards "a bare 'clean' removed a tree holding .dwo files without naming what that costs: $_said"
+elif [ -z "$_rm_at" ]; then
+  _bad default-names-the-split-dwarf-it-discards "the prune never reported removing a source tree, so the order could not be read: $_said"
+elif [ "$_warn_at" -lt "$_rm_at" ]; then
+  _pass default-names-the-split-dwarf-it-discards
+else
+  _bad default-names-the-split-dwarf-it-discards "the warning came at line $_warn_at, after the removal at line $_rm_at: $_said"
+fi
+
+# ...and NOT otherwise. A warning every clean prints is a warning nobody reads,
+# and this one is only true of a tree a --debug build touched. Mutating the
+# implementation's probe into an unconditional warn leaves the assertion above
+# green, which is the whole reason this one exists.
+_seed_dwo=no
+_clean_run both
+_seed_dwo=yes
+case "$_said" in
+  *.dwo*) _bad quiet-when-there-is-no-split-dwarf "a tree with no .dwo files still warned about losing debug info: $_said" ;;
+  *)      _pass quiet-when-there-is-no-split-dwarf ;;
+esac
+
 # --- the destructive form, still reachable ----------------------------------
 _clean_run both --all
 if [ "$_cache" = absent ] && [ "$_tree" = absent ] && [ "$_rc" -eq 0 ]; then
@@ -218,6 +272,16 @@ elif [ "$_warn_at" -lt "$_rm_at" ]; then
 else
   _bad all-says-what-it-discards-before-discarding-it "the warning came at line $_warn_at, after the removal at line $_rm_at: $_said"
 fi
+
+# --all takes the same .dwo files with it and by a different route: it removes
+# $DISTDIR whole rather than pruning entry by entry, so an implementation that
+# warned only from the prune would be silent on the path that discards MORE.
+# That asymmetry is exactly what one warning reached from both paths prevents,
+# and only a --all case can see it.
+case "$_said" in
+  *.dwo*) _pass all-names-the-split-dwarf-it-discards ;;
+  *) _bad all-names-the-split-dwarf-it-discards "'clean --all' discarded the .dwo files without naming them: $_said" ;;
+esac
 
 # --- the tree does not choose the mode --------------------------------------
 # No packages/ at all. `rm -rf` on a missing path is silent, so this is not
