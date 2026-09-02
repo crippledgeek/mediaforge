@@ -41,6 +41,12 @@ sh tests/git-commit-pinning.sh
 sh tests/generated-archive-urls.sh
 sh tests/install-containment.sh
 sh tests/install-privileged-execs.sh
+# Pins GH-90: a build that reaches the end without a terminal skips the install
+# instead of dying at its menu, and a failure outside a package build no longer
+# reports a package failure and advises resuming from it. Both are post-build
+# paths, so nothing else in the suite reaches them -- the install tests all run
+# with AUTOINSTALL=yes, which is the branch that already worked.
+sh tests/non-interactive-build.sh
 # Pins #15: install reconciles against the previous manifest instead of
 # overwriting it, so a file an older build shipped and this one does not is
 # removed rather than orphaned. Nothing else in the suite runs install TWICE,

@@ -14,7 +14,10 @@
 # `grep -c '^FAIL'` to decide whether a newly added file could detect its own
 # change, so the reporters' exact bytes are a gate input, not cosmetics.
 #
-# FOUR assertions, and the split is deliberate.
+# SIX assertions, and the split is deliberate. This line read FOUR while the
+# file already emitted five, so it had been stale for at least one group before
+# this one arrived -- a count in prose is only as current as its last editor,
+# and nothing checks it.
 #
 # Probes 1-6 are ONE compound assertion, for a reason that is now HISTORICAL and
 # is written in the past tense on purpose. oracle-baseline requires that no
@@ -233,7 +236,45 @@ rm -rf "$_probe_dir"
 _wrong_cflags=$_wrong
 _wrong=''
 
-# 16-18. _verdict is the fifth thing this library owns: the report of a COMPOUND
+# 16-17. _tree_sh_files and _lib_code are the fifth thing this library owns:
+# they walk a corpus rooted at $ROOT, and a
+# corpus that silently goes EMPTY is the worst failure either can have: every
+# gate built on them asks "does any file in the tree do X", so an empty walk
+# answers "no" for a tree nobody read. That is not hypothetical -- it shipped.
+# tests/pc-exclusions-durable.sh spells its root $_root, called _tree_sh_files
+# with no argument, and its whole-tree deleter search scanned zero files while
+# reporting PASS (GH-90 branch).
+#
+# What made it survive is that six of the seven callers do NOT `set -u`. For
+# them an unset $ROOT expands to empty, the paths become "/lib/*.sh", the glob
+# matches nothing, and the helper returns status 0 having emitted nothing --
+# no error, no diagnostic, a clean exit. Only pc-exclusions-durable.sh sets
+# -u, which is the single reason anyone ever saw a message about it.
+#
+# So the contract asserted here is that an ABSENT root is fatal rather than
+# empty. `${ROOT:?}` is what makes it fatal without depending on the caller's
+# `set -u`, and this pair is what stops a future edit from restoring the
+# quiet default.
+# `set +u` inside each probe is the whole point and not a convenience: this
+# file runs under `set -u`, where an unset $ROOT is already fatal, so a probe
+# that inherited it would assert the one configuration that was never broken
+# and pass against the old helper. Six of the seven real callers run without
+# -u, and `set +u` is what reproduces them.
+if (set +u; unset ROOT; _tree_sh_files >/dev/null 2>&1); then
+  _want 'tree-walk-refuses-an-absent-root' 'returned an empty corpus' 'failed'
+else
+  _want 'tree-walk-refuses-an-absent-root' 'failed' 'failed'
+fi
+if (set +u; unset ROOT; _lib_code >/dev/null 2>&1); then
+  _want 'lib-code-refuses-an-absent-root' 'returned an empty corpus' 'failed'
+else
+  _want 'lib-code-refuses-an-absent-root' 'failed' 'failed'
+fi
+
+_wrong_root=$_wrong
+_wrong=''
+
+# 18-20. _verdict is the sixth thing this library owns: the report of a COMPOUND
 # assertion, chosen by whether the caller's accumulator is empty. It is pinned
 # here for the same reason the pair below it is -- a defect in it does not fail
 # a test, it changes what a test PRINTS, and printing is what
@@ -279,6 +320,7 @@ _verdict evidence-helper-contract-holds "$_wrong_ev"
 _verdict wired-helper-contract-holds "$_wrong_wired"
 
 _verdict cflags-derivation-predicate-holds "$_wrong_cflags"
+_verdict tree-corpus-root-contract-holds "$_wrong_root"
 _verdict verdict-helper-contract-holds "$_wrong_verdict"
 
 printf 'DONE: assert-reporter\n'
@@ -289,5 +331,5 @@ printf 'DONE: assert-reporter\n'
 # line and still exit 0 -- measured: mutating `_fail=1` out of the library left
 # this file reporting the defect on stdout while tests/run.sh, which reads exit
 # status, went green.
-[ -z "$_wrong_rep$_wrong_ev$_wrong_wired$_wrong_cflags$_wrong_verdict" ] || exit 1
+[ -z "$_wrong_rep$_wrong_ev$_wrong_wired$_wrong_cflags$_wrong_root$_wrong_verdict" ] || exit 1
 exit 0

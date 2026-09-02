@@ -309,6 +309,12 @@ _place_file() {
 _select_prefix() {
   _install_prefix=""
   _priv=""
+  # Whether a prefix was chosen at all, as its own answer rather than as this
+  # function's exit status. Overloading the status would make EVERY future
+  # non-zero return from here -- including one that means a genuine error --
+  # read as "nothing to install, carry on", which is the opposite of what an
+  # error should do. One named state cannot be mistaken for the other.
+  _install_skipped=no
 
   # --prefix overrides menu
   if [ -n "$_cli_prefix" ]; then
@@ -320,6 +326,24 @@ _select_prefix() {
     else
       _install_prefix="$HOME/.local"
     fi
+  elif ! is_interactive; then
+    # No terminal: a script, a CI job, a background run. `read` would take EOF
+    # as an answer and the catch-all arm below would report it as a typo, so a
+    # build that has already produced its binaries would exit non-zero for
+    # having nobody to ask (GH-90).
+    #
+    # is_interactive rather than a second `[ -t 0 ]` here: it already folds in
+    # AUTOINSTALL and $CI, and lib/resolve.sh consults it at both of its own
+    # prompts. A private check would be a fourth answer to one question.
+    #
+    # Skipped rather than defaulted. Choosing a prefix on the operator's behalf
+    # writes ~1500 files somewhere they did not name, and --prefix, -y and
+    # --no-install each say what was meant -- so the message names all three.
+    warn "Not a terminal -- skipping the post-build install."
+    warn "Use --prefix=PATH or -y to install without prompting, or --no-install"
+    warn "to skip it deliberately."
+    _install_skipped=yes
+    return 0
   else
     printf '\n'
     printf '  Install location:\n'
@@ -476,7 +500,11 @@ _remove_manifest_entries() {
 do_install() {
   _cli_prefix="$1"
 
+  # "No prefix was chosen" is a state _select_prefix sets, not a status it
+  # returns -- see there for why. A build that has already produced its
+  # binaries stays successful when there was nobody to ask (GH-90).
   _select_prefix
+  [ "$_install_skipped" = no ] || return 0
 
   log "Installing to $_install_prefix ..."
 

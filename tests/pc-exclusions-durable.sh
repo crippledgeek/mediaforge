@@ -334,15 +334,37 @@ chmod 600 "$_ws4/.pc-skip-queue" 2>/dev/null
 # inside quotes or a `${VAR#…}` expansion. Catching either needs dataflow, not
 # grep. What this does catch is the defect that occurred and every one-line
 # rewrite of it.
+# $_root passed explicitly. _tree_sh_files defaults its root to $ROOT, which
+# every other caller of it sets; this file is the one that spells the variable
+# $_root. Nothing aborted: under `set -u` the unbound expansion killed the
+# command substitution's SUBSHELL, which printed a message to stderr and
+# yielded an empty string, so the loop below ran zero times against a corpus
+# that should hold 131 files. It found no deleters because it opened nothing,
+# and reported PASS that way for the whole of its life.
+#
+# Two guards, because they catch different halves and only together close it.
+# _tree_sh_files now treats an absent root as fatal (`${ROOT:?}`), which is the
+# fix for every caller -- six of the seven do not `set -u`, and for those the
+# same mistake produced status 0 and no message at all. The floor here is the
+# half that survives a corpus going empty for some FUTURE reason the helper
+# cannot see: a search whose corpus can silently empty needs an assertion that
+# it was non-empty, or "found nothing" and "looked at nothing" are one result.
+# That is the vacuity guard upstream-provenance and sidecars-in-tree-validate
+# already carry, applied to the third case of it.
+_scanned=0
 _deleters=''
-for _f in $(_tree_sh_files); do
+for _f in $(_tree_sh_files "$_root"); do
+  _scanned=$((_scanned + 1))
   if _logical_lines "$_f" | sed 's/#.*//' |
      grep -E '[$](PREFIX|[{]PREFIX[}])/lib/pkgconfig' |
      grep -qE '(^|[[:space:];&|(])(rm|rmdir|unlink|shred|cd)[[:space:]]|-delete|-exec[[:space:]]+rm'; then
     _deleters="$_deleters $_f"
   fi
 done
-if [ -z "$_deleters" ]; then
+if [ "$_scanned" -lt 100 ]; then
+  _bad no-production-code-deletes-from-the-workspace-pkgconfig-dir \
+    "the walk scanned $_scanned files -- too few to have covered lib/ and recipes/, so a clean result means nothing"
+elif [ -z "$_deleters" ]; then
   _pass no-production-code-deletes-from-the-workspace-pkgconfig-dir
 else
   _bad no-production-code-deletes-from-the-workspace-pkgconfig-dir \
