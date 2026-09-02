@@ -246,7 +246,7 @@ _remove_entry() {
 
 # Report a containment refusal in the same words for every mode.
 _refused() {
-  printf 'mediaforge: refusing to remove %s — it resolves outside %s\n' \
+  printf 'mediaforge: refusing to remove %s -- it resolves outside %s\n' \
     "$1" "$_target_real" >&2
 }
 

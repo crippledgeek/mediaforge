@@ -35,16 +35,14 @@
 # on a sane host, and still an absolute-path rm executed in the course of
 # proving those paths must never be targeted.
 #
-# Every grep over shell source here reads through _code_only EXCEPT
-# _reporter_args, which does its own quote-aware strip for the reason given
-# at its definition. Twice on this
+# Every grep over shell source here reads through _code_only. Twice on this
 # branch an assertion matched the words in a COMMENT rather than in the code --
 # once in this file, found by mutation -- so a needle that has not had comments
 # stripped is asking what a file SAYS, not what it does.
 # EQUIVALENT MUTANTS -- registered so a later pass reads this rather than
 # re-deriving it.
 #
-# _census's "no tree at $1" guard is equivalent for the same structural reason a
+# _ascii_census's "no tree at $1" guard is equivalent for the structural reason a
 # guard usually is: it fires only when the caller is already wrong, so removing
 # it changes nothing a correct tree can observe. Its test is the mutation that
 # aims the census at a path that does not exist, which the guard turns from a
@@ -95,8 +93,7 @@ if ! _lib_code | grep -q '^mf_printable()'; then
             payload-description-is-one-line payload-description-shares-the-helper \
             remote-tag-is-filtered reporters-share-the-helper \
             filter-still-deletes-multibyte ascii-separator-survives \
-            census-sees-a-planted-offender census-does-not-cry-wolf \
-            reporter-text-survives-the-filter; do
+            census-sees-a-planted-offender source-is-ascii; do
     _bad "$_a" "mf_printable is absent — claim would be vacuous"
   done
   printf 'DONE: output-and-startup-hygiene\n'
@@ -267,254 +264,88 @@ case "$_out" in
   *) _bad ascii-separator-survives "the ASCII separator did not survive the filter: $_out" ;;
 esac
 
-# The census, as one function so the probes below cannot drift from the thing
-# they are probing.
+# MEDIAFORGE SOURCE IS ASCII, and this is what holds it that way.
 #
-# IT FOLLOWS A MESSAGE ACROSS LINES. A first version read only the line the
-# reporter word sits on, and declared the tree clean while SIX em-dashes were
-# still being deleted from lib/install.sh's die() messages -- among them the
-# sudoers-policy diagnostic, the longest text in the tree and the one an
-# operator reads when a privileged install has failed. So the awk below keeps a
-# running double-quote parity and treats the whole quoted string as the
-# argument. Per-line parity is not enough and was the bug: a continuation line
-# carrying no quote at all is even, which reads as "the message ended here" and
-# closed it after one line.
+# The rule is not a lint we invented. GNU's coding standards make it normative
+# for exactly this class of tool -- "in the C locale, the output of GNU programs
+# should stick to plain ASCII", with non-ASCII permitted only once a program has
+# positively detected a non-C locale -- and FFmpeg's own configure, the script
+# mediaforge wraps, carries no non-ASCII byte at all. POSIX says why: outside
+# the Portable Character Set the encoding is locale-dependent, and a build tool
+# cannot assume anything about the locale it is invoked under.
 #
-# COMMENTS ARE STRIPPED, and this catches nothing TODAY -- see the equivalent
-# mutant registered at the top of this file. It is kept for the false ALARM it
-# prevents, not a miss it catches.
+# It started as "reporter arguments must be ASCII", because mf_printable deletes
+# multibyte and an em-dash written into a die() vanished before any operator saw
+# it. Deciding which text on a line was a reporter argument and which was a menu
+# label needed a shell-quoting scanner -- double quotes, single quotes, escapes,
+# substitution depth -- and that scanner existed to tell those apart on FOUR
+# lines in the tree. The whole population was 21 non-ASCII code lines, 17 of
+# which were printf text no reporter ever touched.
 #
-# THE BYTE CLASS IS WRITTEN OUT rather than borrowed from the filter as
-# `[^[:print:][:blank:]]`, because that spelling means different things to
-# different greps. Measured 2026-09-02 on an em-dash: GNU grep 3.12 agrees with
-# GNU coreutils tr 9.11 and matches it, but ugrep 7.8.4 -- which some shells,
-# this harness's own included, shadow `grep` with -- treats 0x80-0xFF as
-# printable under LC_ALL=C and matches nothing. Borrowing the class would make
-# the census read clean on a tree full of em-dashes wherever such a grep answers
-# first. The explicit range matches under both, which is the property wanted.
+# Two things made the narrow rule the wrong one. The filter was never the only
+# way this text is damaged: whiptail is an ncursesw front end whose multibyte
+# decoding is gated on LC_CTYPE, so under LC_ALL=C a menu label's em-dash is
+# rendered \342<80><94> -- the lead byte raw, the continuations in escape
+# notation, eight columns where one dash was meant, widening the row. Measured
+# on whiptail here, not inferred. And that path has no filter in front of it at
+# all. Meanwhile the scanner could only ever be as complete as the shell
+# constructs it modelled: backticks, heredocs, and messages assembled through a
+# variable were all misses, and each new shape argued for one more rule.
 #
-# WHAT IT DOES NOT SEE, all of it a miss rather than a false alarm except the
-# first:
-#   * the reporter word is not required to be in command position, so
-#     `_msg="check the log -- really"`, a case label, or a heredoc body that
-#     emits a generated script containing one would be reported as an offending
-#     argument. No line in the tree has that shape today -- checked, including
-#     every heredoc body in the walked files -- and it is the gap that can fail
-#     a CORRECT tree, so it is the one to watch.
-#   * a message assembled into a variable on one line and passed to a reporter
-#     on another -- _pf_context in lib/install.sh is that shape. Seeing those
-#     needs dataflow, not grep.
-#   * a SINGLE-quoted message spanning lines. The scan tracks both quote kinds,
-#     so nothing desyncs, but only a double quote marks a message as continuing;
-#     the later lines of a `log '...'` written across two are not read. No
-#     reporter in the tree takes a single-quoted argument.
-#   * two reporter words on one line: awk match() is leftmost, so the tail is
-#     kept from the FIRST -- and text between the two is therefore read as part
-#     of the first message. No line in the tree has two.
-_reporter_args() { # path to a shell file
-  awk '
-    # Cut a comment only where a comment can START: outside both quote kinds,
-    # at line start or after whitespace. This is deliberately NOT _code_only,
-    # which cuts at ANY `#` -- the same departure tests/signal-cleanup.sh makes
-    # for its own question, and for the same reason: _code_only is right for a
-    # caller asking "does this file contain X", and wrong for one carrying
-    # state across lines. Truncating a warn whose argument holds a ${VAR#...}
-    # takes the closing quote with it, the count goes odd, and every line after
-    # it reads as message text until another odd line or EOF. That was live at
-    # two sites, swallowing nine lines and twenty-seven, and it fails a CORRECT
-    # tree -- the worse direction, since lib/resolve.sh menu labels are
-    # legitimately non-ASCII and one new ${VAR#...} above them away from being
-    # reported as broken messages.
-    BEGIN { SQ = sprintf("%c", 39) }   # a literal quote here would end the program
-    # dq, sq, dqn and dqi are deliberately global -- they are the state the
-    # caller reads. esc and depth are local because neither outlives a line: a
-    # backslash at end of line is a continuation, which this needle does not
-    # follow, and a command substitution spanning lines is rarer than the damage
-    # an unbalanced one would do by leaking a depth into every later line.
-    #
-    # Positions go into an ARRAY rather than a built string. Re-splitting a
-    # string worked, but only through two POSIX rules that read as incidental
-    # here -- a single-blank separator means default field splitting, which is
-    # what silently ate the leading space, and split() clears its target first.
-    # Either would break under a separator someone changed for tidiness.
-    function code(s,   i, c, cut, esc, depth) {
-      cut = length(s) + 1
-      dqn = 0
-      for (i = 1; i <= length(s); i++) {
-        c = substr(s, i, 1)
-        if (esc)              { esc = 0; continue }
-        if (c == "\\" && !sq) { esc = 1; continue }
-        if (c == SQ && !dq)   { sq = !sq; continue }
-        # A command substitution is its own quoting context: the quotes inside
-        # `$(basename "$_f")` do not open or close the message around it. Only
-        # depth-0 quotes move the state, which is what lets a message survive a
-        # nested call on its opening line.
-        if (c == "$" && !sq && substr(s, i + 1, 1) == "(") { depth++; i++; continue }
-        if (c == ")" && !sq && depth > 0) { depth--; continue }
-        if (c == "\"" && !sq && depth == 0) { dq = !dq; dqi[++dqn] = i; continue }
-        if (c == "#" && !dq && !sq && (i == 1 || substr(s, i - 1, 1) ~ /[ \t;&|()]/)) {
-          cut = i
-          break
-        }
-      }
-      return substr(s, 1, cut - 1)
-    }
-    {
-      # $dq carried from the previous line IS "we are inside a message". A
-      # character scan rather than a quote count, because counting cannot see
-      # which quote opened first: an awk -F option in lib/registry.sh and the
-      # sed programs in lib/updates.sh each hold one double quote inside a
-      # single-quoted span, and a counter reads those as opening a string.
-      # Scanning also ends a message correctly at a trailing escaped backslash,
-      # which a count reads as an escaped quote and follows past.
-      was_in = dq
-      line = code($0)
-      if (!was_in) {
-        emitting = 0
-        if (match(line, /(^|[^[:alnum:]_])(log|warn|die)[ \t]+/)) {
-          print substr(line, RSTART + RLENGTH)
-          # A string left open at end of line belongs to this reporter only
-          # when exactly one quote stands open after the reporter word. The
-          # shape `warn "done"; _x="opens` leaves one open that the reporter
-          # did not start, and reading "a reporter appeared" as "a message is
-          # open" reports the next line of an unrelated value as broken.
-          # Counted only AFTER the reporter word, because a message-opening
-          # line may carry quoted text before the call -- the hash-file die in
-          # fetch_git, lib/download.sh, sits behind a quoted [ -f ] test, and
-          # counting its two quotes too would take _n past one and hide the
-          # second line of that message.
-          _n = 0
-          for (_k = 1; _k <= dqn; _k++) if (dqi[_k] > RSTART + RLENGTH - 1) _n++
-          emitting = (dq && _n == 1)
-        }
-      } else if (emitting) {
-        print line
-      }
-      # No reset here. Every line that is not a continuation re-enters the
-      # branch above, which clears the flag before deciding again, so a trailing
-      # `if (!dq) emitting = 0` is unreachable state-keeping -- it cannot be
-      # mutated away, which is how it was found. That rests on emitting being
-      # READ only here, under was_in: a later edit reading it in an END block,
-      # or on a non-continuation line before the clear, makes a reset load-
-      # bearing again.
-    }' "$1" | LC_ALL=C grep '[^[:blank:] -~]'
-}
-
-# The census takes the tree as a parameter and walks it through the shared
-# helper, so the probe below runs THIS code rather than a second spelling of it.
-# Three mutations survived an earlier shape -- a dead needle, an empty file
-# list, and the needle never being called on the files -- and all three look
-# exactly like a clean tree, because that is what a census reports by saying
-# nothing.
-_census() { # tree root
+# So the tree is ASCII and the needle stops parsing. It asks the only question
+# left, it has no state, and it cannot miss: a multi-line message, a
+# single-quoted one, a backtick, a heredoc body, a message built in a variable,
+# and every shape nobody has thought of are all just bytes in a file.
+#
+# WHERE IT STOPS. If this ever needs to distinguish one kind of text on a line
+# from another again, that is the signal the rule has been narrowed back and
+# the parser is coming with it. Widen the rule instead.
+#
+# The one residual is _code_only's `#` truncation, which cuts inside a string
+# too and could hide a byte after it. Stateless, one line wide, and in the
+# direction of a miss rather than a false alarm.
+_ascii_census() { # tree root
   # A root with no mediaforge.sh in it is a broken call, not a clean tree, and
   # the two are otherwise the same empty output: aiming this at a path that does
-  # not exist left the assertion below green. It reports rather than returning,
-  # so the caller reads it as an offender and says where it came from.
+  # not exist read as a pass.
   if [ ! -f "$1/mediaforge.sh" ]; then
     printf 'census: no tree at %s\n' "$1"
     return
   fi
   for _oh_f in $(_tree_sh_files "$1"); do
-    _reporter_args "$1/$_oh_f" | sed "s|^|$_oh_f: |"
+    _code_only "$1/$_oh_f" | LC_ALL=C grep -n '[^[:blank:] -~]' | sed "s|^|$_oh_f:|"
   done
 }
 
-# A tree shaped like the real one, holding one offender of each shape the
-# census has to survive. Because _tree_sh_files roots its globs at the tree it
-# is given, this fixture IS the population rather than an intersection with the
-# repo's filenames, so a planted file need not mirror a real one.
+# A census is silent on a clean tree, which is the shape it also has when the
+# needle has stopped matching anything, or when the walk was handed no files.
+# Both of those passed as clean before they were probed, so the needle is shown
+# a planted tree first. One file per shape, because this asks whether a FILE was
+# named and two offenders in one file leave it named when only one is lost.
 #
-# Each file is here because a mutation lived without it:
-#
-#   mediaforge.sh   the single-line case, and the root the walk refuses to run
-#                   without.
-#   lib/multi.sh    a FOUR-line message with the offender on the third line.
-#                   Neither two nor three lines can tell cumulative quote parity
-#                   from per-line parity -- the shipped bug, which found two of
-#                   lib/install.sh's six and missed the four inside its longest
-#                   message. Per-line parity still prints line two, because the
-#                   opening line already set the flag; it only loses the thread
-#                   on the line AFTER a quote-less one, which is why the four
-#                   it missed were all inside _place_file's sudoers-policy die
-#                   in lib/install.sh -- the offending line there is the fourth
-#                   of its message.
-#   lib/escaped.sh  a message whose FIRST line carries an escaped quote and
-#                   whose offender is on the second. One escaped quote is what
-#                   flips that line's parity: counted raw it is even, so an
-#                   unescaped count treats the message as finished and never
-#                   reaches the offender. A single-line escaped message cannot
-#                   show this -- two quotes and four are both even, so both
-#                   spellings agree.
-#   recipes/hwaccel/nested.sh
-#                   the doubly-nested glob. Dropping `recipes/*/*.sh` from the
-#                   walk stops scanning nearly every recipe in the real tree,
-#                   and no other file here is deep enough to notice.
+# The byte class is written out rather than borrowed from the filter as
+# `[^[:print:][:blank:]]`, because that spelling means different things to
+# different greps: measured 2026-09-02, GNU grep 3.12 agrees with GNU tr 9.11
+# and matches an em-dash, but ugrep 7.8.4 -- which some shells, this harness
+# among them, shadow `grep` with -- calls 0x80-0xFF printable under LC_ALL=C and
+# matches nothing at all.
 mkdir -p "$_tmp/census/lib" "$_tmp/census/recipes/hwaccel"
 _em=$(printf '\342\200\224')
 printf 'die "planted %s offender"\n' "$_em" > "$_tmp/census/mediaforge.sh"
+# The shape the narrow needle could not see without a scanner: an offender on
+# the third line of a message, after a line carrying no quote of its own.
 printf 'die "first line\n  second line\n  third %s line\n  fourth line"\n' "$_em" \
   > "$_tmp/census/lib/multi.sh"
-printf 'warn "opens with a \\" escape\n  then %s here"\n' "$_em" > "$_tmp/census/lib/escaped.sh"
+# Text that is not a reporter argument at all -- a menu label beside a call, the
+# four lines the whole scanner existed for. Now simply an offender like any
+# other, which is the point of widening the rule.
+printf 'x264 "x264 %s GPL") || die "cancelled"\n' "$_em" > "$_tmp/census/lib/label.sh"
+# The doubly-nested glob, which nothing else here is deep enough to exercise.
 printf 'log "nested %s offender"\n' "$_em" > "$_tmp/census/recipes/hwaccel/nested.sh"
-# A bare parameter expansion BEFORE a call on the same line. Its `#` is outside
-# quotes, which is where a comment can legally start -- only the preceding
-# character says otherwise. Cutting on `#` alone truncates the line before the
-# reporter and the message is never seen at all.
-printf '_p=%s{_f#lib/}; warn "expanded %s offender"\n' '$' "$_em" \
-  > "$_tmp/census/lib/expansion-then-call.sh"
-# A comment introduced by an operator rather than whitespace, holding an
-# apostrophe, ahead of a real message. POSIX starts a comment at the beginning
-# of a WORD, so `;#` is one; a rule accepting only whitespace leaves it uncut,
-# its apostrophe opens a single-quoted span that never closes, and from there no
-# comment can be cut and no offender seen for the rest of the file.
-# The apostrophe is the whole mechanism and arrives as an argument, since a
-# literal one cannot sit inside this single-quoted format.
-printf 'true;#it%ss uncut\ndie "real message\n  with %s a dash"\n' "'" "$_em" \
-  > "$_tmp/census/lib/operator-comment.sh"
-# The two carve-outs from that class, each ahead of a call on its own line. A
-# `#` after `{` or `$` is a parameter length, not a comment, and admitting
-# either character cuts the line before the reporter word so the message is
-# never read. Both shapes are in the tree -- lib/download.sh and mediaforge.sh
-# argument parsing -- though only inside quotes, where the state already
-# protects them. The `$` arrives as an argument so the literal expansions this
-# is ABOUT do not read as ones shellcheck should warn on.
-# ONE PER FILE, because the check below asks whether a file was named and two
-# offenders in one file leave it named when only one is lost -- which is how
-# both of these first survived.
-printf '_n=%s{#_list}; warn "brace %s offender"\n' '$' "$_em" \
-  > "$_tmp/census/lib/brace-length.sh"
-printf '_c=%s#; die "dollar %s offender"\n' '$' "$_em" \
-  > "$_tmp/census/lib/dollar-length.sh"
-# QUOTED TEXT BEFORE THE CALL, which is why the toggle count is taken only from
-# after the reporter word. The hash-file die in fetch_git, lib/download.sh, is
-# exactly this: a quoted [ -f ] test, then a two-line message. Counting the
-# test quotes too puts the total past one and the second line goes unread, so
-# this is a live message the rule protects.
-printf '[ -d "%s_dir" ] || die "quoted arg before the call\n  and a %s dash after it"\n' \
-  '$' "$_em" > "$_tmp/census/lib/quoted-before-call.sh"
-# A COMMAND SUBSTITUTION on the opening line. Its quotes belong to their own
-# context and must not count as opening or closing the message; flat counting
-# sees three toggles here and stops following at the first line.
-printf 'die "cannot read %s(basename "%s_f") now\n  because of a %s dash"\n' \
-  '$' '$' "$_em" > "$_tmp/census/lib/nested-subshell.sh"
-# An UNBALANCED substitution ahead of a message, which is why depth is a local.
-# Carried between lines, the open depth means the message never opens either --
-# its own quotes are read as belonging to the substitution -- and its later
-# lines go unread. Resetting per line mis-tracks a substitution genuinely
-# spanning lines, which is the rarer shape and costs one message rather than
-# every message below it.
-printf '_x=%s(printf\ndie "first\n  second %s line"\n' '$' "$_em" \
-  > "$_tmp/census/lib/depth-leak.sh"
 
-_probe=$(_census "$_tmp/census")
+_probe=$(_ascii_census "$_tmp/census")
 _probe_missing=''
-for _oh_want in 'mediaforge.sh: ' 'lib/multi.sh: ' 'lib/escaped.sh: ' \
-                'lib/expansion-then-call.sh: ' 'lib/operator-comment.sh: ' \
-                'lib/brace-length.sh: ' 'lib/dollar-length.sh: ' \
-                'lib/quoted-before-call.sh: ' 'lib/nested-subshell.sh: ' \
-                'lib/depth-leak.sh: ' \
-                'recipes/hwaccel/nested.sh: '; do
+for _oh_want in 'mediaforge.sh:' 'lib/multi.sh:' 'lib/label.sh:' 'recipes/hwaccel/nested.sh:'; do
   case "$_probe" in
     *"$_oh_want"*) ;;
     *) _probe_missing="$_probe_missing $_oh_want" ;;
@@ -523,52 +354,17 @@ done
 if [ -z "$_probe_missing" ]; then
   _pass census-sees-a-planted-offender
 elif [ -z "$_probe" ]; then
-  _bad census-sees-a-planted-offender "the census reported nothing over a tree in which every message holds an em-dash, so its silence on the real tree is not evidence of anything"
+  _bad census-sees-a-planted-offender "the census reported nothing over a tree in which every file holds an em-dash, so its silence on the real tree is not evidence of anything"
 else
   _bad census-sees-a-planted-offender "the census missed a planted offender in:$_probe_missing
 it reported: $_probe"
 fi
 
-# The census must also stay SILENT where it should. Comment-stripping used to
-# cut at any `#`, so `warn "  ${_st_f#"$1"}"` lost its closing quote, the state
-# flipped on, and every line after it was reported as message text -- nine lines
-# at one live site, twenty-seven at another. Nothing in the tree happened to be
-# non-ASCII inside those windows, so the census stayed green while being one new
-# parameter expansion away from failing a correct tree. The second file is the
-# shape that fails a message-count: a double quote inside a single-quoted span,
-# as lib/registry.sh and lib/updates.sh both carry.
-mkdir -p "$_tmp/quiet/lib"
-: > "$_tmp/quiet/mediaforge.sh"
-# The `$` arrives as an argument so the literal parameter expansion this
-# fixture is ABOUT does not read as one shellcheck should warn on.
-printf 'warn "x %s{_v#pfx}"\n_label="menu %s label"\n' '$' "$_em" > "$_tmp/quiet/lib/expansion.sh"
-printf 'log %s"-F%s\n_x="menu %s label"\n' "'" "'" "$_em" > "$_tmp/quiet/lib/sqspan.sh"
-# A multi-line string that is NOT a reporter argument. Its later lines sit
-# inside double quotes exactly as a message's do, so the only thing separating
-# them is whether a reporter word opened the string -- and emitting on the quote
-# state alone, without that, reports an ordinary assignment as a broken message.
-# The completed reporter call on the first line matters: it is what leaves the
-# emitting flag set, so a version that never clears it carries that state into
-# the assignment below and reports its continuation as a broken message.
-printf 'warn "a clean message"\n_x="a multi-line value\n  with %s a dash"\n' "$_em" \
-  > "$_tmp/quiet/lib/notareporter.sh"
-# A reporter that COMPLETES and a foreign string that opens on the same line.
-# The string still open at end of line is not the message, so carrying "a
-# reporter appeared" forward reports the next line of an unrelated value.
-printf 'warn "done"; _x="opens\n  %s dash"\n' "$_em" > "$_tmp/quiet/lib/sameline.sh"
-_quiet=$(_census "$_tmp/quiet")
-if [ -z "$_quiet" ]; then
-  _pass census-does-not-cry-wolf
-else
-  _bad census-does-not-cry-wolf "the census reported an offender in code that holds no reporter message, so a correct tree fails this gate:
-$_quiet"
-fi
-
-_offenders=$(_census "$ROOT")
+_offenders=$(_ascii_census "$ROOT")
 if [ -z "$_offenders" ]; then
-  _pass reporter-text-survives-the-filter
+  _pass source-is-ascii
 else
-  _bad reporter-text-survives-the-filter "these reporter arguments contain a byte mf_printable deletes, so the operator never sees it:
+  _bad source-is-ascii "these source lines carry a byte outside printable ASCII. In a reporter argument mf_printable deletes it before any operator sees it; in a whiptail label it renders as its raw bytes under LC_ALL=C:
 $_offenders"
 fi
 

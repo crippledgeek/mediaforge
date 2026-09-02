@@ -197,9 +197,9 @@ resolve_choices() {
     if [ -z "$TLS_BACKEND" ]; then
       TLS_BACKEND=$(menu_radiolist \
         "Pick a TLS backend" "$TLS_BACKEND_DEFAULT_BUILTIN" \
-        gnutls   "GnuTLS — free, default" \
-        openssl  "OpenSSL — Apache 2.0" \
-        mbedtls  "mbedTLS — small footprint" \
+        gnutls   "GnuTLS -- free, default" \
+        openssl  "OpenSSL -- Apache 2.0" \
+        mbedtls  "mbedTLS -- small footprint" \
         libressl "LibreSSL libtls" \
         none     "No TLS support") || die "TLS prompt cancelled"
     fi
@@ -213,28 +213,28 @@ resolve_choices() {
       if [ -z "$H264_IMPL" ]; then
         H264_IMPL=$(menu_radiolist \
           "Pick an H.264 encoder" "$H264_IMPL_DEFAULT_BUILTIN" \
-          x264     "x264 — GPL, de-facto standard" \
-          openh264 "OpenH264 — BSD source, MPEG-LA royalties apply") || die "H.264 prompt cancelled"
+          x264     "x264 -- GPL, de-facto standard" \
+          openh264 "OpenH264 -- BSD source, MPEG-LA royalties apply") || die "H.264 prompt cancelled"
       fi
       if [ -z "$H265_IMPL" ]; then
         H265_IMPL=$(menu_radiolist \
           "Pick an H.265 encoder" "$H265_IMPL_DEFAULT_BUILTIN" \
-          x265    "x265 — GPL" \
-          kvazaar "Kvazaar — LGPL") || die "H.265 prompt cancelled"
+          x265    "x265 -- GPL" \
+          kvazaar "Kvazaar -- LGPL") || die "H.265 prompt cancelled"
       fi
     fi
     if [ -z "$AV1_ENC_IMPL" ]; then
       AV1_ENC_IMPL=$(menu_radiolist \
         "Pick an AV1 encoder" "$AV1_ENC_IMPL_DEFAULT_BUILTIN" \
-        svtav1 "SVT-AV1 — fastest, recommended" \
-        rav1e  "rav1e — pure Rust" \
-        av1    "libaom — reference encoder, slow") || die "AV1 prompt cancelled"
+        svtav1 "SVT-AV1 -- fastest, recommended" \
+        rav1e  "rav1e -- pure Rust" \
+        av1    "libaom -- reference encoder, slow") || die "AV1 prompt cancelled"
     fi
     if [ -z "$SPIRV_IMPL" ]; then
       SPIRV_IMPL=$(menu_radiolist \
         "Pick a SPIR-V compiler" "$SPIRV_IMPL_DEFAULT_BUILTIN" \
-        glslang "glslang — Khronos reference (default, simpler build)" \
-        shaderc "shaderc — Google wrapper (heavier build)") || die "SPIRV prompt cancelled"
+        glslang "glslang -- Khronos reference (default, simpler build)" \
+        shaderc "shaderc -- Google wrapper (heavier build)") || die "SPIRV prompt cancelled"
     fi
   fi
 

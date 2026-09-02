@@ -49,16 +49,18 @@
 # `tr` range keeps the dash while dropping a bare CSI. Separating them needs a
 # UTF-8 decoder, and it would widen mf_printable_line, whose input is written by
 # whoever answers a request. So the strict filter is kept and `--` is written at
-# the call sites; tests/output-and-startup-hygiene.sh censuses them, because a
-# convention nothing checks is one the next message breaks.
+# the call sites.
 #
-# THE RULE BINDS THESE THREE REPORTERS, and nothing else. Text written straight
-# to the terminal with printf never passes through here, so it keeps whatever
-# characters its author chose -- cmd_check_shadowers' legend in mediaforge.sh,
-# lib/menu.sh's option rows, lib/resolve.sh's menu labels. That is why a screen
-# can show an ASCII separator from log() directly under an em-dash from printf:
-# the two lines went to the terminal by different routes and only one of them is
-# filtered. It reads as a half-applied convention and is not one.
+# THE RULE IS WIDER THAN THIS FILTER: mediaforge source is ASCII throughout, and
+# tests/output-and-startup-hygiene.sh holds the whole tree to it. Scoping it to
+# these three reporters would leave the damage that does NOT come through here.
+# whiptail is an ncursesw front end whose multibyte decoding is gated on
+# LC_CTYPE, so under LC_ALL=C the em-dash in a lib/resolve.sh menu label renders
+# as \342<80><94> -- the lead byte raw, its continuations in escape notation,
+# eight columns where one dash was meant -- and nothing filters that path at
+# all. GNU's coding standards ask for the same thing in the same words: in the C
+# locale, output sticks to plain ASCII. FFmpeg's own configure, which mediaforge
+# wraps, carries no non-ASCII byte either.
 mf_printable() {
   if command -v tr >/dev/null 2>&1; then
     printf '%s' "$*" | LC_ALL=C tr -dc '[:print:][:blank:]\n'

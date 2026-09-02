@@ -52,7 +52,7 @@ _github_latest() {
 
 # Main update check — iterates _order.conf, sources each recipe, queries GitHub
 check_updates() {
-  _profile_label="no profile — using recipe defaults"
+  _profile_label="no profile -- using recipe defaults"
   if [ -n "$PROFILE_NAME" ]; then
     _profile_label="profile: ffmpeg-${PROFILE_NAME}"
   fi
