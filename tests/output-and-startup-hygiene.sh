@@ -272,7 +272,20 @@ case "$_out" in
   *) _bad ascii-separator-survives "the ASCII separator did not survive the filter: $_out" ;;
 esac
 
-# MEDIAFORGE SOURCE IS ASCII, and this is what holds it that way.
+# THE SHIPPED SOURCE IS ASCII -- mediaforge.sh, lib/ and recipes/, the files an
+# operator runs. This is what holds it that way.
+#
+# WHERE IT STOPS, first because it is the part that gets read past. If this ever
+# needs to tell one kind of text on a line from another again, the rule has been
+# narrowed back and a parser is coming with it: widen the rule instead. The
+# parser this replaced reached ~85 lines of awk, sixteen fixtures, seven rules no
+# mutation could kill and six review passes -- to disambiguate FOUR lines -- and
+# still missed backticks, heredocs and messages assembled in a variable.
+#
+# tests/ and .githooks/ are deliberately OUT of scope, and 18 test files carry a
+# dash today. Neither damage path below reaches them: their text goes to a
+# developer through _bad's printf, never through mf_printable and never through
+# whiptail. A gate over them would assert a rule with no defect behind it.
 #
 # The rule is not a lint we invented. GNU's coding standards make it normative
 # for exactly this class of tool -- "in the C locale, the output of GNU programs
@@ -305,13 +318,18 @@ esac
 # single-quoted one, a backtick, a heredoc body, a message built in a variable,
 # and every shape nobody has thought of are all just bytes in a file.
 #
-# WHERE IT STOPS. If this ever needs to distinguish one kind of text on a line
-# from another again, that is the signal the rule has been narrowed back and
-# the parser is coming with it. Widen the rule instead.
+# TWO RESIDUALS, both small and both stated so nobody has to rediscover them.
+# _code_only's `#` truncation cuts inside a string too, so it can hide a byte
+# after one -- stateless, one line wide, and a miss rather than a false alarm.
+# And that sed runs in the caller's locale while the needle runs under LC_ALL=C,
+# which can only differ on invalid UTF-8, and differs loudly.
 #
-# The one residual is _code_only's `#` truncation, which cuts inside a string
-# too and could hide a byte after it. Stateless, one line wide, and in the
-# direction of a miss rather than a false alarm.
+# There is no companion assertion checking the census stays SILENT on correct
+# code, and that is deliberate rather than missing: a false alarm is now
+# structurally impossible. _code_only can only over-strip, so every byte the
+# needle sees is genuinely code, and any non-ASCII byte in shipped source is an
+# offender by definition. The scanner needed such an assertion because it
+# decided which text was a message and could decide wrong.
 _ascii_census() { # tree root
   # A root with no mediaforge.sh in it is a broken call, not a clean tree, and
   # the two are otherwise the same empty output: aiming this at a path that does

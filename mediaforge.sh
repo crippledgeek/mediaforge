@@ -1037,10 +1037,10 @@ cmd_check_shadowers() {
         printf 'Audit workspace .pc files against the system pkgconfig path.\n'
         printf 'Reports each system overlap as either:\n'
         printf '  [expected dropped]   -- recipe declared PKG_TRANSITIVE_UTIL=true and the\n'
-        printf '                         system provides it; .pc kept in the workspace, not installed\n'
+        printf '                          system provides it; .pc kept in the workspace, not installed\n'
         printf '  [expected NO SYSTEM] -- recipe drops it but the system has no replacement\n'
         printf '  [NEW SHADOW]         -- would be installed AND system has it; review whether the\n'
-        printf '                         recipe should set PKG_TRANSITIVE_UTIL=true\n\n'
+        printf '                          recipe should set PKG_TRANSITIVE_UTIL=true\n\n'
         printf '  --strict   exit 1 when new shadowers are found (default: warn only)\n'
         exit 0 ;;
       *) die "Unknown option for check-shadowers: $1" ;;
