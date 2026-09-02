@@ -498,6 +498,14 @@ printf '[ -d "%s_dir" ] || die "quoted arg before the call\n  and a %s dash afte
 # sees three toggles here and stops following at the first line.
 printf 'die "cannot read %s(basename "%s_f") now\n  because of a %s dash"\n' \
   '$' '$' "$_em" > "$_tmp/census/lib/nested-subshell.sh"
+# An UNBALANCED substitution ahead of a message, which is why depth is a local.
+# Carried between lines, the open depth means the message never opens either --
+# its own quotes are read as belonging to the substitution -- and its later
+# lines go unread. Resetting per line mis-tracks a substitution genuinely
+# spanning lines, which is the rarer shape and costs one message rather than
+# every message below it.
+printf '_x=%s(printf\ndie "first\n  second %s line"\n' '$' "$_em" \
+  > "$_tmp/census/lib/depth-leak.sh"
 
 _probe=$(_census "$_tmp/census")
 _probe_missing=''
@@ -505,6 +513,7 @@ for _oh_want in 'mediaforge.sh: ' 'lib/multi.sh: ' 'lib/escaped.sh: ' \
                 'lib/expansion-then-call.sh: ' 'lib/operator-comment.sh: ' \
                 'lib/brace-length.sh: ' 'lib/dollar-length.sh: ' \
                 'lib/quoted-before-call.sh: ' 'lib/nested-subshell.sh: ' \
+                'lib/depth-leak.sh: ' \
                 'recipes/hwaccel/nested.sh: '; do
   case "$_probe" in
     *"$_oh_want"*) ;;
