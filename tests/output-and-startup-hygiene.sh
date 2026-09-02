@@ -353,7 +353,13 @@ _census() { # tree root
 mkdir -p "$_tmp/census/lib"
 _em=$(printf '\342\200\224')
 printf 'die "planted %s offender"\n' "$_em" > "$_tmp/census/mediaforge.sh"
-printf 'die "first line\n  second %s line"\n' "$_em" > "$_tmp/census/lib/multi.sh"
+# THREE lines, with the offender on the middle one, which carries no quote of
+# its own. Two lines cannot tell the two parity rules apart -- a second line
+# holding the closing quote is odd under both -- and it was per-line parity that
+# found two of lib/install.sh's six and missed the four inside its longest
+# message. A middle line is even, which per-line parity reads as "the message
+# ended above" and stops following.
+printf 'die "first line\n  second %s line\n  third line"\n' "$_em" > "$_tmp/census/lib/multi.sh"
 _probe=$(_census "$_tmp/census")
 case "$_probe" in
   *"mediaforge.sh: "*"planted"*"lib/multi.sh: "*"second"*)
