@@ -345,29 +345,54 @@ _census() { # tree root
   done
 }
 
-# A tree shaped like the real one whose only message holds an em-dash, and one
-# whose offender is on the SECOND line of the message -- the shape that was
-# missed. Because _tree_sh_files roots its globs at the tree it is given, this
-# fixture is the whole population rather than an intersection with the repo's
-# filenames, so a planted file need not mirror a real one.
-mkdir -p "$_tmp/census/lib"
+# A tree shaped like the real one, holding one offender of each shape the
+# census has to survive. Because _tree_sh_files roots its globs at the tree it
+# is given, this fixture IS the population rather than an intersection with the
+# repo's filenames, so a planted file need not mirror a real one.
+#
+# Each file is here because a mutation lived without it:
+#
+#   mediaforge.sh   the single-line case, and the root the walk refuses to run
+#                   without.
+#   lib/multi.sh    a FOUR-line message with the offender on the third line.
+#                   Neither two nor three lines can tell cumulative quote parity
+#                   from per-line parity -- the shipped bug, which found two of
+#                   lib/install.sh's six and missed the four inside its longest
+#                   message. Per-line parity still prints line two, because the
+#                   opening line already set the flag; it only loses the thread
+#                   on the line AFTER a quote-less one. lib/install.sh:290 is
+#                   the fourth line of its message, which is why it was missed.
+#   lib/escaped.sh  a message carrying an escaped quote before the offender. An
+#                   unescaped count reads `\"` as closing the string and stops
+#                   following the message there.
+#   recipes/hwaccel/nested.sh
+#                   the doubly-nested glob. Dropping `recipes/*/*.sh` from the
+#                   walk stops scanning nearly every recipe in the real tree,
+#                   and no other file here is deep enough to notice.
+mkdir -p "$_tmp/census/lib" "$_tmp/census/recipes/hwaccel"
 _em=$(printf '\342\200\224')
 printf 'die "planted %s offender"\n' "$_em" > "$_tmp/census/mediaforge.sh"
-# THREE lines, with the offender on the middle one, which carries no quote of
-# its own. Two lines cannot tell the two parity rules apart -- a second line
-# holding the closing quote is odd under both -- and it was per-line parity that
-# found two of lib/install.sh's six and missed the four inside its longest
-# message. A middle line is even, which per-line parity reads as "the message
-# ended above" and stops following.
-printf 'die "first line\n  second %s line\n  third line"\n' "$_em" > "$_tmp/census/lib/multi.sh"
+printf 'die "first line\n  second line\n  third %s line\n  fourth line"\n' "$_em" \
+  > "$_tmp/census/lib/multi.sh"
+printf 'warn "a \\"quoted\\" word then %s here"\n' "$_em" > "$_tmp/census/lib/escaped.sh"
+printf 'log "nested %s offender"\n' "$_em" > "$_tmp/census/recipes/hwaccel/nested.sh"
+
 _probe=$(_census "$_tmp/census")
-case "$_probe" in
-  *"mediaforge.sh: "*"planted"*"lib/multi.sh: "*"second"*)
-    _pass census-sees-a-planted-offender ;;
-  '') _bad census-sees-a-planted-offender "the census reported nothing over a tree whose only messages hold em-dashes, so its silence on the real tree is not evidence of anything" ;;
-  *"planted"*) _bad census-sees-a-planted-offender "the census saw the single-line offender but not the one on a message's second line, which is the shape that shipped six live offenders: $_probe" ;;
-  *) _bad census-sees-a-planted-offender "the census found something other than the planted offenders: $_probe" ;;
-esac
+_probe_missing=''
+for _oh_want in 'mediaforge.sh: ' 'lib/multi.sh: ' 'lib/escaped.sh: ' 'recipes/hwaccel/nested.sh: '; do
+  case "$_probe" in
+    *"$_oh_want"*) ;;
+    *) _probe_missing="$_probe_missing $_oh_want" ;;
+  esac
+done
+if [ -z "$_probe_missing" ]; then
+  _pass census-sees-a-planted-offender
+elif [ -z "$_probe" ]; then
+  _bad census-sees-a-planted-offender "the census reported nothing over a tree in which every message holds an em-dash, so its silence on the real tree is not evidence of anything"
+else
+  _bad census-sees-a-planted-offender "the census missed a planted offender in:$_probe_missing
+it reported: $_probe"
+fi
 
 _offenders=$(_census "$ROOT")
 if [ -z "$_offenders" ]; then
