@@ -278,12 +278,15 @@ esac
 # WHERE IT STOPS, first because it is the part that gets read past. If this ever
 # needs to tell one kind of text on a line from another again, the rule has been
 # narrowed back and a parser is coming with it: widen the rule instead. The
-# parser this replaced reached ~85 lines of awk, sixteen fixtures, seven rules no
-# mutation could kill and six review passes -- to disambiguate FOUR lines -- and
-# still missed backticks, heredocs and messages assembled in a variable.
+# parser this replaced reached ~85 lines of awk, sixteen fixtures and six review
+# passes -- to disambiguate FOUR lines -- and still missed backticks, heredocs
+# and messages assembled in a variable. Seven of its rules had no fixture at
+# all when it was retired, two of them guarding shapes live in the tree. Not
+# unkillable, which would have been harmless: load-bearing and untested, which
+# is why it went.
 #
-# tests/ and .githooks/ are deliberately OUT of scope, and 18 test files carry a
-# dash today. Neither damage path below reaches them: their text goes to a
+# tests/ and .githooks/ are deliberately OUT of scope, and several test files
+# carry a dash today (`grep -rln '[^[:blank:] -~]' tests/`). Neither damage path below reaches them: their text goes to a
 # developer through _bad's printf, never through mf_printable and never through
 # whiptail. A gate over them would assert a rule with no defect behind it.
 #
@@ -326,9 +329,10 @@ esac
 #
 # There is no companion assertion checking the census stays SILENT on correct
 # code, and that is deliberate rather than missing: a false alarm is now
-# structurally impossible. _code_only can only over-strip, so every byte the
-# needle sees is genuinely code, and any non-ASCII byte in shipped source is an
-# offender by definition. The scanner needed such an assertion because it
+# structurally impossible. _code_only can only over-strip, never under-strip, so
+# nothing the needle sees was hidden from it by a comment -- and under a rule
+# this wide any surviving byte is an offender whatever it sits in, code or a
+# heredoc body alike. The scanner needed such an assertion because it
 # decided which text was a message and could decide wrong.
 _ascii_census() { # tree root
   # A root with no mediaforge.sh in it is a broken call, not a clean tree, and
