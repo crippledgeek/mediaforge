@@ -364,9 +364,13 @@ _census() { # tree root
 #                   it missed were all inside _place_file's sudoers-policy die
 #                   in lib/install.sh -- the offending line there is the fourth
 #                   of its message.
-#   lib/escaped.sh  a message carrying an escaped quote before the offender. An
-#                   unescaped count reads `\"` as closing the string and stops
-#                   following the message there.
+#   lib/escaped.sh  a message whose FIRST line carries an escaped quote and
+#                   whose offender is on the second. One escaped quote is what
+#                   flips that line's parity: counted raw it is even, so an
+#                   unescaped count treats the message as finished and never
+#                   reaches the offender. A single-line escaped message cannot
+#                   show this -- two quotes and four are both even, so both
+#                   spellings agree.
 #   recipes/hwaccel/nested.sh
 #                   the doubly-nested glob. Dropping `recipes/*/*.sh` from the
 #                   walk stops scanning nearly every recipe in the real tree,
@@ -376,7 +380,7 @@ _em=$(printf '\342\200\224')
 printf 'die "planted %s offender"\n' "$_em" > "$_tmp/census/mediaforge.sh"
 printf 'die "first line\n  second line\n  third %s line\n  fourth line"\n' "$_em" \
   > "$_tmp/census/lib/multi.sh"
-printf 'warn "a \\"quoted\\" word then %s here"\n' "$_em" > "$_tmp/census/lib/escaped.sh"
+printf 'warn "opens with a \\" escape\n  then %s here"\n' "$_em" > "$_tmp/census/lib/escaped.sh"
 printf 'log "nested %s offender"\n' "$_em" > "$_tmp/census/recipes/hwaccel/nested.sh"
 
 _probe=$(_census "$_tmp/census")
