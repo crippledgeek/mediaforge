@@ -46,10 +46,10 @@ MF_DEFAULT_OPT="-O2"
 #   balanced  -Og -g3   assertions ON     ~2x slower
 #   full      -O0 -g3   assertions ON     4-5x slower  (bare --debug)
 #
-# Every level also splits its DWARF into .dwo files beside the objects. That is
-# not one of the things the levels trade -- only the -O column and the assertion
-# posture above vary; see the -gsplit-dwarf paragraph below for what the split
-# costs (the build tree has to survive) and what it buys.
+# Every level ALSO splits its DWARF into .dwo files beside the objects, by
+# default and not as part of the level: that is a separate axis with its own
+# flag, and the section after the table owns it. Only the -O column and the
+# assertion posture above vary between these three.
 #
 # "Measured" means lame, dav1d and svtav1 built at each level and timed on one
 # fixture each -- three packages, not the whole tree, and one machine. Treat the
@@ -81,58 +81,6 @@ MF_DEFAULT_OPT="-O2"
 # The -O half is the mirror image and also holds: Debug supplies no -O at all,
 # which is what lets this table's -Og/-O0 arrive through CFLAGS and survive.
 #
-# -gsplit-dwarf at every level (#92). This column still does not vary between the
-# levels, and saying that it now does would be a claim the three `set --` rows
-# below refute -- what changed is not that the levels differ here, but that what
-# they all carry costs less. Every level emitted the same -g3 and so shipped its
-# whole DWARF inside every archive; the split takes that cost off all three at
-# once, which is why it belongs beside -fno-omit-frame-pointer rather than in
-# the -O column.
-#
-# What it changes is WHERE the DWARF lands, not how much of it exists. gcc
-# writes the debug info to a sibling .dwo and leaves a skeleton in the object;
-# `ar` archives the object alone, so the .a a downstream consumer links collapses
-# to roughly its non-debug size while gdb still resolves the full info through
-# DW_AT_comp_dir + DW_AT_dwo_name. The prefix is --disable-shared, so every
-# consumer links all of that DWARF -- 3.0 GB of .a in a --debug=full prefix, and
-# a 94 GB target/ in the downstream tree that links it (#92).
-#
-# Measured on real libavcodec sources rather than a toy, recompiled with this
-# tree's own configured FFmpeg CFLAGS, gcc 16.2.1: 23 of its largest objects came
-# to 12896 KiB at -O0 -g3 and 4332 KiB with the split, a 3.0x drop in what a
-# linker reads. The same measurement at -O2, which is `symbols`, gave 8796 ->
-# 2484 KiB (3.5x) -- so the ratio holds at every level rather than only at the
-# -O0 one the issue measured, which is why this is not restricted to
-# balanced/full. gdb was then driven against a static archive built this way: it
-# breaks in the library source, prints locals, and answers `info macro`, so the
-# -g3 macro payload survives the move into the .dwo.
-#
-# It survives the same cmake ordering -g3 does, and for a different reason worth
-# separating: a trailing plain -g does not downgrade -g3, and -gsplit-dwarf is
-# not a -g level at all, so nothing cmake appends can turn it off. Measured on
-# the same probe -- "-g3 -gsplit-dwarf -O2 -g -DNDEBUG" still emits the .dwo.
-#
-# THE COST, which is the reason this is documented rather than just set: the
-# .dwo files are not installed. They stay in the build tree under packages/, and
-# a debugger that cannot find them does not degrade gracefully: gdb reports
-# "Could not find DWO CU" and places no breakpoint in that unit (driven, not
-# assumed). The binary still links and still runs, so only the debugger notices.
-# `clean` removes those trees, so lib/cleanup.sh says so before it does. Anything
-# that discards packages/ discards stepping for the prefix already installed.
-#
-# On macOS it is a no-op rather than a hazard: splitting is an ELF feature, and
-# clang for a Mach-O target accepts the flag, writes no .dwo, and emits a
-# byte-identical object (measured, clang 22.1.8, -target arm64-apple-darwin).
-# ccache handles it -- a cache hit restores the .dwo beside the object, measured
-# on ccache 4.13.6, which matters because lib/ccache.sh puts one in front of
-# every compile it can.
-#
-# Not on the rust or nvcc columns. Field 7 (cargo) and field 8 (nvcc) are the
-# levels restated for toolchains that read no CFLAGS, and each has its own
-# spelling for this -- cargo's is `split-debuginfo`, nvcc's is different again.
-# Recorded here rather than discovered: rav1e and nv-codec still ship their DWARF
-# inside their objects.
-
 # THE LEVEL TABLE. One row per level, and every consumer below reads a field
 # from it, so adding a level is adding a row rather than editing five parallel
 # case statements that agree only by inspection. The first draft of this file
@@ -209,19 +157,19 @@ mf_debug_field() { # level field-number
   _mf_dbg_f="$2"
   case "$1" in
     symbols)
-      set -- '-O2' '-g3 -fno-omit-frame-pointer -gsplit-dwarf' 'RelWithDebInfo' \
+      set -- '-O2' '-g3 -fno-omit-frame-pointer' 'RelWithDebInfo' \
              '--buildtype=debugoptimized -Db_ndebug=true -Db_lto=false' \
              '--enable-debug=3 --disable-stripping' 'symbols' \
              'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_LTO=false' \
              '-lineinfo' 'off' ;;
     balanced)
-      set -- '-Og' '-g3 -fno-omit-frame-pointer -gsplit-dwarf' 'Debug' \
+      set -- '-Og' '-g3 -fno-omit-frame-pointer' 'Debug' \
              '--buildtype=debug --optimization=g -Db_ndebug=false -Db_lto=false' \
              '--enable-debug=3 --disable-stripping --disable-optimizations' 'balanced' \
              'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_OPT_LEVEL=1 CARGO_PROFILE_RELEASE_LTO=false' \
              '-g -lineinfo' 'on' ;;
     full)
-      set -- '-O0' '-g3 -fno-omit-frame-pointer -gsplit-dwarf' 'Debug' \
+      set -- '-O0' '-g3 -fno-omit-frame-pointer' 'Debug' \
              '--buildtype=debug -Db_ndebug=false -Db_lto=false' \
              '--enable-debug=3 --disable-stripping --disable-optimizations' 'full' \
              'CARGO_PROFILE_RELEASE_DEBUG=2 CARGO_PROFILE_RELEASE_OPT_LEVEL=0 CARGO_PROFILE_RELEASE_LTO=false' \
@@ -255,6 +203,94 @@ mf_debug_assertions()  { mf_debug_field "$1" 9; }
 # version did. That worked only because every level today happens to contribute
 # -g3; a strip-only level would have been rejected as unreal.
 mf_debug_level_valid() { [ -n "$1" ] && [ "$(mf_debug_name "$1")" = "$1" ]; }
+
+# --- the DWARF-placement axis ------------------------------------------------
+#
+# WHERE the debug info lands, which is not one of the things the three levels
+# trade. It lived in field 2 from #92 until #94, byte-identical across all three
+# rows -- which is what made it look like level knowledge, and what left no way
+# to ask for the other placement short of a fourth level. Three levels times two
+# placements is six rows to express one boolean, in the file whose header argues
+# that debug is separable axes because every tool we drive treats it that way.
+# So: a constant plus a boolean, like MF_DEFAULT_OPT above.
+#
+# Split is the default and #92's measurements are why. gcc writes the debug info
+# to a sibling .dwo and leaves a skeleton in the object; `ar` archives the object
+# alone, so the .a a downstream consumer links collapses to roughly its non-debug
+# size while gdb still resolves the full info through DW_AT_comp_dir +
+# DW_AT_dwo_name. The prefix is --disable-shared, so every consumer links all of
+# that DWARF -- 3.0 GB of .a in a --debug=full prefix, and a 94 GB target/ in the
+# downstream tree that links it. Measured on real libavcodec sources with this
+# tree's own configured FFmpeg CFLAGS, gcc 16.2.1: 23 of its largest objects came
+# to 12896 KiB at -O0 -g3 and 4332 KiB with the split, and 8796 -> 2484 KiB at
+# -O2, so the ratio holds at every level rather than only at the -O0 one.
+#
+# THE COST, and the reason --no-split-dwarf exists: the .dwo files are not
+# installed. They stay in the build tree under packages/, and the skeleton
+# records an ABSOLUTE DW_AT_comp_dir, so an installed prefix built this way is
+# not self-contained. Copy it to another machine, or keep it after a `clean`,
+# and gdb reports "Could not find DWO CU" and places no breakpoint (driven, not
+# assumed). The binary still links and still runs, so only the debugger notices.
+# lib/cleanup.sh says so before it removes such a tree. A prefix that has to
+# travel is the use case --no-split-dwarf serves, and it pays for it in archive
+# size -- the same lame build is 11x its normal .a size with the DWARF inline
+# against 1.7x split.
+#
+# It survives cmake for a different reason than -g3 does, worth separating: a
+# trailing plain -g does not downgrade -g3, and -gsplit-dwarf is not a -g level
+# at all, so nothing cmake appends can turn it off. Measured on the same probe --
+# "-g3 -gsplit-dwarf -O2 -g -DNDEBUG" still emits the .dwo.
+#
+# On macOS it is a no-op rather than a hazard: splitting is an ELF feature, and
+# clang for a Mach-O target accepts the flag, writes no .dwo, and emits a
+# byte-identical object (measured, clang 22.1.8, -target arm64-apple-darwin).
+# ccache handles it -- a cache hit restores the .dwo beside the object, measured
+# on ccache 4.13.6, which matters because lib/ccache.sh puts one in front of
+# every compile it can.
+#
+# Not on the rust or nvcc columns. Fields 7 and 8 are the levels restated for
+# toolchains that read no CFLAGS, and each has its own spelling for this --
+# cargo's is `split-debuginfo`, nvcc's is different again. So rav1e and nv-codec
+# ship their DWARF inside their objects whichever way this flag points, and
+# --no-split-dwarf does not have to reach them to keep its promise.
+MF_SPLIT_DWARF_FLAG="-gsplit-dwarf"
+
+# The flag a build with placement $1 adds to CFLAGS. Anything but an explicit
+# `false` splits, so an unset caller gets the default rather than the escape
+# hatch -- the two consumers spell it differently (mediaforge.sh carries a
+# tri-state that distinguishes "not passed" from "passed", the tests pass a
+# bare boolean) and only one spelling of "off" is safe to honour.
+#
+# An `if` rather than a trailing `&& printf`: under `set -e` a function whose
+# last command is a false test returns non-zero, and every caller here is inside
+# a command substitution in an assignment.
+mf_split_dwarf_cflags() { # split?
+  if [ "${1-}" != false ]; then printf '%s' "$MF_SPLIT_DWARF_FLAG"; fi
+}
+
+# What $PREFIX/.debug-level records, and what the mixing guard compares: the
+# level AND the placement, because the guard is a string equality and a level
+# name alone cannot express the second half. Without it, `--debug` followed by
+# `--debug --no-split-dwarf` matches full to full, skips all ~110 stamps and
+# leaves a prefix that is half split and half inline -- the silent mix that
+# guard exists to prevent, arriving by the one route it could not see.
+#
+# The split form is the BARE LEVEL NAME rather than a "+split" suffix, which is
+# not symmetry for its own sake: every workspace built between #92 and #94
+# recorded a bare name while splitting, so making the default form the legacy
+# form is what keeps those from being refused for a placement that never
+# changed. A pre-#92 workspace was inline under the same name and would be
+# allowed to mix -- but those predate the split entirely, and the alternative
+# refuses every current workspace to catch them.
+#
+# No level is no state, whatever the placement says: such a build adds no symbol
+# flags at all, so there is nothing to mix and nothing the flag could have
+# changed. That is also what makes the level-less --no-split-dwarf warning
+# honest rather than decorative.
+mf_debug_state() { # level  split?
+  if [ -z "$1" ]; then return 0; fi
+  if [ "${2-}" = false ]; then printf '%s+inline' "$1"; else printf '%s' "$1"; fi
+}
 
 # True when $1 already contains an -O flag of any spelling: -O, -O0..-O3, -Os,
 # -Og, -Ofast.

@@ -30,6 +30,13 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd); cd "$ROOT"
 _fail=0
 # shellcheck source=tests/lib-assert.sh
 . "$ROOT/tests/lib-assert.sh"
+# The workspace-state assertions at the foot of this file drive the real
+# mediaforge from a TOPDIR of their own -- see tests/lib-scratch.sh for why
+# running it from the repo root is not an option for anything that reads
+# $PREFIX. _scratch_init is called down there, next to its first use; the
+# cleanup is in this file's one EXIT handler, because POSIX trap has no append.
+# shellcheck source=tests/lib-scratch.sh
+. "$ROOT/tests/lib-scratch.sh"
 
 if [ -f lib/flags.sh ]; then
   # shellcheck source=lib/flags.sh
@@ -50,7 +57,7 @@ _have() { command -v "$1" >/dev/null 2>&1; }
 _mf_fx=""
 _mf_pp=""
 _probe_dir=""
-trap 'rm -f ${_mf_fx:+"$_mf_fx"}; rm -rf ${_mf_pp:+"$_mf_pp"} ${_probe_dir:+"$_probe_dir"}' EXIT
+trap 'rm -f ${_mf_fx:+"$_mf_fx"}; rm -rf ${_mf_pp:+"$_mf_pp"} ${_probe_dir:+"$_probe_dir"}; _scratch_cleanup' EXIT
 _cleanup_on_signal
 
 # name  fn  level  glob-that-must-match
@@ -86,14 +93,56 @@ _d sym-full-has-g3           mf_debug_cflags full     '*-g3*'
 # Frame pointers at EVERY level including symbols -- an optimized build whose
 # backtrace is unreliable defeats the only purpose that level has.
 _d sym-symbols-frame-pointer mf_debug_cflags symbols  '*-fno-omit-frame-pointer*'
-# -gsplit-dwarf at EVERY level, like the frame pointer above and for the reason
-# lib/flags.sh argues at length: what the levels trade is -O and the assertion
-# posture, so a symbol flag that only some of them carried would be a fourth
-# thing to reason about for no gain. Asserted per level rather than once,
-# because "all three" is the claim (#92).
-_d sym-symbols-split-dwarf   mf_debug_cflags symbols  '*-gsplit-dwarf*'
-_d sym-balanced-split-dwarf  mf_debug_cflags balanced '*-gsplit-dwarf*'
-_d sym-full-split-dwarf      mf_debug_cflags full     '*-gsplit-dwarf*'
+# -gsplit-dwarf is NOT in this column (#94). It was, at all three levels and
+# byte-identically, which is what made it look like something the levels vary --
+# and while it lived here the only way to ask for inline DWARF was a fourth
+# level. Where the DWARF lands is a separate axis with its own flag, so field 2
+# carries the symbol level and nothing else. Asserted per level rather than
+# once: "none of the three" is the claim, and one row keeping it is the
+# regression.
+_d_not sym-symbols-no-split-dwarf   mf_debug_cflags symbols  '*-gsplit-dwarf*'
+_d_not sym-balanced-no-split-dwarf  mf_debug_cflags balanced '*-gsplit-dwarf*'
+_d_not sym-full-no-split-dwarf      mf_debug_cflags full     '*-gsplit-dwarf*'
+
+# --- the DWARF-placement axis ------------------------------------------------
+# The column of its own that field 2 no longer carries. A constant plus a
+# boolean, like MF_DEFAULT_OPT: split is the default, and --no-split-dwarf is
+# the escape hatch for a prefix that has to travel away from its build tree.
+if _have mf_split_dwarf_cflags; then
+  _glob split-on-emits-the-flag "$(mf_split_dwarf_cflags true)" '*-gsplit-dwarf*' \
+        'mf_split_dwarf_cflags(true)'
+  if [ -z "$(mf_split_dwarf_cflags false)" ]; then
+    _pass split-off-emits-nothing
+  else
+    _bad split-off-emits-nothing "expected empty, got [$(mf_split_dwarf_cflags false)]"
+  fi
+else
+  _bad split-on-emits-the-flag "mf_split_dwarf_cflags does not exist"
+  _bad split-off-emits-nothing "mf_split_dwarf_cflags does not exist"
+fi
+
+# The workspace state string, which is what the mixing guard compares. A level
+# name alone cannot express the placement, so `--debug` then
+# `--debug --no-split-dwarf` would match full to full, skip all ~110 stamps and
+# produce a half-split prefix -- the silent mix the guard exists to prevent,
+# arriving by the one route it could not see.
+#
+# Split is unsuffixed because it is the default AND because every workspace
+# built between #92 and #94 recorded a bare level name while splitting: making
+# the default form the legacy form is what keeps those from being refused for a
+# placement that never changed.
+_st() { # name  level  split  expected
+  if _have mf_debug_state; then _out=$(mf_debug_state "$2" "$3"); else _out='<no mf_debug_state>'; fi
+  if [ "$_out" = "$4" ]; then _pass "$1"; else _bad "$1" "expected [$4], got [$_out]"; fi
+}
+_st state-full-split-is-bare-name  full ''      full
+_st state-full-inline-is-suffixed  full false   'full+inline'
+_st state-symbols-inline-suffixed  symbols false 'symbols+inline'
+# No level is no state, whatever the placement flag says: a build with no
+# --debug adds no symbol flags at all, so there is nothing for the guard to
+# compare and nothing --no-split-dwarf could have changed.
+_st state-none-is-empty            ''   ''      ''
+_st state-none-inline-is-empty     ''   false   ''
 # ...and nothing at all when no level is active.
 if _have mf_debug_cflags && [ -z "$(mf_debug_cflags '')" ]; then
   _pass sym-none-when-no-debug
@@ -203,13 +252,19 @@ fi
 # No subshell: every call assigns all six inputs before using them, so there is
 # nothing for one call to leak into the next, and wrapping it in ( ) only earns
 # an SC2030 about a modification that is local by design.
-_composed() { # level -> the CFLAGS a build at that level would export
-  # Guarded on mf_debug_opt, not mf_export_flags: the latter EXISTS on the merge
-  # base (it is this branch's parent's work), so guarding on it let the base run
-  # fall through to an undefined mf_debug_cflags and emit a command-not-found.
-  # The guard has to name something only this branch introduces.
-  command -v mf_debug_opt >/dev/null 2>&1 || { printf ''; return; }
-  MF_OWN_CFLAGS="-I/p/include -fPIC $(mf_debug_cflags "$1")"
+#
+# $2 is the DWARF placement, and it is composed the way cmd_build composes it --
+# a second append beside the level's own flags, not a substring edit of them.
+# The counterfactual below used to be produced by sed'ing -gsplit-dwarf out of
+# the composed line, which measured a string this tree no longer builds; now it
+# is the real inline build.
+_composed() { # level  [split] -> the CFLAGS a build at that level would export
+  # Guarded on mf_split_dwarf_cflags, not mf_export_flags or mf_debug_opt: both
+  # of those EXIST on the merge base, so guarding on either let the base run
+  # fall through to an undefined function and emit a command-not-found. The
+  # guard has to name something only this branch introduces.
+  command -v mf_split_dwarf_cflags >/dev/null 2>&1 || { printf ''; return; }
+  MF_OWN_CFLAGS="-I/p/include -fPIC $(mf_debug_cflags "$1") $(mf_split_dwarf_cflags "${2-true}")"
   MF_OWN_CXXFLAGS="$MF_OWN_CFLAGS"
   MF_OWN_LDFLAGS="-L/p/lib"
   MF_USER_CFLAGS=""
@@ -236,6 +291,16 @@ for _pair in 'full:-O0' 'balanced:-Og' 'symbols:-O2'; do
   case "$_got" in
     *-gsplit-dwarf*) _pass "composed-$_lv-splits-dwarf" ;;
     *) _bad "composed-$_lv-splits-dwarf" "no -gsplit-dwarf in [$_got]" ;;
+  esac
+  # ...and the escape hatch, at the same level: the placement is off and
+  # everything the level promised is still there. Both halves matter -- a
+  # --no-split-dwarf that also dropped -g3 would satisfy the first half alone
+  # and hand back a prefix with no debug info at all.
+  _got=$(_composed "$_lv" false)
+  case "$_got" in
+    *-gsplit-dwarf*) _bad "composed-$_lv-inline-drops-split" "-gsplit-dwarf survived in [$_got]" ;;
+    *"$_want"*-g3*|*-g3*"$_want"*) _pass "composed-$_lv-inline-drops-split" ;;
+    *) _bad "composed-$_lv-inline-drops-split" "no $_want and -g3 in [$_got]" ;;
   esac
 done
 
@@ -272,15 +337,19 @@ fi
 if [ -n "$_probe_dir" ] && [ -f "$_probe_dir/ref.dwo" ]; then
   for _lv in symbols balanced full; do
     _cf=$(_composed "$_lv")
-    rm -f "$_probe_dir/lvl.o" "$_probe_dir/lvl.dwo" "$_probe_dir/plain.o"
+    rm -f "$_probe_dir/lvl.o" "$_probe_dir/lvl.dwo" \
+          "$_probe_dir/plain.o" "$_probe_dir/plain.dwo"
     # The level's REAL composed CFLAGS. -I/p/include comes from _composed's
     # fixture and names no real directory; a missing -I is not an error for a
     # file that includes nothing.
     _probe_cc lvl.o "$_cf"
-    # The counterfactual: the same level with the split removed. Comparing
-    # against it rather than against a fixed number is what keeps this from
-    # re-measuring gcc's absolute object size on every toolchain bump.
-    _probe_cc plain.o "$(printf '%s' "$_cf" | sed 's/-gsplit-dwarf//')"
+    # The counterfactual: the same level built the way --no-split-dwarf builds
+    # it. Comparing against that rather than against a fixed number is what
+    # keeps this from re-measuring gcc's absolute object size on every toolchain
+    # bump -- and since #94 it is a real configuration rather than a string this
+    # tree can no longer produce, so the same compile answers both the "the
+    # split works" and the "the escape hatch works" questions.
+    _probe_cc plain.o "$(_composed "$_lv" false)"
     if [ ! -f "$_probe_dir/lvl.dwo" ]; then
       _bad "measured-$_lv-emits-dwo" "compiling with the composed [$_cf] produced no .dwo"
     elif [ ! -s "$_probe_dir/plain.o" ]; then
@@ -293,6 +362,18 @@ if [ -n "$_probe_dir" ] && [ -f "$_probe_dir/ref.dwo" ]; then
       else
         _bad "measured-$_lv-emits-dwo" "object did not shrink: $_lvl_sz vs $_plain_sz bytes without the split"
       fi
+    fi
+    # The escape hatch, measured the same way and for the reason the issue asks
+    # for it: --no-split-dwarf exists so an installed prefix can be copied away
+    # from its build tree, and a flag string the compiler accepts and ignores
+    # would leave the DWARF in a .dwo that does not travel. Only the FILES can
+    # say which happened.
+    if [ ! -s "$_probe_dir/plain.o" ]; then
+      _bad "measured-$_lv-inline-emits-no-dwo" "the inline build did not compile"
+    elif [ -f "$_probe_dir/plain.dwo" ]; then
+      _bad "measured-$_lv-inline-emits-no-dwo" "--no-split-dwarf still wrote a .dwo"
+    else
+      _pass "measured-$_lv-inline-emits-no-dwo"
     fi
     # The -g3 half has to survive the split, or the level quietly drops the
     # macro definitions it chose level 3 for. They move INTO the .dwo, which is
@@ -512,7 +593,13 @@ rm -f "$_mf_fx"
 
 _mf_scanned=0
 _mf_seen=""
-for _r in $(find recipes -name '*.sh' | sort); do
+# -L, because `recipes` is not always a directory: tests/workspace-independence.sh
+# runs this file from a SYMLINK FARM, and find does not descend into a symlinked
+# operand unless told to. Without it the scan enumerates nothing, every
+# assertion below goes unrun, and only the named-coverage check at the end
+# notices -- which is what it is for. Latent until #94 put a mediaforge
+# invocation in this file and so put the file into that farm's population.
+for _r in $(find -L recipes -name '*.sh' | sort); do
   # recipes/ffmpeg.sh is not a recipe in this sense: cmd_build sources it
   # directly rather than through run_recipe(), so it defines no pkg_* phases and
   # the "no pkg_build body" rule below does not describe it. Its own flags come
@@ -904,6 +991,101 @@ for _mf_fx_patch in removed-dashes format-patch-trailer genuinely-malformed; do
   esac
 done
 rm -rf "$_mf_pp"
+
+# --- the workspace remembers the PLACEMENT, not just the level ---------------
+# The load-bearing half of #94, and the reason --no-split-dwarf could not just
+# be a flag that appends to CFLAGS. The mixing guard compares what the workspace
+# recorded against what was asked for, so while it recorded a level name alone,
+# `--debug` followed by `--debug --no-split-dwarf` matched full to full, skipped
+# all ~110 stamps, and produced a prefix that was half split and half inline --
+# the exact silent mix the guard exists to prevent, arriving by the one route it
+# could not see.
+#
+# Driven through the real mediaforge rather than through mf_debug_state, because
+# the state string being right proves nothing about the guard reading it. A dry
+# run is enough: the guard runs before the plan is printed and writes nothing.
+_scratch_init "$ROOT"
+
+# _guard <name> <recorded-state> <expect: refuse|allow> <build-args...>
+_guard() {
+  _g_name=$1; _g_state=$2; _g_want=$3; shift 3
+  rm -rf "$_MF_SCRATCH/workspace"
+  mkdir -p "$_MF_SCRATCH/workspace/.stamps"
+  # A stamp file, because the guard fires only on a POPULATED workspace: an
+  # empty .stamps is a workspace with nothing to mix.
+  : > "$_MF_SCRATCH/workspace/.stamps/lame-3.100"
+  printf '%s' "$_g_state" > "$_MF_SCRATCH/workspace/.debug-level"
+  _g_out=$(_mf build "$@" --dry-run --yes 2>&1) || true
+  # "allow" is read from a marker the run only prints once it is PAST the guard,
+  # not from the absence of the refusal: an unknown flag, a parse error or a
+  # missing scratch dir all produce output with no refusal in it, and reading
+  # that as consent is how the allow half of this pairing passes on a tree that
+  # rejects the flag outright.
+  case "$_g_out" in
+    *"refusing to produce a mixed-level workspace"*) _g_got=refuse ;;
+    *"Would configure FFmpeg with:"*)               _g_got=allow ;;
+    *) _bad "$_g_name" "the dry run neither refused nor reached FFmpeg: $_g_out"; return ;;
+  esac
+  if [ "$_g_got" = "$_g_want" ]; then
+    _pass "$_g_name"
+  else
+    _bad "$_g_name" "recorded [$_g_state] + [$*] was ${_g_got}d, expected ${_g_want}d"
+  fi
+}
+
+# A split workspace refuses an inline build and vice versa -- the assertion the
+# issue asks to write first, in both polarities so that a guard keyed on the
+# level alone fails on one of them rather than passing by accident.
+_guard guard-split-refuses-inline    full            refuse --debug --no-split-dwarf
+_guard guard-inline-refuses-split    'full+inline'   refuse --debug
+_guard guard-inline-refuses-split-explicit 'full+inline' refuse --debug --split-dwarf
+# ...and the same placement at the same level is not a change, or the flag would
+# be unusable twice in a row.
+_guard guard-inline-matches-inline   'full+inline'   allow  --debug --no-split-dwarf
+_guard guard-split-matches-split     full            allow  --debug --split-dwarf
+# The level half still bites with the placement recorded beside it.
+_guard guard-level-change-still-bites 'full+inline'  refuse --debug=symbols --no-split-dwarf
+
+# --no-split-dwarf without a level warns and changes nothing. --enable-small
+# already carries this shape for its own interaction with --debug: a flag that
+# cannot take effect says so rather than being honoured silently.
+rm -rf "$_MF_SCRATCH/workspace"
+_mf_ns=$(_mf build --no-split-dwarf --dry-run --yes 2>&1) || true
+case "$_mf_ns" in
+  *"has no effect without --debug"*) _pass warns-when-split-flag-has-no-level ;;
+  *) _bad warns-when-split-flag-has-no-level "no warning in the output of a level-less --no-split-dwarf" ;;
+esac
+# "changes nothing" is the other half of that claim, and the half a warning
+# could mask -- a flag that warns AND takes effect is worse than one that only
+# takes effect, because the warning reads as a refusal.
+#
+# Two assertions, because neither says it alone. First: the run still reaches
+# the same plan, so the warning is a note rather than a stop.
+case "$_mf_ns" in
+  *"Would configure FFmpeg with:"*) _pass level-less-split-flag-still-builds ;;
+  *) _bad level-less-split-flag-still-builds "a level-less --no-split-dwarf run did not reach the FFmpeg plan" ;;
+esac
+# Second: the placement can only reach a compile line from INSIDE the
+# debug-level block, which is what makes "no level, no effect" structural
+# rather than a promise. A dry run cannot show this -- mediaforge prints no
+# CFLAGS anywhere, and recipes/ffmpeg.sh applies the level's own configure opts
+# at configure time -- so it is read off the source: exactly one call, and it is
+# inside the `if [ -n "$MF_DEBUG_LEVEL" ]` arm rather than after it. Moving the
+# append out of that block is the regression this catches, and it is the shape
+# a later refactor would produce.
+_mf_sd_where=$(awk '
+  /^  if \[ -n "\$MF_DEBUG_LEVEL" \]; then/ { _in = 1 }
+  /^  elif \[ -n "\$MF_SPLIT_DWARF" \]; then/ { _in = 0 }
+  /mf_split_dwarf_cflags/ { n++; if (_in) inside++ }
+  END { printf "%d %d", n + 0, inside + 0 }
+' mediaforge.sh)
+if [ "$_mf_sd_where" = "1 1" ]; then
+  _pass split-flag-only-inside-the-debug-block
+else
+  _bad split-flag-only-inside-the-debug-block \
+       "expected exactly one mf_split_dwarf_cflags call, inside the level block; got [calls inside]=[$_mf_sd_where]"
+fi
+_scratch_cleanup
 
 # --- every flag the parser accepts is documented somewhere --------------------
 # --debug shipped documented; --ccache did not, and neither did --spirv before

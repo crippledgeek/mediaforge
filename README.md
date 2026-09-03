@@ -50,6 +50,8 @@ It asks one thing of you. The debug info is split into .dwo files beside the
 objects under packages/, and those are never installed, so those trees have to
 survive or a debugger can no longer step into the prefix -- while every binary
 still runs, so nothing looks wrong. clean warns before it takes them.
+--no-split-dwarf buys back a prefix that can travel, at the cost of much larger
+archives.
 
 Levels, measured sizes, and the exact failure: "Debug builds and split DWARF"
 in the wiki.
