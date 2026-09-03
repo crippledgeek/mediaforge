@@ -135,8 +135,10 @@ prefix is `--disable-shared`, so every consumer links all of it --- and it is
 also the one thing a debug prefix asks of you: **the unpacked source trees have
 to survive.** `.dwo` files are not part of `make install` and never reach the
 prefix. Delete `packages/` and every binary already linked against the prefix
-keeps linking and keeps running, having quietly lost its source lines and
-locals. `clean` says so before it removes them.
+keeps linking and keeps running, while `gdb` reports `Could not find DWO CU` and
+declines to place a breakpoint in those units. `clean` says so before it removes
+them --- and only about trees it is actually about to remove, so a `.dwo` inside
+a git clone it keeps does not raise it.
 
 On macOS this is a no-op rather than a hazard: splitting is an ELF feature, and
 clang for a Mach-O target accepts the flag and emits a byte-identical object.

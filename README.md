@@ -59,8 +59,9 @@ files beside them under packages/, and each object keeps only a skeleton. That
 is what keeps a debug prefix's static archives small enough to link comfortably,
 and it is the one thing it asks of you --- .dwo files are never installed, so
 the unpacked source trees under packages/ have to survive. Remove them and every
-binary already linked against the prefix still runs while a debugger stops
-showing source lines and locals. clean warns before it takes them.
+binary already linked against the prefix still runs, while a debugger can no
+longer break inside those units or show their locals. clean warns before it
+takes them.
 
 A workspace records the level it was built at and refuses to mix. Build stamps
 key on name and version alone, so a second build at a different level would skip

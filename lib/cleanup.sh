@@ -134,10 +134,24 @@ mf_each_dist_entry() { # callback
   done
 }
 
-# One entry, pruned if it is an unpacked source tree. A symlink is left alone
-# whatever it points at, and a clone belongs to the keep side.
+# Is this entry one the default `clean` takes? A directory, not a symlink --
+# what one points at is not ours to judge -- and not a git clone, which belongs
+# to the keep side because re-creating it needs the forge.
+#
+# A predicate of its own because two things now have to agree about it: the
+# prune, and the warning that runs immediately before the prune. They were
+# written as two copies of the same three tests for exactly one commit, and the
+# copies disagreed in the way that matters -- the warning scanned all of
+# $DISTDIR, so a .dwo inside a KEPT clone announced a loss that never happened.
+# Five recipes build inside their clone (x264, av1, librist, librtmp,
+# libplacebo), all C or C++, so that was every debug build of any of them.
+mf_is_prunable_source() {
+  [ -d "$1" ] && [ ! -L "$1" ] && ! mf_is_git_clone "$1"
+}
+
+# One entry, pruned if it is an unpacked source tree.
 _prune_one_entry() {
-  [ -d "$1" ] && [ ! -L "$1" ] && ! mf_is_git_clone "$1" || return 0
+  mf_is_prunable_source "$1" || return 0
   # `${1:?}` for the reason lib/download.sh writes
   # `rm -rf "${DISTDIR:?}/${_dir:?}"`: not because this one can go empty -- it
   # is the shell's own glob expansion and the -d above has already held -- but
@@ -153,32 +167,50 @@ _prune_one_entry() {
 # .dwo files beside the objects rather than inside them. That is what makes the
 # installed archives small, and it is why the build tree stops being disposable:
 # the objects and the installed libraries carry a skeleton that points at those
-# .dwo files by DW_AT_comp_dir, and nothing installs them. Remove the trees and
-# every binary already linked against the prefix keeps linking and running and
-# quietly loses its source lines and locals -- a loss visible only inside a
-# debugger, months after the command that caused it.
+# .dwo files by DW_AT_comp_dir + DW_AT_dwo_name, and nothing installs them.
+# Remove the trees and every binary already linked against those libraries keeps
+# linking and running and quietly loses its source lines and locals -- a loss
+# visible only inside a debugger, months after the command that caused it.
 #
-# Both removal paths reach it: the default prunes entry by entry, --all removes
-# $DISTDIR whole. One function so the path that discards MORE cannot be the
-# silent one.
+# WHICH ENTRIES ARE AT STAKE IS THE CALLER'S QUESTION, so the caller names the
+# predicate. The default prune keeps clones and symlinks, and warning about a
+# .dwo in a tree that survives is the "warning nobody reads" this file's own
+# tests forbid; --all removes $DISTDIR whole, and there everything is at stake.
+# One walk, one message, two answers to what counts -- rather than one function
+# that is right for whichever caller it was written for.
 #
 # `find`, not a glob, because .dwo sit wherever the build put its objects --
 # nested arbitrarily deep, under ~110 recipe trees. -name is POSIX; -quit is
-# not, so the walk is bounded by `head -1` closing the pipe instead, and the
+# not, so the walk is bounded by stopping at the first hit instead, and the
 # worst case is the one with no match, which walks all of it: 106 ms over the
-# 160,996 files of a real 24 GB packages/ here. Once per clean, on a directory
+# 160,996 files of a real 24 GB packages/ here. Once per clean, on directories
 # the same command is about to delete.
-warn_split_dwarf_loss() {
+_dwo_at_stake=""
+_dwo_found=""
+_probe_one_entry() {
+  [ -z "$_dwo_found" ] || return 0
+  "$_dwo_at_stake" "$1" || return 0
+  _dwo_found=$(find "$1" -type f -name '*.dwo' 2>/dev/null | head -n 1)
+}
+
+# Every entry, for the caller that removes every entry.
+mf_entry_at_stake() { [ -e "$1" ]; }
+
+warn_split_dwarf_loss() { # predicate naming which entries this removal takes
   [ -d "$DISTDIR" ] || return 0
-  [ -n "$(find "$DISTDIR" -type f -name '*.dwo' 2>/dev/null | head -n 1)" ] || return 0
-  warn "The unpacked sources hold .dwo files: the split debug info of a --debug build."
-  warn "They are not installed, so removing them leaves every binary already linked"
-  warn "against $PREFIX with skeleton debug info only -- it still runs, and a"
-  warn "debugger stops showing source lines and locals. Rebuild with --debug to restore."
+  _dwo_at_stake="$1"
+  _dwo_found=""
+  mf_each_dist_entry _probe_one_entry
+  [ -n "$_dwo_found" ] || return 0
+  warn "The sources about to be removed hold .dwo files: the split debug info of"
+  warn "a --debug build. They are not installed, so every binary already linked"
+  warn "against these libraries -- in an install prefix or anywhere else -- keeps"
+  warn "running, while a debugger can no longer break inside those units or show"
+  warn "their locals. Rebuild with --debug to restore them."
 }
 
 prune_extracted_sources() {
-  warn_split_dwarf_loss
+  warn_split_dwarf_loss mf_is_prunable_source
   _pruned=0
   mf_each_dist_entry _prune_one_entry
   [ "$_pruned" -gt 0 ] || return 0
@@ -234,7 +266,7 @@ full_cleanup() {
   # Before workspace_cleanup, for the same reason the two lines above are: this
   # path removes $DISTDIR whole rather than through the prune, so it is the one
   # place the .dwo warning has to be repeated by hand rather than inherited.
-  warn_split_dwarf_loss
+  warn_split_dwarf_loss mf_entry_at_stake
   workspace_cleanup
   rm -rf "$DISTDIR"
   log "Cleanup done."

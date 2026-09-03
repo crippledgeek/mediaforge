@@ -38,6 +38,21 @@ fi
 
 _have() { command -v "$1" >/dev/null 2>&1; }
 
+# EVERY temporary this file makes, in ONE handler, registered before the first
+# one exists. POSIX trap has no append form, so a second `trap ... EXIT` further
+# down REPLACES this rather than adding to it -- which is how the handler came to
+# be registered a third of the way through the file, leaving the probe directory
+# created above it covered by nothing at all: a Ctrl-C or an abort inside the
+# compile loop leaked it. Registering first, and naming each temporary through a
+# ${x:+} guard, means there is no point in the run where a temporary exists and
+# the handler does not know about it. The guards are load-bearing under `set -u`:
+# an unguarded name that has not been assigned yet aborts the handler itself.
+_mf_fx=""
+_mf_pp=""
+_probe_dir=""
+trap 'rm -f ${_mf_fx:+"$_mf_fx"}; rm -rf ${_mf_pp:+"$_mf_pp"} ${_probe_dir:+"$_probe_dir"}' EXIT
+_cleanup_on_signal
+
 # name  fn  level  glob-that-must-match
 _d() {
   if _have "$2"; then _out=$("$2" "$3"); else _out=''; fi
@@ -71,11 +86,11 @@ _d sym-full-has-g3           mf_debug_cflags full     '*-g3*'
 # Frame pointers at EVERY level including symbols -- an optimized build whose
 # backtrace is unreliable defeats the only purpose that level has.
 _d sym-symbols-frame-pointer mf_debug_cflags symbols  '*-fno-omit-frame-pointer*'
-# -gsplit-dwarf at EVERY level, for the same reason the frame pointer is: the
-# symbol axis is one axis. Before it, the three levels varied only the -O half
-# and every one of them shipped its whole DWARF inside each --disable-shared
-# archive, so an operator who wanted cheaper links had no lever short of not
-# passing --debug at all -- which is the one thing they asked for (#92).
+# -gsplit-dwarf at EVERY level, like the frame pointer above and for the reason
+# lib/flags.sh argues at length: what the levels trade is -O and the assertion
+# posture, so a symbol flag that only some of them carried would be a fourth
+# thing to reason about for no gain. Asserted per level rather than once,
+# because "all three" is the claim (#92).
 _d sym-symbols-split-dwarf   mf_debug_cflags symbols  '*-gsplit-dwarf*'
 _d sym-balanced-split-dwarf  mf_debug_cflags balanced '*-gsplit-dwarf*'
 _d sym-full-split-dwarf      mf_debug_cflags full     '*-gsplit-dwarf*'
@@ -236,26 +251,36 @@ done
 # and asserting one would fail for the platform rather than for the defect. It
 # says so on a plain line instead of claiming a PASS it did not measure.
 _probe_dir=$(mktemp -d) || _probe_dir=""
+
+# ONE compile, however many times it is asked for. The measurement and its
+# counterfactual differ in the flag string and nothing else, and written out
+# twice they had already acquired two spellings of the same `cd`-and-split
+# dance. `sh -c` rather than an unquoted expansion: it is the same word
+# splitting a build does, without the SC2086 the linter is right to raise
+# everywhere else. Failure is swallowed here because every caller judges the
+# compile by the FILES it produced -- a missing object is reported by the
+# assertion that wanted it, with the flags that failed to make it.
+_probe_cc() { # output-object  flag-string
+  _pc_out="$1"; shift
+  ( cd "$_probe_dir" && sh -c "cc $* -c p.c -o $_pc_out" ) >/dev/null 2>&1 || true
+}
+
 if [ -n "$_probe_dir" ] && _have cc; then
   printf '#define MF_PROBE_MACRO 1\nint mf_probe(void){ return MF_PROBE_MACRO; }\n' > "$_probe_dir/p.c"
-  ( cd "$_probe_dir" && cc -g3 -gsplit-dwarf -c p.c -o ref.o ) >/dev/null 2>&1 || true
+  _probe_cc ref.o '-g3 -gsplit-dwarf'
 fi
 if [ -n "$_probe_dir" ] && [ -f "$_probe_dir/ref.dwo" ]; then
   for _lv in symbols balanced full; do
     _cf=$(_composed "$_lv")
     rm -f "$_probe_dir/lvl.o" "$_probe_dir/lvl.dwo" "$_probe_dir/plain.o"
-    # The level's REAL composed CFLAGS, split into arguments the way a build
-    # would split them -- through `sh -c` rather than an unquoted expansion,
-    # which is the same splitting without the SC2086 the linter is right to
-    # raise everywhere else. -I/p/include comes from _composed's fixture and
-    # names no real directory; a missing -I is not an error for a file that
-    # includes nothing.
-    ( cd "$_probe_dir" && sh -c "cc $_cf -c p.c -o lvl.o" ) >/dev/null 2>&1 || true
+    # The level's REAL composed CFLAGS. -I/p/include comes from _composed's
+    # fixture and names no real directory; a missing -I is not an error for a
+    # file that includes nothing.
+    _probe_cc lvl.o "$_cf"
     # The counterfactual: the same level with the split removed. Comparing
     # against it rather than against a fixed number is what keeps this from
     # re-measuring gcc's absolute object size on every toolchain bump.
-    _cf_nosplit=$(printf '%s' "$_cf" | sed 's/-gsplit-dwarf//')
-    ( cd "$_probe_dir" && sh -c "cc $_cf_nosplit -c p.c -o plain.o" ) >/dev/null 2>&1 || true
+    _probe_cc plain.o "$(printf '%s' "$_cf" | sed 's/-gsplit-dwarf//')"
     if [ ! -f "$_probe_dir/lvl.dwo" ]; then
       _bad "measured-$_lv-emits-dwo" "compiling with the composed [$_cf] produced no .dwo"
     elif [ ! -s "$_probe_dir/plain.o" ]; then
@@ -272,18 +297,33 @@ if [ -n "$_probe_dir" ] && [ -f "$_probe_dir/ref.dwo" ]; then
     # The -g3 half has to survive the split, or the level quietly drops the
     # macro definitions it chose level 3 for. They move INTO the .dwo, which is
     # where a debugger reads them from.
-    if command -v readelf >/dev/null 2>&1 && [ -f "$_probe_dir/lvl.dwo" ]; then
-      if readelf --debug-dump=macro "$_probe_dir/lvl.dwo" 2>/dev/null | grep -q MF_PROBE_MACRO; then
-        _pass "measured-$_lv-keeps-macros-in-dwo"
-      else
-        _bad "measured-$_lv-keeps-macros-in-dwo" "no macro definitions in the .dwo — -g3 did not survive the split"
-      fi
+    #
+    # Nested inside the .dwo existing, so on a tree without the split it does
+    # not run rather than failing -- it is a claim about -g3, and the assertion
+    # above is the one that owns the split. Absent readelf says so on a plain
+    # line, for the same reason the outer block does: an assertion that quietly
+    # stops asserting looks identical to one that passed.
+    if [ ! -f "$_probe_dir/lvl.dwo" ]; then
+      :
+    elif ! command -v readelf >/dev/null 2>&1; then
+      printf 'note: no readelf here — the macro-survival assertion did not run for %s\n' "$_lv"
+    elif readelf --debug-dump=macro "$_probe_dir/lvl.dwo" 2>/dev/null | grep -q MF_PROBE_MACRO; then
+      _pass "measured-$_lv-keeps-macros-in-dwo"
+    else
+      _bad "measured-$_lv-keeps-macros-in-dwo" "no macro definitions in the .dwo — -g3 did not survive the split"
     fi
   done
 else
   printf 'note: no ELF toolchain emitting .dwo here — the measured split assertions did not run\n'
 fi
-[ -n "$_probe_dir" ] && rm -rf "$_probe_dir"
+# Removed here as well as by the EXIT handler, so a long run does not sit on it,
+# and spelled as an `if` rather than a trailing `[ ... ] &&`: tests/lib-scratch.sh
+# records what that idiom costs when the test finds nothing and becomes the
+# failing last command of its line.
+if [ -n "$_probe_dir" ]; then
+  rm -rf "$_probe_dir"
+  _probe_dir=""
+fi
 
 # The cmake counterpart of the meson _mf_bt_count harness below: drive the real
 # helper and read the build type it emits. wired-cmake is a grep; this asserts
@@ -445,17 +485,6 @@ _mf_headers_only=' nv-codec.sh '
 # extraction (`${VAR}` at end of line, a brace group) are ones no recipe happens
 # to contain today, which is exactly why the bug survived review of the recipes.
 _mf_fx=$(mktemp) || { printf 'FAIL [reader-fixture]\n' >&2; exit 1; }
-# Both fixtures in ONE handler, because POSIX trap has no append form and the
-# patch-scan registration further down USED TO REPLACE this one. That leaked
-# nothing -- $_mf_fx is removed explicitly a few lines below, well before the
-# second trap existed, and a run dying in between was still covered by this one
-# (measured on the merge base: a completed run leaves TMPDIR empty). What it
-# left was a dead handler and an ordering dependency: whoever deletes that
-# explicit rm, or moves either fixture, silently loses the guarantee. One
-# handler removes the dependency rather than the leak. $_mf_pp does not exist
-# yet, and rm tolerates the ${x:+} guard expanding to nothing.
-trap 'rm -f "$_mf_fx"; rm -rf ${_mf_pp:+"$_mf_pp"}' EXIT
-_cleanup_on_signal
 cat > "$_mf_fx" <<'FIXTURE'
 pkg_build() {
   run make CFLAGS="$CFLAGS" libfoo.a

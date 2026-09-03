@@ -46,9 +46,10 @@ MF_DEFAULT_OPT="-O2"
 #   balanced  -Og -g3   assertions ON     ~2x slower
 #   full      -O0 -g3   assertions ON     4-5x slower  (bare --debug)
 #
-# Every level also splits its DWARF into .dwo files beside the objects, so the
-# levels trade runtime speed and nothing else; see the -gsplit-dwarf paragraph
-# below for what that costs (the build tree has to survive) and what it buys.
+# Every level also splits its DWARF into .dwo files beside the objects. That is
+# not one of the things the levels trade -- only the -O column and the assertion
+# posture above vary; see the -gsplit-dwarf paragraph below for what the split
+# costs (the build tree has to survive) and what it buys.
 #
 # "Measured" means lame, dav1d and svtav1 built at each level and timed on one
 # fixture each -- three packages, not the whole tree, and one machine. Treat the
@@ -80,10 +81,13 @@ MF_DEFAULT_OPT="-O2"
 # The -O half is the mirror image and also holds: Debug supplies no -O at all,
 # which is what lets this table's -Og/-O0 arrive through CFLAGS and survive.
 #
-# -gsplit-dwarf at every level, which is what makes the symbol axis a real axis
-# rather than a column that never varies (#92). The levels used to differ only
-# in -O: all three emitted the same -g3, so an operator who wanted cheaper links
-# had no lever short of dropping --debug, which is the one thing they asked for.
+# -gsplit-dwarf at every level (#92). This column still does not vary between the
+# levels, and saying that it now does would be a claim the table refutes three
+# lines down -- what changed is not that the levels differ here, but that what
+# they all carry costs less. Every level emitted the same -g3 and so shipped its
+# whole DWARF inside every archive; the split takes that cost off all three at
+# once, which is why it belongs beside -fno-omit-frame-pointer rather than in
+# the -O column.
 #
 # What it changes is WHERE the DWARF lands, not how much of it exists. gcc
 # writes the debug info to a sibling .dwo and leaves a skeleton in the object;
@@ -110,10 +114,11 @@ MF_DEFAULT_OPT="-O2"
 #
 # THE COST, which is the reason this is documented rather than just set: the
 # .dwo files are not installed. They stay in the build tree under packages/, and
-# a debugger that cannot find them falls back to the skeleton -- the binary still
-# links and still runs, and only the debugger notices. `clean` removes those
-# trees, so lib/cleanup.sh says so before it does. Anything that discards
-# packages/ discards stepping for the prefix already installed.
+# a debugger that cannot find them does not degrade gracefully: gdb reports
+# "Could not find DWO CU" and places no breakpoint in that unit (driven, not
+# assumed). The binary still links and still runs, so only the debugger notices.
+# `clean` removes those trees, so lib/cleanup.sh says so before it does. Anything
+# that discards packages/ discards stepping for the prefix already installed.
 #
 # On macOS it is a no-op rather than a hazard: splitting is an ELF feature, and
 # clang for a Mach-O target accepts the flag, writes no .dwo, and emits a

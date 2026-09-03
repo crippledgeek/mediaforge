@@ -67,10 +67,16 @@ _cleanup_on_signal
 # with content, so "the directory still exists" and "the bytes are still there"
 # are distinguishable — an implementation that removed the files and left the
 # empty directory would otherwise read as a pass.
-# Whether the seeded source tree carries split-DWARF debug info. A variable
-# rather than a fourth seed value: it varies independently of which directories
-# exist, and folding it into $_seed would double every arm of both case
-# statements to express one boolean.
+# WHERE the seeded tree carries split-DWARF debug info: in the unpacked source
+# the prune removes (`yes`), in the git clone the prune KEEPS (`clone`), or
+# nowhere (`no`). A variable rather than more seed values: it varies
+# independently of which directories exist, and folding it into $_seed would
+# multiply every arm of both case statements to express one axis.
+#
+# `clone` is the arm that matters and the one a first version did not have. The
+# warning and the prune each decide what an unpacked source is, and with the
+# .dwo only ever seeded in the pruned tree the two could disagree completely
+# while every assertion here stayed green.
 _seed_dwo=yes
 _clean_run() { # seed(both|cache-only|workspace-only)  [args...]
   _seed=$1; shift
@@ -101,6 +107,11 @@ _clean_run() { # seed(both|cache-only|workspace-only)  [args...]
       # to carry one or it is a test of the wrong predicate.
       mkdir -p "$_MF_SCRATCH/packages/libbar/.git"
       printf 'clone\n' > "$_MF_SCRATCH/packages/libbar/README"
+      # The five cloned recipes build INSIDE the clone, so their objects -- and
+      # under --debug their .dwo -- sit in a directory a default `clean` keeps.
+      if [ "$_seed_dwo" = clone ]; then
+        printf 'debug info\n' > "$_MF_SCRATCH/packages/libbar/libbar.dwo"
+      fi
       # A symlinked entry pointing OUTSIDE packages/. `rm -rf` on a symlink
       # unlinks it without recursing, so the target was never in danger -- what
       # the skip protects is the link itself, and only a fixture that keeps the
@@ -126,9 +137,35 @@ _clean_run() { # seed(both|cache-only|workspace-only)  [args...]
   if [ -f "$_MF_SCRATCH/workspace/lib/libfoo.a" ]; then _tree=present; else _tree=absent; fi
   if [ -f "$_MF_SCRATCH/packages/libfoo-1.0/configure" ]; then _src=present; else _src=absent; fi
   if [ -f "$_MF_SCRATCH/packages/libbar/README" ]; then _clone=present; else _clone=absent; fi
+  if [ -f "$_MF_SCRATCH/packages/libbar/libbar.dwo" ]; then _clone_dwo=present; else _clone_dwo=absent; fi
   if [ -L "$_MF_SCRATCH/packages/linked" ]; then _link=present; else _link=absent; fi
   if [ -f "$_MF_SCRATCH/outside/keepme" ]; then _target=present; else _target=absent; fi
   _said=$(printf '%s' "$_out" | tr '\n' ' ')
+}
+
+# "This was said BEFORE that happened", read from line numbers in the
+# unflattened output. Two claims in this file need it -- the GNU convention that
+# --all announces the cache before discarding it, and the same convention
+# applied to the split debug info -- and a flattened `case` match cannot express
+# either: a warning printed AFTER the removal satisfies `*packages*` identically.
+#
+# One helper rather than two copies of the four-branch ladder. The second copy
+# was written first and the two differed only in their patterns, which is the
+# shape that drifts: the empty-second-pattern branch exists precisely because a
+# missing removal line makes the comparison unreadable rather than false, and
+# that reasoning has to hold for both or neither.
+_ordered() { # assertion-name  earlier-pattern  later-pattern
+  _o_first=$(printf '%s\n' "$_out" | _match_line "$2")
+  _o_second=$(printf '%s\n' "$_out" | _match_line "$3")
+  if [ -z "$_o_first" ]; then
+    _bad "$1" "nothing matching [$2] was printed at all: $_said"
+  elif [ -z "$_o_second" ]; then
+    _bad "$1" "nothing matching [$3] was printed, so the order could not be read: $_said"
+  elif [ "$_o_first" -lt "$_o_second" ]; then
+    _pass "$1"
+  else
+    _bad "$1" "[$2] came at line $_o_first, after [$3] at line $_o_second: $_said"
+  fi
 }
 
 # --- the probe, which is also the first assertion ---------------------------
@@ -152,6 +189,7 @@ if [ "$_have" = false ]; then
             clone-predicate-has-one-definition \
             default-names-the-split-dwarf-it-discards \
             quiet-when-there-is-no-split-dwarf \
+            quiet-when-only-a-kept-clone-holds-dwo \
             all-names-the-split-dwarf-it-discards \
             help-names-the-build-tree help-names-the-cache; do
     _bad "$_a" "the workspace-only default is absent — claim would be vacuous"
@@ -215,21 +253,7 @@ esac
 # and still run, and only a debugger notices, which is the one place nobody
 # looks until they need it. So the loss is named before it happens, on the same
 # GNU convention `--all` already answers to.
-#
-# The ORDER is the claim, read from line numbers for the reason the --all
-# assertion below gives: a warning printed after the rm satisfies a flattened
-# match identically.
-_warn_at=$(printf '%s\n' "$_out" | _match_line '[.]dwo')
-_rm_at=$(printf '%s\n' "$_out" | _match_line 'unpacked source tree')
-if [ -z "$_warn_at" ]; then
-  _bad default-names-the-split-dwarf-it-discards "a bare 'clean' removed a tree holding .dwo files without naming what that costs: $_said"
-elif [ -z "$_rm_at" ]; then
-  _bad default-names-the-split-dwarf-it-discards "the prune never reported removing a source tree, so the order could not be read: $_said"
-elif [ "$_warn_at" -lt "$_rm_at" ]; then
-  _pass default-names-the-split-dwarf-it-discards
-else
-  _bad default-names-the-split-dwarf-it-discards "the warning came at line $_warn_at, after the removal at line $_rm_at: $_said"
-fi
+_ordered default-names-the-split-dwarf-it-discards '[.]dwo' 'unpacked source tree'
 
 # ...and NOT otherwise. A warning every clean prints is a warning nobody reads,
 # and this one is only true of a tree a --debug build touched. Mutating the
@@ -237,11 +261,30 @@ fi
 # green, which is the whole reason this one exists.
 _seed_dwo=no
 _clean_run both
-_seed_dwo=yes
 case "$_said" in
   *.dwo*) _bad quiet-when-there-is-no-split-dwarf "a tree with no .dwo files still warned about losing debug info: $_said" ;;
   *)      _pass quiet-when-there-is-no-split-dwarf ;;
 esac
+
+# ...and not when the only .dwo is in a tree this command KEEPS. The warning and
+# the prune each have to decide what counts as an unpacked source, and the first
+# version of this feature answered that question twice: the prune skipped clones
+# and the warning scanned all of $DISTDIR, so a debug build of any of the five
+# cloned recipes (x264, av1, librist, librtmp, libplacebo) made every default
+# `clean` announce a loss that did not happen. Both halves are asserted -- the
+# silence AND the survival -- because a warning that stopped firing would also
+# be satisfied by a prune that started removing clones.
+_seed_dwo=clone
+_clean_run both
+_seed_dwo=yes
+if [ "$_clone_dwo" = present ]; then
+  case "$_said" in
+    *.dwo*) _bad quiet-when-only-a-kept-clone-holds-dwo "warned about .dwo files that the same run kept: $_said" ;;
+    *)      _pass quiet-when-only-a-kept-clone-holds-dwo ;;
+  esac
+else
+  _bad quiet-when-only-a-kept-clone-holds-dwo "the clone's .dwo did not survive a default clean, so the silence would be correct for the wrong reason: $_said"
+fi
 
 # --- the destructive form, still reachable ----------------------------------
 _clean_run both --all
@@ -254,24 +297,13 @@ fi
 # GNU's convention for the target that deletes what special tools are needed to
 # rebuild: say so BEFORE doing it. The order is the whole claim, and matching a
 # flattened blob cannot see it -- a warning printed after the rm would satisfy
-# `*packages*` identically. So this reads line NUMBERS out of the unflattened
-# output.
+# `*packages*` identically.
 #
 # What it pins is warning-before-"Removed the build tree", which is the first
 # thing full_cleanup does after warning; the `rm -rf "$DISTDIR"` is later still.
 # A proxy, and a tight one -- there is no point between them for a removal to
 # hide.
-_warn_at=$(printf '%s\n' "$_out" | _match_line 'Also removing')
-_rm_at=$(printf '%s\n' "$_out" | _match_line 'Removed the build tree')
-if [ -z "$_warn_at" ]; then
-  _bad all-says-what-it-discards-before-discarding-it "--all discarded the cache without naming it: $_said"
-elif [ -z "$_rm_at" ]; then
-  _bad all-says-what-it-discards-before-discarding-it "--all never reported removing the build tree, so the order could not be read: $_said"
-elif [ "$_warn_at" -lt "$_rm_at" ]; then
-  _pass all-says-what-it-discards-before-discarding-it
-else
-  _bad all-says-what-it-discards-before-discarding-it "the warning came at line $_warn_at, after the removal at line $_rm_at: $_said"
-fi
+_ordered all-says-what-it-discards-before-discarding-it 'Also removing' 'Removed the build tree'
 
 # --all takes the same .dwo files with it and by a different route: it removes
 # $DISTDIR whole rather than pruning entry by entry, so an implementation that
