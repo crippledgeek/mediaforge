@@ -94,20 +94,36 @@ Install/uninstall options:
 ### Debug builds
 
 `--debug[=LEVEL]` builds every dependency and FFmpeg itself with debug
-information. Three levels, with costs measured on this tree (lame, dav1d and
-SVT-AV1 built at each):
+information. Three levels, with costs measured on this tree rather than
+estimated — each column names its own measurement below:
 
 | Level | Optimization | Assertions | Runtime cost | Archive size |
 |---|---|---|---|---|
-| `symbols` | `-O2 -g3` | off | none measurable | ~2x |
-| `balanced` | `-Og -g3` | **on** | ~2x slower | ~2x |
-| `full` (bare `--debug`) | `-O0 -g3` | **on** | 4-5x slower | ~3x |
+| `symbols` | `-O2 -g3` | off | none measurable | ~2.2x |
+| `balanced` | `-Og -g3` | **on** | ~2x slower | ~2.0x |
+| `full` (bare `--debug`) | `-O0 -g3` | **on** | 4-5x slower | ~1.7x |
 
-Those figures come from building three packages — lame, dav1d and SVT-AV1 — at
-each level on one machine and timing one fixture each. Treat them as the right
-order of magnitude, not a promise. "Archive size" is the multiple applied to the
-static `.a` files; the final `ffmpeg` binary grows more, since it links all of
-them.
+The runtime costs come from building three packages — lame, dav1d and SVT-AV1 —
+at each level on one machine and timing one fixture each. Treat them as the
+right order of magnitude, not a promise.
+
+"Archive size" is the multiple applied to the static `.a` files, against a
+normal build of the same source. Re-measured 2026-09-03 on lame, built at each
+level with the exact flags the level composes: 0.49 MiB normally, against 1.06,
+0.97 and 0.84 MiB. The independent check agrees — `libavcodec.a` is 42.4 MiB in
+a `full` prefix against the 27 MB stripped figure recorded in GH-92, or 1.57x.
+
+Two things about that column are worth reading twice, because both are the
+opposite of what people expect. **`full` is the SMALLEST of the three**, not the
+largest: `-O0` emits smaller code than `-O2`, and past the split the `-O` choice
+moves the archive more than the debug info does. And the archives are this small
+only because the debug info is not in them — the same `full` build with
+`-gsplit-dwarf` removed is **11x**, not 1.7x. What the split moves out of the
+archives has to live somewhere, and it does: 30 `.dwo` files totalling 1.6 MiB
+for lame alone.
+
+The final `ffmpeg` binary still grows more than any single archive, since it
+links all of them.
 
 `symbols` is what distributions ship as debuginfo: identical performance, but a
 crash gives a real backtrace with file and line. It is also the only level that
