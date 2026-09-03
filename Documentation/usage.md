@@ -30,7 +30,9 @@ Build options:
                             (default: off; archives may break on GCC major bumps)
       --disable-lto         Force LTO off (default)
       --debug[=LEVEL]       Build with debug info (symbols|balanced|full)
-                            Bare --debug means full. Forces LTO off.
+                            Bare --debug means full. Forces LTO off. Splits the
+                            debug info into .dwo files under packages/, which
+                            are not installed and must survive to be usable.
   -p, --profile=X.Y         Use version profile
   -j, --jobs=N              Parallel job count (default: auto)
   -u, --rebuild-outdated    Rebuild stale dependencies
@@ -125,6 +127,24 @@ that last one the final binary is stripped whatever the ~110 libraries did.
 `--debug` forces LTO off and says so: LTO discards the per-function debug info
 that makes stepping work.
 
+**The debug info does not live in the libraries.** Every level compiles with
+`-gsplit-dwarf`, so the DWARF lands in `.dwo` files beside the objects under
+`packages/` and each object keeps a small skeleton pointing at its own. That is
+what keeps the installed archives to something a linker can read cheaply --- the
+prefix is `--disable-shared`, so every consumer links all of it --- and it is
+also the one thing a debug prefix asks of you: **the unpacked source trees have
+to survive.** `.dwo` files are not part of `make install` and never reach the
+prefix. Delete `packages/` and every binary already linked against the prefix
+keeps linking and keeps running, while `gdb` reports `Could not find DWO CU` and
+declines to place a breakpoint in those units. `clean` says so before it removes
+them --- and only about trees it is actually about to remove, so a `.dwo` inside
+a git clone it keeps does not raise it.
+
+On macOS this is a no-op rather than a hazard: splitting is an ELF feature, and
+clang for a Mach-O target accepts the flag and emits a byte-identical object.
+Two toolchains keep their debug info inline either way, because they read no
+`CFLAGS` at all: rav1e (cargo) and nv-codec (nvcc).
+
 **A workspace remembers the level it was built at.** Build stamps record only a
 recipe's name and version, so nothing about a build's *flags* is captured — a
 release build followed by `--debug` would rebuild nothing but FFmpeg and produce
@@ -202,6 +222,7 @@ needs an upstream to answer:
 |---|---|---|
 | `workspace/` | rebuilding; CPU time only | `clean` |
 | `packages/<dir>/` (unpacked sources) | re-extracting an archive we still hold | `clean` |
+| `packages/<dir>/**/*.dwo` (split debug info of a `--debug` build) | rebuilding with `--debug` | `clean` |
 | `packages/<file>` (downloaded archives) | **downloading again** | `clean --all` |
 | `packages/<dir>/.git` (git clones) | **cloning again** | `clean --all` |
 

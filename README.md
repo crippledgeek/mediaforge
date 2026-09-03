@@ -54,6 +54,15 @@ Three levels, cheapest first:
 Bare --debug means full. Every level turns LTO off, because LTO discards the
 per-function debug info the level exists to produce.
 
+Every level also splits the debug info out of the objects: it lands in .dwo
+files beside them under packages/, and each object keeps only a skeleton. That
+is what keeps a debug prefix's static archives small enough to link comfortably,
+and it is the one thing it asks of you --- .dwo files are never installed, so
+the unpacked source trees under packages/ have to survive. Remove them and every
+binary already linked against the prefix still runs, while a debugger can no
+longer break inside those units or show their locals. clean warns before it
+takes them.
+
 A workspace records the level it was built at and refuses to mix. Build stamps
 key on name and version alone, so a second build at a different level would skip
 every recipe it had already built and link a debug FFmpeg against optimized,
