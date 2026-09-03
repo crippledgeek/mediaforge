@@ -12,17 +12,15 @@ Quick Start
 * Add GPL codecs:        ./mediaforge.sh build --enable-gpl
 * Add non-free codecs:   ./mediaforge.sh build --enable-nonfree
 * Static binary (Linux): ./mediaforge.sh build --enable-nonfree --enable-static
+* Build with symbols:    ./mediaforge.sh build --debug=symbols
 * Every option:          ./mediaforge.sh help
 
-`build` INSTALLS when it finishes. It ends by running the install step, which
-prompts with the interactive prefix menu. Pass -I (--no-install) to build only,
-and install as a separate step afterwards:
+`build` INSTALLS when it finishes, prompting with the interactive prefix menu.
+Pass -I (--no-install) to build only, then install separately -- note --prefix
+applies to that standalone install, never to build's trailing one:
 
     ./mediaforge.sh build --enable-nonfree --enable-static --no-install
     ./mediaforge.sh install --prefix=$HOME/.local/mediaforge
-
-Note that --prefix applies to the standalone install command, not to build's
-trailing auto-install, which always uses the menu.
 
 The build needs a POSIX shell, make, g++ (clang++ on macOS) and curl. Optional
 tools enable individual recipes rather than gating the build.
@@ -38,38 +36,32 @@ Commands
 * check-updates    compare pinned versions against upstream releases
 * makesum          record or refresh the .hash sidecar for a recipe
 * check-shadowers  report .pc files that would shadow the system's
+* reconcile        check each build stamp against the artifacts it vouches for
 * list-profiles    list the version profiles in profiles/
 * help             print every option
 
 Debug builds
 ------------
 
---debug compiles the whole tree with symbols, including the ~110 dependencies.
-Three levels, cheapest first:
+--debug compiles the whole tree with symbols, at one of three levels: symbols
+(-O2, no measurable slowdown), balanced (-Og), or full (-O0, the bare --debug).
 
-    ./mediaforge.sh build --debug=symbols    # -O2 -g3, no measurable slowdown
-    ./mediaforge.sh build --debug=balanced   # -Og -g3, assertions on, 2x slower
-    ./mediaforge.sh build --debug            # -O0 -g3, assertions on, 4x slower
+It asks one thing of you. The debug info is split into .dwo files beside the
+objects under packages/, and those are never installed, so those trees have to
+survive or a debugger can no longer step into the prefix -- while every binary
+still runs, so nothing looks wrong. clean warns before it takes them.
 
-Bare --debug means full. Every level turns LTO off, because LTO discards the
-per-function debug info the level exists to produce.
-
-Every level also splits the debug info out of the objects: it lands in .dwo
-files beside them under packages/, and each object keeps only a skeleton. That
-is what keeps a debug prefix's static archives small enough to link comfortably,
-and it is the one thing it asks of you --- .dwo files are never installed, so
-the unpacked source trees under packages/ have to survive. Remove them and every
-binary already linked against the prefix still runs, while a debugger can no
-longer break inside those units or show their locals. clean warns before it
-takes them.
-
-A workspace records the level it was built at and refuses to mix. Build stamps
-key on name and version alone, so a second build at a different level would skip
-every recipe it had already built and link a debug FFmpeg against optimized,
-stripped archives. Run clean, or delete workspace/.stamps, to change level.
+Levels, measured sizes, and the exact failure: "Debug builds and split DWARF"
+in the wiki.
 
 Documentation
 -------------
+
+Guides, worked examples and the reasoning behind a default are in the wiki:
+https://github.com/crippledgeek/mediaforge/wiki
+
+The reference is in this repository, so it matches the commit you have checked
+out and needs no network:
 
 * Build requirements: Documentation/requirements.md
 * Usage and options: Documentation/usage.md
