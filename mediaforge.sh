@@ -491,13 +491,13 @@ cmd_build() {
   [ -f "$_mf_lvlfile" ] && _mf_prev=$(cat "$_mf_lvlfile" 2>/dev/null)
   if [ "$_mf_prev" != "$_mf_state" ] && [ -d "$PREFIX/.stamps" ] &&
      [ -n "$(ls -A "$PREFIX/.stamps" 2>/dev/null)" ]; then
-    warn "This workspace was built at debug level '${_mf_prev:-none}'; you asked for '${_mf_state:-none}'."
+    warn "This workspace was built as debug state '${_mf_prev:-none}'; you asked for '${_mf_state:-none}'."
     warn "Build stamps record only name and version, so the already-built recipes"
-    warn "would NOT be rebuilt and the result would mix the two levels silently."
+    warn "would NOT be rebuilt and the result would mix the two silently."
     warn "Rebuild them with either:"
     warn "    ./mediaforge.sh clean"
     warn "    rm -rf $PREFIX/.stamps"
-    die "refusing to produce a mixed-level workspace"
+    die "refusing to produce a mixed-state workspace"
   fi
   # Not written on a dry run. A dry run must leave the workspace exactly as it
   # found it -- the same reason $PREFIX/.mediaforge-choices is skipped there --

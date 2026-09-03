@@ -76,6 +76,18 @@ _d_not() {
   _glob_not "$1" "$_out" "$4" "$2($3)"
 }
 
+# name  fn  arg  -- the column contributes NOTHING for this input.
+#
+# Written out six times before this existed, once per column, each an
+# `_have && [ -z ]` with the same else arm -- and four of those copies had
+# already lost the ", got [...]" half, so a regression reported "expected empty"
+# without saying what it got. One implementation, and every site says it.
+_d_empty() {
+  if ! _have "$2"; then _bad "$1" "$2 does not exist"; return; fi
+  _out=$("$2" "$3")
+  if [ -z "$_out" ]; then _pass "$1"; else _bad "$1" "expected empty, got [$_out]"; fi
+}
+
 # --- the optimization axis --------------------------------------------------
 # The measured reason the levels exist at all.
 _d opt-symbols-keeps-o2      mf_debug_opt symbols  '-O2'
@@ -108,17 +120,22 @@ _d_not sym-full-no-split-dwarf      mf_debug_cflags full     '*-gsplit-dwarf*'
 # The column of its own that field 2 no longer carries. A constant plus a
 # boolean, like MF_DEFAULT_OPT: split is the default, and --no-split-dwarf is
 # the escape hatch for a prefix that has to travel away from its build tree.
+#
+# Three rows for two placements, because the tri-state has three inputs:
+# mediaforge.sh distinguishes "not passed" from "passed" so it can warn about a
+# placement flag with no level, and every build that types neither flag arrives
+# here as "". That row is the one an ordinary --debug build takes, and the one a
+# `= true` test would silently stop splitting.
 if _have mf_split_dwarf_cflags; then
   _glob split-on-emits-the-flag "$(mf_split_dwarf_cflags true)" '*-gsplit-dwarf*' \
         'mf_split_dwarf_cflags(true)'
-  if [ -z "$(mf_split_dwarf_cflags false)" ]; then
-    _pass split-off-emits-nothing
-  else
-    _bad split-off-emits-nothing "expected empty, got [$(mf_split_dwarf_cflags false)]"
-  fi
+  _glob split-unset-emits-the-flag "$(mf_split_dwarf_cflags '')" '*-gsplit-dwarf*' \
+        'mf_split_dwarf_cflags("")'
+  _d_empty split-off-emits-nothing mf_split_dwarf_cflags false
 else
-  _bad split-on-emits-the-flag "mf_split_dwarf_cflags does not exist"
-  _bad split-off-emits-nothing "mf_split_dwarf_cflags does not exist"
+  for _mf_sd_row in split-on-emits-the-flag split-unset-emits-the-flag split-off-emits-nothing; do
+    _bad "$_mf_sd_row" "mf_split_dwarf_cflags does not exist"
+  done
 fi
 
 # The workspace state string, which is what the mixing guard compares. A level
@@ -144,11 +161,7 @@ _st state-symbols-inline-suffixed  symbols false 'symbols+inline'
 _st state-none-is-empty            ''   ''      ''
 _st state-none-inline-is-empty     ''   false   ''
 # ...and nothing at all when no level is active.
-if _have mf_debug_cflags && [ -z "$(mf_debug_cflags '')" ]; then
-  _pass sym-none-when-no-debug
-else
-  _bad sym-none-when-no-debug "expected empty, got [$( _have mf_debug_cflags && mf_debug_cflags '' )]"
-fi
+_d_empty sym-none-when-no-debug mf_debug_cflags ''
 
 # --- cmake ------------------------------------------------------------------
 # Debug is the only stock cmake type that does NOT define NDEBUG, which is how
@@ -160,11 +173,7 @@ _d cmake-full-debug             mf_debug_cmake_type full     'Debug'
 # RelWithDebInfo keeps NDEBUG, so `symbols` must NOT be the assertions-on type.
 _d_not cmake-symbols-not-debug  mf_debug_cmake_type symbols  'Debug'
 # Empty when no level: the recipe's own declared type stands.
-if _have mf_debug_cmake_type && [ -z "$(mf_debug_cmake_type '')" ]; then
-  _pass cmake-none-when-no-debug
-else
-  _bad cmake-none-when-no-debug "expected empty"
-fi
+_d_empty cmake-none-when-no-debug mf_debug_cmake_type ''
 
 # --- meson ------------------------------------------------------------------
 # b_ndebug named EXPLICITLY at every level. meson documents that -Ddebug=false
@@ -258,13 +267,22 @@ fi
 # The counterfactual below used to be produced by sed'ing -gsplit-dwarf out of
 # the composed line, which measured a string this tree no longer builds; now it
 # is the real inline build.
+#
+# UNSET is the default here because unset is the default THERE: cmd_build passes
+# $MF_SPLIT_DWARF, which is "" for every build that types no placement flag, and
+# turning "" into the flag is mf_split_dwarf_cflags' whole job. Defaulting to a
+# literal `true` instead measured a spelling only these tests use, and left the
+# tri-state's load-bearing claim -- that "" and true compose identically --
+# checked by nothing: mutating the helper to emit the flag only for an explicit
+# `true` kept all 823 assertions green while every default --debug build
+# silently stopped splitting.
 _composed() { # level  [split] -> the CFLAGS a build at that level would export
   # Guarded on mf_split_dwarf_cflags, not mf_export_flags or mf_debug_opt: both
   # of those EXIST on the merge base, so guarding on either let the base run
   # fall through to an undefined function and emit a command-not-found. The
   # guard has to name something only this branch introduces.
   command -v mf_split_dwarf_cflags >/dev/null 2>&1 || { printf ''; return; }
-  MF_OWN_CFLAGS="-I/p/include -fPIC $(mf_debug_cflags "$1") $(mf_split_dwarf_cflags "${2-true}")"
+  MF_OWN_CFLAGS="-I/p/include -fPIC $(mf_debug_cflags "$1") $(mf_split_dwarf_cflags "${2-}")"
   MF_OWN_CXXFLAGS="$MF_OWN_CFLAGS"
   MF_OWN_LDFLAGS="-L/p/lib"
   MF_USER_CFLAGS=""
@@ -497,11 +515,7 @@ for _lv in symbols balanced full; do
   _d "cargo-lto-off-$_lv" mf_debug_cargo_env "$_lv" '*CARGO_PROFILE_RELEASE_LTO=false*'
 done
 # ...and nothing at all without a level, so an ordinary build is untouched.
-if _have mf_debug_cargo_env && [ -z "$(mf_debug_cargo_env '')" ]; then
-  _pass cargo-none-when-no-debug
-else
-  _bad cargo-none-when-no-debug "expected empty"
-fi
+_d_empty cargo-none-when-no-debug mf_debug_cargo_env ''
 
 # The recipe must APPLY the column rather than rolling its own mapping.
 _wired recipe-uses-cargo-column recipes/video/rav1e.sh 'mf_debug_cargo_env'
@@ -721,11 +735,7 @@ _d nvcc-full-device-debug mf_debug_nvcc full     '*-G*'
 for _lv in symbols balanced full; do
   _d_not "nvcc-no-g3-$_lv" mf_debug_nvcc "$_lv" '*-g3*'
 done
-if _have mf_debug_nvcc && [ -z "$(mf_debug_nvcc '')" ]; then
-  _pass nvcc-none-when-no-debug
-else
-  _bad nvcc-none-when-no-debug "expected empty"
-fi
+_d_empty nvcc-none-when-no-debug mf_debug_nvcc ''
 _wired recipe-uses-nvcc-column recipes/hwaccel/nv-codec.sh 'mf_debug_nvcc'
 
 # meson takes CFLAGS into c_args at SETUP, and `meson configure -Dc_args=...`
@@ -805,11 +815,7 @@ fi
 for _lv in symbols balanced full; do
   _d "meson-lto-off-$_lv" mf_debug_meson_args "$_lv" '*-Db_lto=false*'
 done
-if _have mf_debug_meson_args && [ -z "$(mf_debug_meson_args '')" ]; then
-  _pass meson-none-when-no-debug
-else
-  _bad meson-none-when-no-debug "expected empty"
-fi
+_d_empty meson-none-when-no-debug mf_debug_meson_args ''
 
 # The assertions column exists because libvpx needed to ASK. Its --enable-debug
 # keeps symbols and drops -DNDEBUG in one flag, so a recipe reaching for it at
@@ -820,11 +826,7 @@ fi
 _d assertions-symbols-off  mf_debug_assertions symbols  'off'
 _d assertions-balanced-on  mf_debug_assertions balanced 'on'
 _d assertions-full-on      mf_debug_assertions full     'on'
-if _have mf_debug_assertions && [ -z "$(mf_debug_assertions '')" ]; then
-  _pass assertions-none-when-no-debug
-else
-  _bad assertions-none-when-no-debug "expected empty"
-fi
+_d_empty assertions-none-when-no-debug mf_debug_assertions ''
 # The column must AGREE with the two vocabularies that already encode it, or the
 # tree says two different things about the same level.
 _d assertions-agree-symbols-meson mf_debug_meson_args symbols  '*-Db_ndebug=true*'
@@ -1022,7 +1024,7 @@ _guard() {
   # that as consent is how the allow half of this pairing passes on a tree that
   # rejects the flag outright.
   case "$_g_out" in
-    *"refusing to produce a mixed-level workspace"*) _g_got=refuse ;;
+    *"refusing to produce a mixed-state workspace"*) _g_got=refuse ;;
     *"Would configure FFmpeg with:"*)               _g_got=allow ;;
     *) _bad "$_g_name" "the dry run neither refused nor reached FFmpeg: $_g_out"; return ;;
   esac

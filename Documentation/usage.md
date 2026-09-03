@@ -148,29 +148,30 @@ that last one the final binary is stripped whatever the ~110 libraries did.
 that makes stepping work.
 
 **The debug info does not live in the libraries.** Every level compiles with
-`-gsplit-dwarf` by default, so the DWARF lands in `.dwo` files beside the objects under
-`packages/` and each object keeps a small skeleton pointing at its own. That is
-what keeps the installed archives to something a linker can read cheaply --- the
-prefix is `--disable-shared`, so every consumer links all of it --- and it is
-also the one thing a debug prefix asks of you: **the unpacked source trees have
-to survive.** `.dwo` files are not part of `make install` and never reach the
-prefix. Delete `packages/` and every binary already linked against the prefix
-keeps linking and keeps running, while `gdb` reports `Could not find DWO CU` and
-declines to place a breakpoint in those units. `clean` says so before it removes
-them --- and only about trees it is actually about to remove, so a `.dwo` inside
-a git clone it keeps does not raise it.
+`-gsplit-dwarf` by default, so the DWARF lands in `.dwo` files beside the
+objects under `packages/` and each object keeps a small skeleton pointing at its
+own. That is what keeps the installed archives to something a linker can read
+cheaply --- the prefix is `--disable-shared`, so every consumer links all of it
+--- and it is also the one thing a debug prefix asks of you: **the unpacked
+source trees have to survive.** `.dwo` files are not part of `make install` and
+never reach the prefix. Delete `packages/` and every binary already linked
+against the prefix keeps linking and keeps running, while `gdb` reports `Could
+not find DWO CU` and declines to place a breakpoint in those units. `clean` says
+so before it removes them --- and only about trees it is actually about to
+remove, so a `.dwo` inside a git clone it keeps does not raise it.
 
 **`--no-split-dwarf` is the way out of that**, and the case it exists for is a
 prefix that has to travel: the skeleton left in each object records an absolute
 `DW_AT_comp_dir`, so a split prefix copied to another machine — or simply kept
 after a `clean` — debugs as skeletons. With `--no-split-dwarf` the DWARF stays
 inside the objects, the archives carry it into the prefix, and the prefix is
-self-contained. It is not free: the same `full` build of lame is 11x its normal
-archive size inline against 1.7x split, and everything downstream links all of
-it. Where the DWARF lands is a separate axis from the level, so it combines with
-all three — `--debug=symbols --no-split-dwarf` is a portable prefix at `-O2`.
-`--split-dwarf` spells the default out for a script that wants to be explicit,
-and without `--debug` either flag warns and changes nothing.
+self-contained. It is not free, and the size table above already prices it: the
+inline archives are the **11x** column, not the 1.7x one, and everything
+downstream links all of them. Where the DWARF lands is a separate axis from the
+level, so it combines with all three — `--debug=symbols --no-split-dwarf` is a
+portable prefix at `-O2`. `--split-dwarf` spells the default out for a script
+that wants to be explicit, and without `--debug` either flag warns and changes
+nothing.
 
 On macOS this is a no-op rather than a hazard: splitting is an ELF feature, and
 clang for a Mach-O target accepts the flag and emits a byte-identical object.
@@ -178,13 +179,13 @@ Two toolchains keep their debug info inline either way, because they read no
 `CFLAGS` at all: rav1e (cargo) and nv-codec (nvcc).
 
 **A workspace remembers the level it was built at, and where its DWARF went.**
-Build stamps record only a
-recipe's name and version, so nothing about a build's *flags* is captured — a
-release build followed by `--debug` would rebuild nothing but FFmpeg and produce
-a debug binary linked against stripped, optimized archives, which compiles,
-links and runs while every library's stack traces are wrong. mediaforge refuses
-that instead: change the level on a populated workspace and it stops, telling
-you to `./mediaforge.sh clean` (or remove `workspace/.stamps`) first.
+Build stamps record only a recipe's name and version, so nothing about a build's
+*flags* is captured — a release build followed by `--debug` would rebuild
+nothing but FFmpeg and produce a debug binary linked against stripped, optimized
+archives, which compiles, links and runs while every library's stack traces are
+wrong. mediaforge refuses that instead: change the level on a populated
+workspace and it stops, telling you to `./mediaforge.sh clean` (or remove
+`workspace/.stamps`) first.
 
 Changing the DWARF placement is refused the same way and for the same reason.
 `workspace/.debug-level` records both halves — `full` for a split build,
