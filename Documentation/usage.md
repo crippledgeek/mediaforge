@@ -165,13 +165,13 @@ prefix that has to travel: the skeleton left in each object records an absolute
 `DW_AT_comp_dir`, so a split prefix copied to another machine — or simply kept
 after a `clean` — debugs as skeletons. With `--no-split-dwarf` the DWARF stays
 inside the objects, the archives carry it into the prefix, and the prefix is
-self-contained. It is not free, and the size table above already prices it: the
-inline archives are the **11x** column, not the 1.7x one, and everything
-downstream links all of them. Where the DWARF lands is a separate axis from the
-level, so it combines with all three — `--debug=symbols --no-split-dwarf` is a
-portable prefix at `-O2`. `--split-dwarf` spells the default out for a script
-that wants to be explicit, and without `--debug` either flag warns and changes
-nothing.
+self-contained. It is not free, and the paragraph under the table above prices
+it: the same `full` build of lame is **11x** its normal archive size inline,
+against the 1.7x its split row shows — and everything downstream links all of
+it. Where the DWARF lands is a separate axis from the level, so it combines with
+all three — `--debug=symbols --no-split-dwarf` is a portable prefix at `-O2`.
+`--split-dwarf` spells the default out for a script that wants to be explicit,
+and without `--debug` either flag warns and changes nothing.
 
 On macOS this is a no-op rather than a hazard: splitting is an ELF feature, and
 clang for a Mach-O target accepts the flag and emits a byte-identical object.

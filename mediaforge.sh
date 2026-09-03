@@ -464,7 +464,8 @@ cmd_build() {
   # symbol flags. The optimization goes through MF_DEFAULT_OPT rather than being
   # appended separately, so it stays in the one place that decides optimization
   # and the operator's own -O still wins by coming last.
-  # A workspace remembers the level it was built at, and a mismatch is refused.
+  # A workspace remembers the state it was built in -- the level and the DWARF
+  # placement -- and a mismatch is refused.
   #
   # stamp_check keys only on "<name>-<version>", so nothing about a build's FLAGS
   # is captured. Without this guard, `build` followed by `build --debug` rebuilds
@@ -493,7 +494,7 @@ cmd_build() {
      [ -n "$(ls -A "$PREFIX/.stamps" 2>/dev/null)" ]; then
     warn "This workspace was built as debug state '${_mf_prev:-none}'; you asked for '${_mf_state:-none}'."
     warn "Build stamps record only name and version, so the already-built recipes"
-    warn "would NOT be rebuilt and the result would mix the two silently."
+    warn "would NOT be rebuilt and the result would mix the two states silently."
     warn "Rebuild them with either:"
     warn "    ./mediaforge.sh clean"
     warn "    rm -rf $PREFIX/.stamps"
