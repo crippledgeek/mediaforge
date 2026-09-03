@@ -1087,6 +1087,24 @@ else
 fi
 _scratch_cleanup
 
+# What the guard READS must be what a build WRITES, and a dry run cannot say so:
+# it is exempt from the write by design, so every assertion above exercises the
+# comparison against a file the test planted rather than one mediaforge made.
+# A build that recorded the bare level while the guard compared the state would
+# refuse the next identical inline build -- green here, and unusable twice in a
+# row on a real tree. Read off the source for want of a cheaper oracle: the two
+# lines must name one variable.
+# [$] for the dollar, as elsewhere in this file: it keeps the pattern in single
+# quotes, where nothing expands and the linter has nothing to warn about.
+_mf_lvl_written=$(grep -cE '^[[:space:]]*printf .%s. "[$]_mf_state" > "[$]_mf_lvlfile"' mediaforge.sh || true)
+_mf_lvl_read=$(grep -cE '^[[:space:]]*if \[ "[$]_mf_prev" != "[$]_mf_state" \]' mediaforge.sh || true)
+if [ "$_mf_lvl_written" = 1 ] && [ "$_mf_lvl_read" = 1 ]; then
+  _pass workspace-writes-what-the-guard-compares
+else
+  _bad workspace-writes-what-the-guard-compares \
+       "the .debug-level write and the guard do not both name \$_mf_state (write=$_mf_lvl_written read=$_mf_lvl_read)"
+fi
+
 # --- every flag the parser accepts is documented somewhere --------------------
 # --debug shipped documented; --ccache did not, and neither did --spirv before
 # it. Both were in `mediaforge.sh help` and in no document, which is the shape
