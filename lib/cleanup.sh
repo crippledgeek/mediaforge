@@ -181,10 +181,19 @@ _prune_one_entry() {
 #
 # `find`, not a glob, because .dwo sit wherever the build put its objects --
 # nested arbitrarily deep, under ~110 recipe trees. -name is POSIX; -quit is
-# not, so the walk is bounded by stopping at the first hit instead, and the
-# worst case is the one with no match, which walks all of it: 106 ms over the
-# 160,996 files of a real 24 GB packages/ here. Once per clean, on directories
-# the same command is about to delete.
+# not, so each walk is bounded by `head` closing the pipe instead, and the worst
+# case is the one with no match, which walks everything at stake.
+#
+# ONE find PER ENTRY, which costs about twice what one find over $DISTDIR would:
+# measured in a single run on a real 24 GB packages/ here, 220 top-level entries
+# and 160,996 files, 211 ms for the single walk against 402 ms for the per-entry
+# form -- the difference being 220 process pairs rather than any extra I/O. The
+# alternative is one find with many path operands, and it was rejected rather
+# than missed: accumulating that list means either a space-unsafe unquoted
+# string, or re-implementing the entry walk here to build positional parameters
+# -- and which entries the walk can SEE is a property of mf_each_dist_entry that
+# has to have one definition. Half a second, once per clean, on directories the
+# same command is about to delete, is the cheaper side of that trade.
 _dwo_at_stake=""
 _dwo_found=""
 _probe_one_entry() {
@@ -194,6 +203,14 @@ _probe_one_entry() {
 }
 
 # Every entry, for the caller that removes every entry.
+#
+# "Every entry" means every entry the walk can see, which is not quite every
+# entry $DISTDIR holds: POSIX `*` skips dot-entries, so a .dwo under one is
+# destroyed by --all's `rm -rf "$DISTDIR"` without being announced. Inherited
+# from mf_each_dist_entry, whose own note argues the gap is empty in practice
+# (nothing lib/download.sh writes there begins with a dot) -- recorded here
+# because routing this warning through the shared walk is what acquired it, and
+# because the sentence above reads as a stronger promise than the walk makes.
 mf_entry_at_stake() { [ -e "$1" ]; }
 
 warn_split_dwarf_loss() { # predicate naming which entries this removal takes

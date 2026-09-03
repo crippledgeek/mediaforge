@@ -82,8 +82,8 @@ MF_DEFAULT_OPT="-O2"
 # which is what lets this table's -Og/-O0 arrive through CFLAGS and survive.
 #
 # -gsplit-dwarf at every level (#92). This column still does not vary between the
-# levels, and saying that it now does would be a claim the table refutes three
-# lines down -- what changed is not that the levels differ here, but that what
+# levels, and saying that it now does would be a claim the three `set --` rows
+# below refute -- what changed is not that the levels differ here, but that what
 # they all carry costs less. Every level emitted the same -g3 and so shipped its
 # whole DWARF inside every archive; the split takes that cost off all three at
 # once, which is why it belongs beside -fno-omit-frame-pointer rather than in

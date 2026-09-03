@@ -68,15 +68,16 @@ _cleanup_on_signal
 # are distinguishable — an implementation that removed the files and left the
 # empty directory would otherwise read as a pass.
 # WHERE the seeded tree carries split-DWARF debug info: in the unpacked source
-# the prune removes (`yes`), in the git clone the prune KEEPS (`clone`), or
-# nowhere (`no`). A variable rather than more seed values: it varies
-# independently of which directories exist, and folding it into $_seed would
-# multiply every arm of both case statements to express one axis.
+# the prune removes (`yes`), in the git clone the prune KEEPS (`clone`), beyond
+# the symlinked entry (`symlink`), or nowhere (`no`). A variable rather than
+# more seed values: it varies independently of which directories exist, and
+# folding it into $_seed would multiply every arm of both case statements to
+# express one axis.
 #
-# `clone` is the arm that matters and the one a first version did not have. The
-# warning and the prune each decide what an unpacked source is, and with the
-# .dwo only ever seeded in the pruned tree the two could disagree completely
-# while every assertion here stayed green.
+# The arms that are not `yes` are the ones that matter, and a first version had
+# neither. The warning and the prune each decide what an unpacked source is, and
+# with the .dwo only ever seeded in the tree that gets pruned, the two could
+# disagree completely while every assertion here stayed green.
 _seed_dwo=yes
 _clean_run() { # seed(both|cache-only|workspace-only)  [args...]
   _seed=$1; shift
@@ -118,6 +119,9 @@ _clean_run() { # seed(both|cache-only|workspace-only)  [args...]
       # two distinguishable can tell the skip from its absence.
       mkdir -p "$_MF_SCRATCH/outside"
       printf 'not ours\n' > "$_MF_SCRATCH/outside/keepme"
+      if [ "$_seed_dwo" = symlink ]; then
+        printf 'debug info\n' > "$_MF_SCRATCH/outside/beyond.dwo"
+      fi
       ln -s "$_MF_SCRATCH/outside" "$_MF_SCRATCH/packages/linked"
       ;;
   esac
@@ -138,9 +142,21 @@ _clean_run() { # seed(both|cache-only|workspace-only)  [args...]
   if [ -f "$_MF_SCRATCH/packages/libfoo-1.0/configure" ]; then _src=present; else _src=absent; fi
   if [ -f "$_MF_SCRATCH/packages/libbar/README" ]; then _clone=present; else _clone=absent; fi
   if [ -f "$_MF_SCRATCH/packages/libbar/libbar.dwo" ]; then _clone_dwo=present; else _clone_dwo=absent; fi
+  if [ -f "$_MF_SCRATCH/outside/beyond.dwo" ]; then _target_dwo=present; else _target_dwo=absent; fi
   if [ -L "$_MF_SCRATCH/packages/linked" ]; then _link=present; else _link=absent; fi
   if [ -f "$_MF_SCRATCH/outside/keepme" ]; then _target=present; else _target=absent; fi
   _said=$(printf '%s' "$_out" | tr '\n' ' ')
+}
+
+# "This run said nothing about .dwo", which two cases need: a tree with none, and
+# a tree whose only .dwo is somewhere the command keeps. Written out twice, they
+# were the same `case` with two messages -- and the message is the part that has
+# to differ, so the mechanism is the part to share.
+_says_no_dwo() { # assertion-name  what-a-warning-would-mean
+  case "$_said" in
+    *.dwo*) _bad "$1" "$2: $_said" ;;
+    *)      _pass "$1" ;;
+  esac
 }
 
 # "This was said BEFORE that happened", read from line numbers in the
@@ -190,6 +206,7 @@ if [ "$_have" = false ]; then
             default-names-the-split-dwarf-it-discards \
             quiet-when-there-is-no-split-dwarf \
             quiet-when-only-a-kept-clone-holds-dwo \
+            all-does-not-name-a-dwo-it-cannot-reach \
             all-names-the-split-dwarf-it-discards \
             help-names-the-build-tree help-names-the-cache; do
     _bad "$_a" "the workspace-only default is absent — claim would be vacuous"
@@ -261,10 +278,8 @@ _ordered default-names-the-split-dwarf-it-discards '[.]dwo' 'unpacked source tre
 # green, which is the whole reason this one exists.
 _seed_dwo=no
 _clean_run both
-case "$_said" in
-  *.dwo*) _bad quiet-when-there-is-no-split-dwarf "a tree with no .dwo files still warned about losing debug info: $_said" ;;
-  *)      _pass quiet-when-there-is-no-split-dwarf ;;
-esac
+_says_no_dwo quiet-when-there-is-no-split-dwarf \
+  "a tree with no .dwo files still warned about losing debug info"
 
 # ...and not when the only .dwo is in a tree this command KEEPS. The warning and
 # the prune each have to decide what counts as an unpacked source, and the first
@@ -276,12 +291,9 @@ esac
 # be satisfied by a prune that started removing clones.
 _seed_dwo=clone
 _clean_run both
-_seed_dwo=yes
 if [ "$_clone_dwo" = present ]; then
-  case "$_said" in
-    *.dwo*) _bad quiet-when-only-a-kept-clone-holds-dwo "warned about .dwo files that the same run kept: $_said" ;;
-    *)      _pass quiet-when-only-a-kept-clone-holds-dwo ;;
-  esac
+  _says_no_dwo quiet-when-only-a-kept-clone-holds-dwo \
+    "warned about .dwo files that the same run kept"
 else
   _bad quiet-when-only-a-kept-clone-holds-dwo "the clone's .dwo did not survive a default clean, so the silence would be correct for the wrong reason: $_said"
 fi
@@ -314,6 +326,27 @@ case "$_said" in
   *.dwo*) _pass all-names-the-split-dwarf-it-discards ;;
   *) _bad all-names-the-split-dwarf-it-discards "'clean --all' discarded the .dwo files without naming them: $_said" ;;
 esac
+
+# ...but not about a .dwo behind the symlinked entry, which --all cannot reach:
+# `rm -rf` on a symlink unlinks the link and never touches the target.
+#
+# This case belongs to --all and nowhere else, and a first version put it on the
+# default path where it asserted nothing -- there the prune's predicate rejects
+# symlinks before the scan is reached, so the silence was the predicate's and a
+# mutation to the scan left it green. --all is the path whose predicate accepts
+# every entry, so what keeps the scan out of the target is find's own default:
+# without -H or -L it does not follow a symlinked starting point. Measured both
+# ways here (0 hits plain, 1 with -L), and asserted rather than commented,
+# because a review read this code and concluded find followed the link.
+_seed_dwo=symlink
+_clean_run both --all
+_seed_dwo=yes
+if [ "$_target_dwo" = present ]; then
+  _says_no_dwo all-does-not-name-a-dwo-it-cannot-reach \
+    "warned about a .dwo outside packages/, which rm -rf on a symlink cannot reach"
+else
+  _bad all-does-not-name-a-dwo-it-cannot-reach "the .dwo behind the symlink did not survive --all, so the silence would be correct for the wrong reason: $_said"
+fi
 
 # --- the tree does not choose the mode --------------------------------------
 # No packages/ at all. `rm -rf` on a missing path is silent, so this is not
@@ -421,7 +454,7 @@ elif [ "$_raw" != 1 ]; then
   # The one permitted `-d ... /.git` is inside mf_is_git_clone itself.
   _bad clone-predicate-has-one-definition "$_raw raw .git directory tests across lib/ -- a call site is carrying its own copy again"
 elif [ "$_users" -lt 3 ]; then
-  _bad clone-predicate-has-one-definition "only $_users call sites use mf_is_git_clone; prune, the counter and fetch_git should all be on it"
+  _bad clone-predicate-has-one-definition "only $_users call sites use mf_is_git_clone; mf_is_prunable_source (which the prune and the .dwo warning share), the counter and fetch_git should all be on it"
 else
   _pass clone-predicate-has-one-definition
 fi
