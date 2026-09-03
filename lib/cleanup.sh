@@ -163,7 +163,7 @@ _prune_one_entry() {
 # What a --debug build leaves in $DISTDIR that removing it costs, said BEFORE
 # the removal.
 #
-# Since #92 every debug level compiles with -gsplit-dwarf, so the DWARF lives in
+# A debug build splits its DWARF by default at every level (#92), so it lives in
 # .dwo files beside the objects rather than inside them. That is what makes the
 # installed archives small, and it is why the build tree stops being disposable:
 # the objects and the installed libraries carry a skeleton that points at those
@@ -171,6 +171,10 @@ _prune_one_entry() {
 # Remove the trees and every binary already linked against those libraries keeps
 # linking and running and quietly loses its source lines and locals -- a loss
 # visible only inside a debugger, months after the command that caused it.
+# A build made with --no-split-dwarf keeps its DWARF in the objects and loses
+# nothing here; this walk finds no .dwo in such a tree and says nothing, which
+# is the same "only about what is actually at stake" rule the predicate below
+# enforces for kept clones.
 #
 # WHICH ENTRIES ARE AT STAKE IS THE CALLER'S QUESTION, so the caller names the
 # predicate. The default prune keeps clones and symlinks, and warning about a

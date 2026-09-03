@@ -87,6 +87,12 @@ MF_CCACHE=auto
 MF_ALLOW_TMPFS=false
 # Debug build level: "" (off), symbols, balanced or full. See lib/flags.sh.
 MF_DEBUG_LEVEL=""
+# Where a debug build's DWARF lands: "" (not asked for -> split), true or false.
+# Three states rather than two, because the level-less case has to tell "the
+# operator typed a placement flag that cannot take effect" from "they did not",
+# and only the first is worth a warning. lib/flags.sh treats anything but an
+# explicit false as split, so "" and true compose identically.
+MF_SPLIT_DWARF=""
 FLITE_AUDIO="none"
 SKIP_CHECKSUM=false
 SKIP_CHECKSUM_PKGS=""
@@ -135,6 +141,10 @@ cmd_help() {
   printf '                            beside the objects under packages/, which are NOT\n'
   printf '                            installed: keep those trees or a debugger can no\n'
   printf '                            longer break inside them. clean removes them.\n'
+  printf '      --no-split-dwarf      Keep the DWARF of a debug build inside the objects, so\n'
+  printf '                            the installed prefix is self-contained and can be\n'
+  printf '                            copied or outlive packages/. Much larger archives.\n'
+  printf '      --split-dwarf         Split it into .dwo files beside the objects (default)\n'
   printf '  -p, --profile=X.Y         Use version profile\n'
   printf '  -j, --jobs=N              Parallel job count (default: auto)\n'
   printf '  -u, --rebuild-outdated    Rebuild stale dependencies\n'
@@ -310,6 +320,8 @@ cmd_build() {
         mf_debug_level_valid "$MF_DEBUG_LEVEL" \
           || die "Unknown --debug level '$MF_DEBUG_LEVEL' (use symbols, balanced or full)"
         ;;
+      --split-dwarf)       MF_SPLIT_DWARF=true ;;
+      --no-split-dwarf)    MF_SPLIT_DWARF=false ;;
       --enable-lto)        ENABLE_LTO=true ;;
       --disable-lto)       ENABLE_LTO=false ;;
       --allow-tmpfs)       MF_ALLOW_TMPFS=true ;;
@@ -452,7 +464,8 @@ cmd_build() {
   # symbol flags. The optimization goes through MF_DEFAULT_OPT rather than being
   # appended separately, so it stays in the one place that decides optimization
   # and the operator's own -O still wins by coming last.
-  # A workspace remembers the level it was built at, and a mismatch is refused.
+  # A workspace remembers the state it was built in -- the level and the DWARF
+  # placement -- and a mismatch is refused.
   #
   # stamp_check keys only on "<name>-<version>", so nothing about a build's FLAGS
   # is captured. Without this guard, `build` followed by `build --debug` rebuilds
@@ -466,18 +479,26 @@ cmd_build() {
   # with the wrong arm. Here the deliverable IS the thing being skipped, so a
   # warning scrolls past and the operator debugs against symbols that were never
   # built.
+  #
+  # What is compared is the level AND the DWARF placement (#94), because the
+  # placement is not part of the level name and a guard that could not see it
+  # had the same hole one layer down: --debug then --debug --no-split-dwarf
+  # matched full to full and produced a prefix half split and half inline.
+  # lib/flags.sh's mf_debug_state owns the encoding, including why the split
+  # form is the bare level name.
   _mf_lvlfile="$PREFIX/.debug-level"
+  _mf_state=$(mf_debug_state "$MF_DEBUG_LEVEL" "$MF_SPLIT_DWARF")
   _mf_prev=""
   [ -f "$_mf_lvlfile" ] && _mf_prev=$(cat "$_mf_lvlfile" 2>/dev/null)
-  if [ "$_mf_prev" != "$MF_DEBUG_LEVEL" ] && [ -d "$PREFIX/.stamps" ] &&
+  if [ "$_mf_prev" != "$_mf_state" ] && [ -d "$PREFIX/.stamps" ] &&
      [ -n "$(ls -A "$PREFIX/.stamps" 2>/dev/null)" ]; then
-    warn "This workspace was built at debug level '${_mf_prev:-none}'; you asked for '${MF_DEBUG_LEVEL:-none}'."
+    warn "This workspace was built as debug state '${_mf_prev:-none}'; you asked for '${_mf_state:-none}'."
     warn "Build stamps record only name and version, so the already-built recipes"
-    warn "would NOT be rebuilt and the result would mix the two levels silently."
+    warn "would NOT be rebuilt and the result would mix the two states silently."
     warn "Rebuild them with either:"
     warn "    ./mediaforge.sh clean"
     warn "    rm -rf $PREFIX/.stamps"
-    die "refusing to produce a mixed-level workspace"
+    die "refusing to produce a mixed-state workspace"
   fi
   # Not written on a dry run. A dry run must leave the workspace exactly as it
   # found it -- the same reason $PREFIX/.mediaforge-choices is skipped there --
@@ -485,7 +506,7 @@ cmd_build() {
   # real build believe the workspace already matches.
   if [ "${DRY_RUN:-false}" != true ]; then
     mkdir -p "$PREFIX"
-    printf '%s' "$MF_DEBUG_LEVEL" > "$_mf_lvlfile"
+    printf '%s' "$_mf_state" > "$_mf_lvlfile"
   fi
 
   if [ -n "$MF_DEBUG_LEVEL" ]; then
@@ -498,7 +519,14 @@ cmd_build() {
       warn "(the ~110 dependencies still honour the debug level)"
     fi
     MF_DEFAULT_OPT=$(mf_debug_opt "$MF_DEBUG_LEVEL")
-    _mf_dbg_cflags=$(mf_debug_cflags "$MF_DEBUG_LEVEL")
+    # The level's own symbol flags, then the placement, composed as two appends
+    # rather than as one string the placement edits. That is what keeps
+    # --no-split-dwarf out of the business of parsing a flag list -- it
+    # contributes nothing instead of removing something. Joined through
+    # mf_compose_flags so the empty half collapses rather than leaving the gap
+    # an inline build would otherwise show on every compile line.
+    _mf_dbg_cflags=$(mf_compose_flags "$(mf_debug_cflags "$MF_DEBUG_LEVEL")" \
+                                      "$(mf_split_dwarf_cflags "$MF_SPLIT_DWARF")")
     MF_OWN_CFLAGS="$MF_OWN_CFLAGS $_mf_dbg_cflags"
     MF_OWN_CXXFLAGS="$MF_OWN_CXXFLAGS $_mf_dbg_cflags"
     # LTO discards the per-function debug info that makes stepping work, so the
@@ -508,6 +536,16 @@ cmd_build() {
       warn "--debug forces LTO off: LTO discards the debug info it would emit"
       ENABLE_LTO=false
     fi
+  elif [ -n "$MF_SPLIT_DWARF" ]; then
+    # The placement axis only exists inside a debug build: with no level there
+    # are no symbol flags for it to place. Said out loud in the shape
+    # --enable-small uses above, because honouring it silently and honouring it
+    # not at all look identical from outside, and the operator who typed it
+    # believes they asked for something.
+    if [ "$MF_SPLIT_DWARF" = false ]; then _mf_sd_flag=--no-split-dwarf
+    else _mf_sd_flag=--split-dwarf; fi
+    warn "$_mf_sd_flag has no effect without --debug: a build with no debug level"
+    warn "emits no debug info for either placement to apply to"
   fi
 
   mf_export_flags
