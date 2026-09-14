@@ -17,6 +17,21 @@ PKG_GPL=true
 # (and friends) from warnings to hard errors by default. Demote them back via
 # --extra-cflags so the old C compiles on GCC 14/15/16.
 _xavs2_compat="-Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=int-conversion -Wno-error=implicit-int"
+# xavs2's configure (x264-derived) adds -mpreferred-stack-boundary=5, which also
+# makes GCC ASSUME every function is entered on a 32-byte-aligned stack. x264
+# guards its public entry points with force_align_arg_pointer; xavs2 does not
+# on xavs2_encoder_create -> xavs2_threadpool_init, and FFmpeg calls it with
+# the ABI's 16-byte alignment. At -O0 (our --debug builds) GCC spills the
+# __m256i local in xavs2_memzero_aligned_c_avx to a 32-byte stack slot with
+# vmovdqa, so whether avcodec_open2 SIGSEGVs is a coin flip on the caller's
+# frame layout (#102; the "unaligned heap buffer" reading there was wrong —
+# dst was aligned in every reproduction, the faulting store is -0x38(%rsp)).
+# -mincoming-stack-boundary=4 tells GCC the truth about the entry alignment,
+# so it realigns (and $-32,%rsp) where a wider local needs it. Measured
+# 2026-09-14: rdlp's recode_new_codecs test went from SIGSEGV to ok with only
+# libxavs2.a rebuilt under this flag. configure strips a user-supplied
+# -mpreferred-stack-boundary* (build/linux/configure) but passes this through.
+_xavs2_compat="$_xavs2_compat -mincoming-stack-boundary=4"
 pkg_configure() {
   cd "$DISTDIR/xavs2-${PKG_VERSION}/build/linux" || die "Failed to cd to xavs2 build/linux"
   run ./configure --prefix="$PREFIX" --disable-cli \
