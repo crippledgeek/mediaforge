@@ -29,6 +29,9 @@ sh tests/download-retry-verify.sh
 # it FAILED silently against a branch that had already shipped: giflib's derived
 # macro read as a clobber because the check could not see through the helper.
 sh tests/compiler-flags.sh
+# libxavs2 must realign its frame before any 32-byte stack store (#102): the
+# recipe half is static, the archive half runs only against a built workspace.
+sh tests/xavs2-stack-alignment.sh
 sh tests/lcevc-default-off.sh
 sh tests/libressl-pin-asm.sh
 sh tests/libressl-trust-store.sh
