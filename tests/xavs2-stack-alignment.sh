@@ -37,8 +37,12 @@ _fail=0
 . "$_here/lib-assert.sh"
 _cleanup_on_signal
 
-# 1) The recipe passes the flag through --extra-cflags.
-if grep -q -- '-mincoming-stack-boundary=4' "$_here/../recipes/video/xavs2.sh"; then
+# 1) The recipe passes the flag through --extra-cflags. Read through
+#    _code_only and anchored to the assignment: the rationale comment above it
+#    names the same flag, and a raw grep would stay green after the assignment
+#    itself was reverted (the GH-71 trap tests/lib-assert.sh documents).
+if _code_only "$_here/../recipes/video/xavs2.sh" \
+   | grep -qE '^_xavs2_stack_abi="-mincoming-stack-boundary=4"$'; then
   _pass xavs2-recipe-declares-incoming-stack-boundary
 else
   _bad xavs2-recipe-declares-incoming-stack-boundary \
@@ -58,20 +62,20 @@ command -v objdump >/dev/null 2>&1 || {
   exit 1
 }
 
-# One record per C intrinsic function: name, whether it spills ymm to the
-# stack, whether it realigns rsp to 32. A function is `<name>:` at column 0 in
-# objdump -d output; only `_c_` names are C-compiled (see the header).
-_dis=$(objdump -d "$_lib" 2>/dev/null)
-_report=$(printf '%s\n' "$_dis" | awk '
-  /^[0-9a-f]+ <.*>:$/ { flush(); fn=$2; c=(fn ~ /_c_(sse|ssse|avx)/); spill=0; realign=0; next }
-  /vmovdqa[ \t]+%ymm[0-9]+,-?0x[0-9a-f]+\(%rsp\)/ { spill=1 }
+# One record per C intrinsic function: whether it spills ymm to the stack,
+# whether it realigns rsp to 32. A function is `<name>:` at column 0 in
+# objdump -d output; only `_c_` names are C-compiled (see the header). One awk
+# pass over the archive (tens of MB): the first line of output is the spill
+# count, the rest are offending function names, bare (brackets stripped).
+_scan=$(objdump -d "$_lib" 2>/dev/null | awk '
+  /^[0-9a-f]+ <.*>:$/ { flush(); fn=$2; sub(/^</, "", fn); sub(/>:$/, "", fn)
+                         c=(fn ~ /_c_(sse|ssse|avx)/); spill=0; realign=0; next }
+  c && /vmovdqa[ \t]+%ymm[0-9]+,-?0x[0-9a-f]+\(%rsp\)/ { spill=1; n++ }
   /and[ \t]+\$0xffffffffffffffe0,%rsp/ { realign=1 }
-  function flush() { if (fn != "" && c && spill && !realign) print fn }
-  END { flush() }')
-_spills=$(printf '%s\n' "$_dis" | awk '
-  /^[0-9a-f]+ <.*>:$/ { c=($2 ~ /_c_(sse|ssse|avx)/); next }
-  c && /vmovdqa[ \t]+%ymm[0-9]+,-?0x[0-9a-f]+\(%rsp\)/ { n++ }
-  END { print n+0 }')
+  function flush() { if (fn != "" && c && spill && !realign) bad = bad fn " " }
+  END { flush(); print n+0; if (bad != "") print bad }')
+_spills=$(printf '%s\n' "$_scan" | sed -n 1p)
+_report=$(printf '%s\n' "$_scan" | sed -n 2p)
 
 if [ "$_spills" -eq 0 ]; then
   # Nothing to check (an optimised archive keeps __m256i locals in registers);
@@ -83,7 +87,7 @@ elif [ -z "$_report" ]; then
   echo "  ($_spills ymm stack spill(s), every enclosing frame realigned)"
 else
   _bad ymm-spills-are-in-realigned-frames \
-    "functions spilling ymm without realigning rsp: $(printf '%s' "$_report" | tr '\n' ' ')"
+    "functions spilling ymm without realigning rsp: $_report"
 fi
 
 printf 'DONE: xavs2-stack-alignment\n'

@@ -31,12 +31,13 @@ _xavs2_compat="-Wno-error=incompatible-pointer-types -Wno-error=implicit-functio
 # 2026-09-14: rdlp's recode_new_codecs test went from SIGSEGV to ok with only
 # libxavs2.a rebuilt under this flag. configure strips a user-supplied
 # -mpreferred-stack-boundary* (build/linux/configure) but passes this through.
-_xavs2_compat="$_xavs2_compat -mincoming-stack-boundary=4"
+# Its own variable: _xavs2_compat is warning demotion, this is an ABI fact.
+_xavs2_stack_abi="-mincoming-stack-boundary=4"
 pkg_configure() {
   cd "$DISTDIR/xavs2-${PKG_VERSION}/build/linux" || die "Failed to cd to xavs2 build/linux"
   run ./configure --prefix="$PREFIX" --disable-cli \
     --disable-shared --enable-static --enable-pic \
-    --extra-cflags="$_xavs2_compat"
+    --extra-cflags="$_xavs2_compat $_xavs2_stack_abi"
 }
 
 pkg_build() {
